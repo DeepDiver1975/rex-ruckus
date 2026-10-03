@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+docs/superpowers/
+.idea/
+.vscode/
+.claude/
