@@ -221,6 +221,10 @@ pub enum MapError {
     ShortLoop { sector: SectorId, loop_index: usize },
     #[error("sector {sector}: floor_z must be below ceil_z")]
     InvertedHeights { sector: SectorId },
+    #[error("sector {sector}: has no loops")]
+    NoLoops { sector: SectorId },
+    #[error("sector {sector}: floor_z and ceil_z must be finite")]
+    NonFiniteHeight { sector: SectorId },
     #[error("sector {sector}: material {material} out of range")]
     BadMaterial {
         sector: SectorId,
@@ -254,6 +258,12 @@ impl Map {
         let mut edge_owner: HashMap<(usize, usize), WallId> = HashMap::new();
 
         for (si, rs) in raw.sectors.iter().enumerate() {
+            if !(rs.floor_z.is_finite() && rs.ceil_z.is_finite()) {
+                return Err(MapError::NonFiniteHeight { sector: si });
+            }
+            if rs.loops.is_empty() {
+                return Err(MapError::NoLoops { sector: si });
+            }
             if rs.floor_z >= rs.ceil_z {
                 return Err(MapError::InvertedHeights { sector: si });
             }
@@ -367,6 +377,9 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
         return bad("auto_return must not be negative");
     }
     if let MoverKind::Lift { to } = m.kind {
+        if !to.is_finite() {
+            return bad("lift end must be finite");
+        }
         if to == rs.floor_z {
             return bad("lift end must differ from its start");
         }
@@ -462,6 +475,40 @@ mod tests {
             Map::from_ron(&src).unwrap_err(),
             MapError::InvertedHeights { sector: 0 }
         );
+    }
+
+    #[test]
+    fn rejects_sectors_without_loops() {
+        let src = level(
+            "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+            "(loops: [], floor_z: 0.0, ceil_z: 1.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)",
+        );
+        assert_eq!(
+            Map::from_ron(&src).unwrap_err(),
+            MapError::NoLoops { sector: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_non_finite_heights() {
+        for (floor, ceil) in [
+            ("NaN", "1.0"),
+            ("0.0", "NaN"),
+            ("0.0", "inf"),
+            ("-inf", "1.0"),
+        ] {
+            let src = level(
+                "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+                &format!(
+                    "(loops: [[0,1,2]], floor_z: {floor}, ceil_z: {ceil}, floor_mat: 0, ceil_mat: 0, wall_mat: 0)"
+                ),
+            );
+            assert_eq!(
+                Map::from_ron(&src).unwrap_err(),
+                MapError::NonFiniteHeight { sector: 0 },
+                "{floor}..{ceil}"
+            );
+        }
     }
 
     #[test]
@@ -588,6 +635,8 @@ mod tests {
                 "(kind: Lift(to: 0.0))",
                 "lift end must differ from its start",
             ),
+            ("(kind: Lift(to: inf))", "lift end must be finite"),
+            ("(kind: Lift(to: NaN))", "lift end must be finite"),
             ("(kind: Door, speed: 0.0)", "speed must be positive"),
             (
                 "(kind: Door, auto_return: Some(-1.0))",
