@@ -3,6 +3,7 @@
 pub mod coords;
 pub mod level;
 pub mod paths;
+pub mod player;
 pub mod textures;
 
 use bevy::prelude::*;
@@ -16,6 +17,10 @@ pub struct GamePlugin {
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(CurrentMap(load_map(&self.level)))
-            .add_plugins(LevelRenderPlugin);
+            .add_plugins((
+                LevelRenderPlugin,
+                player::PlayerSimPlugin,
+                player::PlayerControlPlugin,
+            ));
     }
 }
