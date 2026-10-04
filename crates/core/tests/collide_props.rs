@@ -42,4 +42,9 @@ proptest! {
     fn random_walks_stay_inside_two_rooms(steps in prop::collection::vec((-3.0f32..3.0, -3.0f32..3.0), 1..60)) {
         check_walk(&two_rooms(0.4, 3.0), Vec2::new(2.0, 2.0), &steps)?;
     }
+
+    #[test]
+    fn random_walks_stay_inside_blocking_two_rooms(steps in prop::collection::vec((-3.0f32..3.0, -3.0f32..3.0), 1..60)) {
+        check_walk(&two_rooms(2.0, 3.0), Vec2::new(2.0, 2.0), &steps)?;
+    }
 }

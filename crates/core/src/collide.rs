@@ -42,15 +42,25 @@ pub struct ClipResult {
 }
 
 fn can_hold(s: &Sector, feet: f32, height: f32, step: f32) -> bool {
-    s.floor_z <= feet + step + SKIN && s.ceil_z - s.floor_z >= height - SKIN
+    s.floor_z <= feet + step + SKIN && s.ceil_z - s.floor_z.max(feet) >= height - SKIN
 }
 
-fn wall_blocks(map: &Map, w: &Wall, feet: f32, height: f32, step: f32) -> bool {
+/// A portal only needs to admit the sector the body is moving into, so a body
+/// standing in a sector it cannot hold can still leave it.
+fn wall_blocks(map: &Map, w: &Wall, body: &Body, step: f32) -> bool {
+    let (feet, height) = (body.pos.z, body.height);
     match w.next_sector {
         None => true,
         Some(t) => {
-            !can_hold(&map.sectors[w.sector], feet, height, step)
-                || !can_hold(&map.sectors[t], feet, height, step)
+            let near = !can_hold(&map.sectors[w.sector], feet, height, step);
+            let far = !can_hold(&map.sectors[t], feet, height, step);
+            if body.sector == w.sector {
+                far
+            } else if body.sector == t {
+                near
+            } else {
+                near || far
+            }
         }
     }
 }
@@ -77,6 +87,9 @@ fn nearby_sectors(map: &Map, start: SectorId, p: Vec2, reach: f32) -> Vec<Sector
 
 /// Moves `body` by `delta` in XY, sliding along blocking walls. Movement is split into
 /// sub-steps of at most half the radius, so fast bodies cannot tunnel through walls.
+///
+/// Feet z is held constant for the whole call: callers move once per tick and update z
+/// between calls.
 pub fn clip_move(map: &Map, body: &mut Body, delta: Vec2, step_height: f32) -> ClipResult {
     let len = delta.length();
     if len <= f32::EPSILON {
@@ -93,7 +106,7 @@ pub fn clip_move(map: &Map, body: &mut Body, delta: Vec2, step_height: f32) -> C
             for s in nearby_sectors(map, body.sector, p, body.radius + sub.length() + SKIN) {
                 for wid in map.sectors[s].walls() {
                     let w = &map.walls[wid];
-                    if !wall_blocks(map, w, body.pos.z, body.height, step_height) {
+                    if !wall_blocks(map, w, body, step_height) {
                         continue;
                     }
                     let c = closest_point_on_segment(p, w.a, w.b);
@@ -112,7 +125,10 @@ pub fn clip_move(map: &Map, body: &mut Body, delta: Vec2, step_height: f32) -> C
             }
         }
         match map.find_sector(p, Some(body.sector)) {
-            Some(s) if can_hold(&map.sectors[s], body.pos.z, body.height, step_height) => {
+            Some(s)
+                if s == body.sector
+                    || can_hold(&map.sectors[s], body.pos.z, body.height, step_height) =>
+            {
                 body.pos.x = p.x;
                 body.pos.y = p.y;
                 body.sector = s;
@@ -191,6 +207,24 @@ mod tests {
         let map = two_rooms(0.0, 1.2);
         let mut b = body(&map, 2.0, 2.0);
         clip_move(&map, &mut b, Vec2::new(4.0, 0.0), STEP);
+        assert_eq!(b.sector, 0);
+        assert!(b.pos.x <= 4.0 - R + 1e-3, "x = {}", b.pos.x);
+    }
+
+    #[test]
+    fn cannot_drop_into_sector_with_too_low_opening() {
+        let map = two_rooms(2.0, 5.0); // A ceil 3, B floor 2: only 1 m of headroom in A
+        let mut b = body(&map, 6.0, 2.0);
+        clip_move(&map, &mut b, Vec2::new(-4.0, 0.0), STEP);
+        assert_eq!(b.sector, 1);
+        assert!(b.pos.x >= 4.0 + R - 1e-3, "x = {}", b.pos.x);
+    }
+
+    #[test]
+    fn can_leave_a_sector_too_low_to_hold_body() {
+        let map = two_rooms(0.0, 1.5); // B is only 1.5 m tall; body is 1.8 m
+        let mut b = body(&map, 6.0, 2.0);
+        clip_move(&map, &mut b, Vec2::new(-4.0, 0.0), STEP);
         assert_eq!(b.sector, 0);
     }
 
