@@ -233,7 +233,11 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
                 let riding = b.on_ground && (b.pos.z - old_floor).abs() < CARRY_EPS;
                 // A rising floor also scoops up a body that was just above it (mid-jump).
                 let overrun = b.pos.z < z && b.pos.z > old_floor - CARRY_EPS;
-                if riding || overrun {
+                if riding {
+                    // Land on the highest floor under the footprint: a rider overhanging a
+                    // ledge stays on it while the lift sinks away.
+                    b.pos.z = z_range(map, b.pos.truncate(), b.radius, b.sector).0;
+                } else if overrun {
                     b.pos.z = z;
                 }
             }
@@ -353,6 +357,20 @@ mod tests {
         mech.toggle(0);
         run(&mut map, &mut mech, &mut bodies, 90);
         assert_eq!((map.sectors[1].floor_z, bodies[0].pos.z), (0.0, 0.0));
+    }
+
+    #[test]
+    fn descending_lift_leaves_a_rider_held_up_by_the_ledge() {
+        let (mut map, mut mech) = setup(lift_shaft("(kind: Lift(to: 2.0))", ""));
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut [], 90);
+        // On the raised lift, overhanging ledge B (x ≥ 6, floor 2) by 0.05 m.
+        let mut bodies = [body_at(&map, 5.7, 2.0)];
+        assert_eq!(bodies[0].sector, 1);
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut bodies, 5);
+        assert!(map.sectors[1].floor_z < 2.0, "lift went down");
+        assert_eq!(bodies[0].pos.z, 2.0, "feet stay on the ledge");
     }
 
     #[test]
