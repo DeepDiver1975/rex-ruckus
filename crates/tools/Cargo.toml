@@ -1,0 +1,13 @@
+[package]
+name = "rr-tools"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "rr-tools"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+rr-core = { path = "../core" }
