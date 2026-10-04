@@ -1,0 +1,125 @@
+//! Loads the map and spawns its meshes, materials and lights.
+
+use crate::coords::{to_bevy, to_bevy_arr};
+use crate::paths::assets_dir;
+use crate::textures;
+use bevy::asset::RenderAssetUsages;
+use bevy::light::{GlobalAmbientLight, NotShadowCaster};
+use bevy::mesh::Indices;
+use bevy::prelude::*;
+use bevy::render::render_resource::PrimitiveTopology;
+use rr_core::extrude::{MeshData, extrude_sector};
+use rr_core::map::{Map, SectorId};
+
+#[derive(Resource)]
+pub struct CurrentMap(pub Map);
+
+/// Marks the render meshes of one sector (lets later milestones re-extrude moving sectors).
+#[derive(Component)]
+pub struct SectorMesh(pub SectorId);
+
+pub fn load_map(file: &str) -> Map {
+    let path = assets_dir().join("levels").join(file);
+    let src = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read level {}: {e}", path.display()));
+    Map::from_ron(&src).unwrap_or_else(|e| panic!("invalid level {}: {e}", path.display()))
+}
+
+pub fn to_bevy_mesh(m: &MeshData) -> Mesh {
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        m.positions
+            .iter()
+            .map(|&p| to_bevy_arr(p))
+            .collect::<Vec<_>>(),
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_NORMAL,
+        m.normals
+            .iter()
+            .map(|&n| to_bevy_arr(n))
+            .collect::<Vec<_>>(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, m.uvs.clone())
+    .with_inserted_indices(Indices::U32(m.indices.clone()))
+}
+
+pub struct LevelRenderPlugin;
+
+impl Plugin for LevelRenderPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(ClearColor(Color::srgb(0.16, 0.23, 0.47)))
+            .insert_resource(GlobalAmbientLight {
+                brightness: 250.0,
+                ..default()
+            })
+            .add_systems(Startup, spawn_level);
+    }
+}
+
+fn spawn_level(
+    mut commands: Commands,
+    map: Res<CurrentMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let map = &map.0;
+    let mats: Vec<Handle<StandardMaterial>> = map
+        .materials
+        .iter()
+        .map(|name| {
+            let texture = images.add(textures::generate(name));
+            materials.add(StandardMaterial {
+                base_color_texture: Some(texture),
+                perceptual_roughness: 0.9,
+                unlit: name == "sky",
+                ..default()
+            })
+        })
+        .collect();
+
+    for s in 0..map.sectors.len() {
+        match extrude_sector(map, s) {
+            Ok(subs) => {
+                for sub in subs {
+                    let mut e = commands.spawn((
+                        Mesh3d(meshes.add(to_bevy_mesh(&sub.mesh))),
+                        MeshMaterial3d(mats[sub.material].clone()),
+                        SectorMesh(s),
+                    ));
+                    if map.materials[sub.material] == "sky" {
+                        e.insert(NotShadowCaster);
+                    }
+                }
+            }
+            Err(err) => error!("{}: {err}", map.name),
+        }
+    }
+
+    for l in &map.lights {
+        commands.spawn((
+            PointLight {
+                color: Color::srgb(l.color.0, l.color.1, l.color.2),
+                intensity: l.intensity,
+                range: l.range,
+                shadow_maps_enabled: true,
+                ..default()
+            },
+            Transform::from_translation(to_bevy(Vec3::new(l.pos.0, l.pos.1, l.pos.2))),
+        ));
+    }
+
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 3000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 10.0, 0.0).looking_at(Vec3::new(0.4, 0.0, -0.3), Vec3::Y),
+    ));
+}
