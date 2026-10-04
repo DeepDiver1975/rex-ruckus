@@ -30,7 +30,9 @@ impl MeshData {
 
     pub fn triangles(&self) -> impl Iterator<Item = [Vec3; 3]> + '_ {
         self.indices
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|t| [0, 1, 2].map(|k| Vec3::from_array(self.positions[t[k] as usize])))
     }
 
@@ -147,7 +149,9 @@ fn triangulate(map: &Map, s: SectorId) -> Result<Vec<[Vec2; 3]>, ExtrudeError> {
     let flat: Vec<f64> = pts.iter().flat_map(|p| [p.x as f64, p.y as f64]).collect();
     let idx = earcutr::earcut(&flat, &holes, 2).map_err(|_| ExtrudeError::Triangulation(s))?;
     Ok(idx
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|t| {
             let (a, b, c) = (pts[t[0]], pts[t[1]], pts[t[2]]);
             if (b - a).perp_dot(c - a) < 0.0 {
