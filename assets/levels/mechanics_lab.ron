@@ -17,10 +17,11 @@
         (3.0, 18.5), (9.0, 18.5), (9.0, 24.0), (3.0, 24.0),                // 26-29 vault
         (12.5, 4.0), (12.5, 6.0),                                          // 30-31 door D3
         (12.5, 3.0), (16.0, 3.0), (16.0, 7.0), (12.5, 7.0),                // 32-35 closet
+        (0.0, 5.5), (0.0, 4.5), (6.5, 24.0), (5.5, 24.0),                  // 36-39 switch wall ends
     ],
     sectors: [
         // 0 hall
-        (loops: [[0, 1, 2, 3, 4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        (loops: [[0, 1, 2, 3, 4, 5, 6, 7, 36, 37]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 1 door D1 (hall → corridor), closes again after 4 s
         (loops: [[6, 5, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
          face_mat: Some(6), mover: Some((kind: Door, auto_return: Some(4.0)))),
@@ -35,7 +36,7 @@
         (loops: [[16, 15, 24, 25]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
          face_mat: Some(6), mover: Some((kind: Door, lock: Some(Red)))),
         // 6 vault (exit switch on the north wall)
-        (loops: [[26, 25, 24, 27, 28, 29]], floor_z: 0.0, ceil_z: 4.5, floor_mat: 4, ceil_mat: 3, wall_mat: 5),
+        (loops: [[26, 25, 24, 27, 28, 38, 39, 29]], floor_z: 0.0, ceil_z: 4.5, floor_mat: 4, ceil_mat: 3, wall_mat: 5),
         // 7 door D3 (hall → closet), opened by the hall switch on channel 1
         (loops: [[2, 30, 31, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
          face_mat: Some(6), mover: Some((kind: Door, channel: Some(1)))),
@@ -43,8 +44,8 @@
         (loops: [[32, 33, 34, 35, 31, 30]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 5),
     ],
     switches: [
-        (wall: (7, 0), action: Channel(1)),
-        (wall: (28, 29), action: Exit, key: Some(Blue)),
+        (wall: (36, 37), action: Channel(1)),
+        (wall: (38, 39), action: Exit, key: Some(Blue)),
     ],
     items: [
         (kind: Key(Red), pos: (12.0, 13.0)),

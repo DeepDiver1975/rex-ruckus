@@ -117,3 +117,11 @@ fn lab_can_be_finished() {
     r.walk_to(6.0, 23.0);
     assert_eq!(r.press_use(90.0), UseOutcome::Exit);
 }
+
+#[test]
+fn switch_only_covers_its_short_wall_section() {
+    let mut r = Run::new();
+    r.walk_to(1.0, 8.5);
+    let t = use_target(&r.map, &r.mech, &r.body, 180f32.to_radians());
+    assert!(t.is_none(), "west wall at y=8.5 is plain wall: {t:?}");
+}
