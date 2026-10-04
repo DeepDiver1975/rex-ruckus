@@ -1,0 +1,13 @@
+[package]
+name = "rr-game"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "rex-ruckus"
+path = "src/main.rs"
+
+[dependencies]
+bevy = "0.19"
+rr-core = { path = "../core" }
