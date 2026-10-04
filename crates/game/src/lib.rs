@@ -1,6 +1,7 @@
 //! Bevy front-end for Rex Ruckus: Meltdown.
 
 pub mod coords;
+pub mod hud;
 pub mod level;
 pub mod mechanics;
 pub mod paths;
@@ -25,6 +26,7 @@ impl Plugin for GamePlugin {
             mechanics::MechanicsSimPlugin,
             player::PlayerControlPlugin,
             props::PropsPlugin,
+            hud::HudPlugin,
         ));
     }
 }
