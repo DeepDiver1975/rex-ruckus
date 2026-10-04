@@ -75,11 +75,17 @@ pub fn extrude_sector(map: &Map, s: SectorId) -> Result<Vec<SubMesh>, ExtrudeErr
 
     for wid in sector.walls() {
         let w = &map.walls[wid];
-        let mesh = out.entry(w.material).or_default();
         match w.next_sector {
-            None => wall_quad(mesh, w.a, w.b, sector.floor_z, sector.ceil_z),
+            None => wall_quad(
+                out.entry(w.material).or_default(),
+                w.a,
+                w.b,
+                sector.floor_z,
+                sector.ceil_z,
+            ),
             Some(t) => {
                 let other = &map.sectors[t];
+                let mesh = out.entry(other.face_mat.unwrap_or(w.material)).or_default();
                 if other.floor_z > sector.floor_z {
                     wall_quad(
                         mesh,
@@ -247,5 +253,20 @@ mod tests {
         let map = two_rooms(0.0, 3.0);
         let subs = extrude_sector(&map, 0).unwrap();
         assert_close(by_material(&subs, 0).area(), 3.0 * 4.0 * 3.0);
+    }
+
+    #[test]
+    fn closed_door_face_uses_the_door_sectors_face_material() {
+        let mut map = crate::fixtures::door_rooms("(kind: Door)", "");
+        assert!(
+            extrude_sector(&map, 0)
+                .unwrap()
+                .iter()
+                .all(|s| s.material != 3),
+            "open: no face"
+        );
+        map.sectors[1].ceil_z = map.sectors[1].floor_z; // closed
+        let subs = extrude_sector(&map, 0).unwrap();
+        assert_close(by_material(&subs, 3).area(), 4.0 * 3.0);
     }
 }

@@ -13,6 +13,13 @@ pub fn closest_point_on_segment(p: Vec2, a: Vec2, b: Vec2) -> Vec2 {
 }
 
 impl Map {
+    /// Sectors on the far side of this sector's portals (one entry per portal wall).
+    pub fn neighbours(&self, s: SectorId) -> impl Iterator<Item = SectorId> + '_ {
+        self.sectors[s]
+            .walls()
+            .filter_map(|w| self.walls[w].next_sector)
+    }
+
     /// Even-odd test over all of the sector's loops, so holes are excluded automatically.
     /// Points exactly on the bottom/left edge count as inside (half-open rule), which makes a
     /// shared portal line belong to exactly one of its two sectors.
@@ -90,5 +97,14 @@ mod tests {
             assert_eq!(map.find_sector(p, Some(0)), Some(1), "{p}");
             assert_eq!(map.find_sector(p, None), Some(1), "{p}");
         }
+    }
+
+    #[test]
+    fn neighbours_lists_portal_sectors() {
+        let map = crate::fixtures::door_rooms("(kind: Door)", "");
+        let mut n: Vec<_> = map.neighbours(1).collect();
+        n.sort();
+        assert_eq!(n, vec![0, 2]);
+        assert_eq!(map.neighbours(0).collect::<Vec<_>>(), vec![1]);
     }
 }
