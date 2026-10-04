@@ -14,6 +14,14 @@ fn key_color(k: Key) -> &'static str {
     KEY_COLORS[k as usize]
 }
 
+/// Escapes text for use inside an XML element or attribute.
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 pub fn render_svg(map: &Map) -> String {
     let pts = map.walls.iter().flat_map(|w| [w.a, w.b]);
     let (min, max) = pts.fold(
@@ -34,7 +42,7 @@ pub fn render_svg(map: &Map) -> String {
 
     let mut o = String::new();
     writeln!(o, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{:.0}" height="{:.0}" font-family="monospace" font-size="10">"#, size.x, size.y).unwrap();
-    writeln!(o, r##"<rect width="100%" height="100%" fill="#1d1f24"/><text x="6" y="14" fill="#ddd">{}</text>"##, map.name).unwrap();
+    writeln!(o, r##"<rect width="100%" height="100%" fill="#1d1f24"/><text x="6" y="14" fill="#ddd">{}</text>"##, esc(&map.name)).unwrap();
 
     for (s, sec) in map.sectors.iter().enumerate() {
         let mut d = String::new();
@@ -180,5 +188,14 @@ mod tests {
             svg.contains("<circle class=\"start\" cx=\"80.0\" cy=\"80.0\""),
             "{svg}"
         );
+    }
+
+    #[test]
+    fn level_name_is_xml_escaped() {
+        let mut map = two_rooms(0.0, 3.0);
+        map.name = "a<b&\"c\"".to_string();
+        let svg = render_svg(&map);
+        assert!(svg.contains("a&lt;b&amp;&quot;c&quot;"), "{svg}");
+        assert!(!svg.contains("a<b"), "{svg}");
     }
 }
