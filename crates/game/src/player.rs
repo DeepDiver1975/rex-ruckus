@@ -7,13 +7,15 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
-use rr_core::collide::Body;
+use rr_core::collide::{Body, z_range};
 use rr_core::map::KeySet;
 use rr_core::movement::{MoveInput, Tuning, step_player};
 
 pub const PLAYER_RADIUS: f32 = 0.35;
 /// Eyes sit this far below the top of the body.
 pub const EYE_BELOW_TOP: f32 = 0.15;
+/// The eye never gets closer than this to the ceiling above the player.
+pub const EYE_CEIL_MARGIN: f32 = 0.05;
 const PITCH_LIMIT: f32 = 1.45;
 /// Rate (1/s) at which the eye eases to a new height after crouching or standing up.
 pub const EYE_EASE_RATE: f32 = 14.0;
@@ -21,6 +23,11 @@ pub const EYE_EASE_RATE: f32 = 14.0;
 /// Frame-rate independent exponential approach of `current` towards `target`.
 pub fn ease_toward(current: f32, target: f32, rate: f32, dt: f32) -> f32 {
     target + (current - target) * (-rate * dt).exp()
+}
+
+/// Keeps the eased eye height below the ceiling (`ceil` is an absolute z, `feet_z` the feet's).
+pub fn clamp_eye(eye: f32, feet_z: f32, ceil: f32) -> f32 {
+    eye.min(ceil - feet_z - EYE_CEIL_MARGIN)
 }
 
 /// Smoothed eye height above the feet (core metres).
@@ -235,6 +242,7 @@ fn read_input(
 fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
+    map: Res<CurrentMap>,
     player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
 ) {
@@ -246,6 +254,8 @@ fn update_camera(
         EYE_EASE_RATE,
         frame_time.delta_secs(),
     );
+    let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
+    eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
     let eye = feet + Vec3::Z * eye_h.0;
     camera.translation = to_bevy(eye);
     camera.rotation = Quat::from_euler(
@@ -259,6 +269,16 @@ fn update_camera(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eye_is_clamped_below_the_ceiling() {
+        // Feet at 0, ceiling 1.2: an eased-up eye of 1.65 is pulled to 1.2 - margin.
+        assert!((clamp_eye(1.65, 0.0, 1.2) - (1.2 - EYE_CEIL_MARGIN)).abs() < 1e-6);
+        // Offset feet: the limit is relative to the feet.
+        assert!((clamp_eye(1.65, 2.4, 4.0) - (1.6 - EYE_CEIL_MARGIN)).abs() < 1e-6);
+        // Plenty of headroom: untouched.
+        assert_eq!(clamp_eye(1.65, 0.0, 4.0), 1.65);
+    }
 
     #[test]
     fn eye_eases_without_overshoot_and_is_frame_rate_independent() {
