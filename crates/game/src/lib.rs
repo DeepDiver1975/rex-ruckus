@@ -5,6 +5,7 @@ pub mod level;
 pub mod mechanics;
 pub mod paths;
 pub mod player;
+pub mod props;
 pub mod textures;
 
 use bevy::prelude::*;
@@ -23,6 +24,7 @@ impl Plugin for GamePlugin {
             player::PlayerSimPlugin,
             mechanics::MechanicsSimPlugin,
             player::PlayerControlPlugin,
+            props::PropsPlugin,
         ));
     }
 }

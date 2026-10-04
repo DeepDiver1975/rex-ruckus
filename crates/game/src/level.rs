@@ -1,6 +1,7 @@
 //! Loads the map and spawns its meshes, materials and lights.
 
 use crate::coords::{to_bevy, to_bevy_arr};
+use crate::mechanics::DirtySectors;
 use crate::paths::assets_dir;
 use crate::textures;
 use bevy::asset::RenderAssetUsages;
@@ -17,6 +18,10 @@ pub struct CurrentMap(pub Map);
 /// Marks the render meshes of one sector (lets later milestones re-extrude moving sectors).
 #[derive(Component)]
 pub struct SectorMesh(pub SectorId);
+
+/// Material handles indexed like `Map::materials`, kept so moving sectors can be re-extruded.
+#[derive(Resource)]
+pub struct LevelMaterials(pub Vec<Handle<StandardMaterial>>);
 
 pub fn load_map(file: &str) -> Map {
     let path = assets_dir().join("levels").join(file);
@@ -57,7 +62,59 @@ impl Plugin for LevelRenderPlugin {
                 brightness: 250.0,
                 ..default()
             })
-            .add_systems(Startup, spawn_level);
+            .init_resource::<DirtySectors>()
+            .add_systems(Startup, spawn_level)
+            .add_systems(Update, rebuild_dirty_sectors);
+    }
+}
+
+fn spawn_sector(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    map: &Map,
+    mats: &[Handle<StandardMaterial>],
+    s: SectorId,
+) {
+    match extrude_sector(map, s) {
+        Ok(subs) => {
+            for sub in subs {
+                let mut e = commands.spawn((
+                    Mesh3d(meshes.add(to_bevy_mesh(&sub.mesh))),
+                    MeshMaterial3d(mats[sub.material].clone()),
+                    SectorMesh(s),
+                ));
+                if map.materials[sub.material] == "sky" {
+                    e.insert(NotShadowCaster);
+                }
+            }
+        }
+        Err(err) => error!("{}: {err}", map.name),
+    }
+}
+
+/// Re-extrudes every sector whose heights changed, plus its neighbours (their step faces
+/// depend on it), replacing the old mesh entities.
+pub fn rebuild_dirty_sectors(
+    mut commands: Commands,
+    map: Res<CurrentMap>,
+    mats: Res<LevelMaterials>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut dirty: ResMut<DirtySectors>,
+    existing: Query<(Entity, &SectorMesh)>,
+) {
+    if dirty.0.is_empty() {
+        return;
+    }
+    let mut todo = std::mem::take(&mut dirty.0);
+    let around: Vec<SectorId> = todo.iter().flat_map(|&s| map.0.neighbours(s)).collect();
+    todo.extend(around);
+    for (e, m) in &existing {
+        if todo.contains(&m.0) {
+            commands.entity(e).despawn();
+        }
+    }
+    for &s in &todo {
+        spawn_sector(&mut commands, &mut meshes, &map.0, &mats.0, s);
     }
 }
 
@@ -84,22 +141,9 @@ fn spawn_level(
         .collect();
 
     for s in 0..map.sectors.len() {
-        match extrude_sector(map, s) {
-            Ok(subs) => {
-                for sub in subs {
-                    let mut e = commands.spawn((
-                        Mesh3d(meshes.add(to_bevy_mesh(&sub.mesh))),
-                        MeshMaterial3d(mats[sub.material].clone()),
-                        SectorMesh(s),
-                    ));
-                    if map.materials[sub.material] == "sky" {
-                        e.insert(NotShadowCaster);
-                    }
-                }
-            }
-            Err(err) => error!("{}: {err}", map.name),
-        }
+        spawn_sector(&mut commands, &mut meshes, map, &mats, s);
     }
+    commands.insert_resource(LevelMaterials(mats));
 
     for l in &map.lights {
         commands.spawn((
