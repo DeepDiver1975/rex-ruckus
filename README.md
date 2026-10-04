@@ -23,7 +23,7 @@ Click to capture the mouse · Esc releases it · WASD move · Mouse look · Spac
 
 Walking over a keycard picks it up.
 
-Run a specific level (files in `assets/levels/`):
+Run a specific level (a file name in `assets/levels/`, or a path to a level file):
 
     cargo run -p rr-game --release -- test_yard.ron
 

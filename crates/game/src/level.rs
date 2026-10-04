@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
 use rr_core::extrude::{MeshData, extrude_sector};
 use rr_core::map::{Map, SectorId};
+use std::path::{Path, PathBuf};
 
 #[derive(Resource)]
 pub struct CurrentMap(pub Map);
@@ -23,8 +24,18 @@ pub struct SectorMesh(pub SectorId);
 #[derive(Resource)]
 pub struct LevelMaterials(pub Vec<Handle<StandardMaterial>>);
 
+/// A level argument is either an existing file path or a file name under `assets/levels/`.
+pub fn level_path(arg: &str, assets: &Path) -> PathBuf {
+    let direct = Path::new(arg);
+    if direct.is_file() {
+        direct.to_path_buf()
+    } else {
+        assets.join("levels").join(arg)
+    }
+}
+
 pub fn load_map(file: &str) -> Map {
-    let path = assets_dir().join("levels").join(file);
+    let path = level_path(file, &assets_dir());
     let src = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read level {}: {e}", path.display()));
     Map::from_ron(&src).unwrap_or_else(|e| panic!("invalid level {}: {e}", path.display()))
@@ -166,4 +177,22 @@ fn spawn_level(
         },
         Transform::from_xyz(0.0, 10.0, 0.0).looking_at(Vec3::new(0.4, 0.0, -0.3), Vec3::Y),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_arg_is_a_name_under_assets_or_an_existing_path() {
+        let assets = Path::new("/nonexistent/assets");
+        assert_eq!(
+            level_path("test_yard.ron", assets),
+            Path::new("/nonexistent/assets/levels/test_yard.ron")
+        );
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/levels/test_yard.ron");
+        assert!(real.is_file());
+        let arg = real.to_str().unwrap();
+        assert_eq!(level_path(arg, assets), real);
+    }
 }
