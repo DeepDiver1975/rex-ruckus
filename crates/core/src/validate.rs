@@ -2,7 +2,9 @@
 //! exit (and every keycard) can be reached from the start. Run it on an authored map (straight
 //! from `Map::from_raw`, doors open), never on a live one.
 
-use crate::map::{ItemKind, Key, Map, SectorId, SwitchAction, Wall, WallId};
+use crate::map::{
+    Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
+};
 use crate::movement::Tuning;
 use glam::Vec2;
 use std::collections::BTreeSet;
@@ -58,6 +60,7 @@ pub fn validate(map: &Map) -> Vec<Issue> {
     check_portals(map, &mut r);
     check_overlaps(map, &mut r);
     check_wiring(map, &mut r);
+    check_reachability(map, &mut r);
     r.0
 }
 
@@ -226,10 +229,112 @@ fn check_wiring(map: &Map, r: &mut Report) {
     }
 }
 
+type Pose = (f32, f32);
+
+/// Floor/ceiling pairs a sector can offer a player, given the keys held and channels fired.
+fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
+    let sec = &map.sectors[s];
+    let Some(def) = sec.mover else {
+        return vec![(sec.floor_z, sec.ceil_z)];
+    };
+    let operable = match def.channel {
+        Some(c) => fired.contains(&c),
+        None => def.lock.is_none_or(|k| keys.contains(k)),
+    };
+    match (def.kind, operable) {
+        (MoverKind::Door, true) => vec![(sec.floor_z, sec.ceil_z)],
+        (MoverKind::Door, false) => vec![],
+        (MoverKind::Lift { to }, true) => vec![(sec.floor_z, sec.ceil_z), (to, sec.ceil_z)],
+        (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
+    }
+}
+
+/// Can a (crouching) player walk from a sector in pose `a` into one in pose `b`?
+fn can_cross((fa, ca): Pose, (fb, cb): Pose, t: &Tuning) -> bool {
+    fb <= fa + t.step_height
+        && cb - fb >= t.crouch_height
+        && ca.min(cb) - fa.max(fb) >= t.crouch_height
+}
+
+fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning) -> Vec<bool> {
+    let mut reached = vec![false; map.sectors.len()];
+    reached[start] = true;
+    let mut queue = vec![start];
+    while let Some(s) = queue.pop() {
+        let from = poses(map, s, keys, fired);
+        for n in map.neighbours(s) {
+            if reached[n] {
+                continue;
+            }
+            let to = poses(map, n, keys, fired);
+            if from.iter().any(|&a| to.iter().any(|&b| can_cross(a, b, t))) {
+                reached[n] = true;
+                queue.push(n);
+            }
+        }
+    }
+    reached
+}
+
+fn check_reachability(map: &Map, r: &mut Report) {
+    let t = Tuning::default();
+    let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
+    let Some(start) = map.find_sector(start, None) else {
+        return; // reported by check_wiring
+    };
+    let usable = |sw: &Switch, keys: KeySet| sw.key.is_none_or(|k| keys.contains(k));
+    let mut keys = KeySet::default();
+    let mut fired: Vec<Channel> = Vec::new();
+    let reached = loop {
+        let reached = flood(map, start, keys, &fired, &t);
+        let mut changed = false;
+        for item in &map.items {
+            let ItemKind::Key(k) = item.kind;
+            if map.find_sector(item.pos, None).is_some_and(|s| reached[s]) && !keys.contains(k) {
+                keys.insert(k);
+                changed = true;
+            }
+        }
+        for sw in &map.switches {
+            if let SwitchAction::Channel(c) = sw.action
+                && reached[map.walls[sw.wall].sector]
+                && usable(sw, keys)
+                && !fired.contains(&c)
+            {
+                fired.push(c);
+                changed = true;
+            }
+        }
+        if !changed {
+            break reached;
+        }
+    };
+    for (i, item) in map.items.iter().enumerate() {
+        if !map.find_sector(item.pos, None).is_some_and(|s| reached[s]) {
+            r.warn(format!(
+                "item {i} ({:?}) cannot be reached from the start",
+                item.kind
+            ));
+        }
+    }
+    let exits: Vec<&Switch> = map
+        .switches
+        .iter()
+        .filter(|sw| sw.action == SwitchAction::Exit)
+        .collect();
+    if !exits.is_empty()
+        && !exits
+            .iter()
+            .any(|sw| reached[map.walls[sw.wall].sector] && usable(sw, keys))
+    {
+        r.error("no exit switch can be reached and used from the start".into());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{door_rooms, pillar_room, two_rooms};
+    use crate::fixtures::{door_rooms, lift_shaft, pillar_room, two_rooms};
 
     fn errors(map: &Map) -> Vec<String> {
         validate(map)
@@ -357,5 +462,47 @@ mod tests {
             )),
             "blue"
         ));
+    }
+
+    #[test]
+    fn locked_exit_with_reachable_key_is_clean() {
+        let map = door_rooms(
+            "(kind: Door, lock: Some(Red))",
+            "switches: [(wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (2.0, 3.0))],",
+        );
+        assert_eq!(validate(&map), vec![]);
+    }
+
+    #[test]
+    fn key_behind_its_own_door_is_unreachable() {
+        let map = door_rooms(
+            "(kind: Door, lock: Some(Red))",
+            "switches: [(wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (6.5, 2.0))],",
+        );
+        assert!(has(&errors(&map), "exit"));
+        assert!(has(&warnings(&map), "item 0"));
+    }
+
+    #[test]
+    fn remote_door_opens_when_its_switch_is_reachable() {
+        let map = door_rooms(
+            "(kind: Door, channel: Some(1))",
+            "switches: [(wall: (7, 0), action: Channel(1)), (wall: (3, 4), action: Exit)],",
+        );
+        assert_eq!(validate(&map), vec![]);
+    }
+
+    #[test]
+    fn lift_reaches_ledge_only_when_operable() {
+        let ok = lift_shaft(
+            "(kind: Lift(to: 2.0))",
+            "switches: [(wall: (3, 4), action: Exit)],",
+        );
+        assert_eq!(validate(&ok), vec![]);
+        let stuck = lift_shaft(
+            "(kind: Lift(to: 2.0), channel: Some(9))",
+            "switches: [(wall: (3, 4), action: Exit)],",
+        );
+        assert!(has(&errors(&stuck), "exit"));
     }
 }
