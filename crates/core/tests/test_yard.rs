@@ -76,3 +76,9 @@ fn player_walks_through_doorway_into_room() {
     let b = walk_to(&map, b, Vec2::new(8.0, 21.0), 300);
     assert_eq!(b.sector, 6);
 }
+
+#[test]
+fn yard_validates_without_errors() {
+    let issues = rr_core::validate::validate(&yard());
+    assert!(!rr_core::validate::has_errors(&issues), "{issues:?}");
+}
