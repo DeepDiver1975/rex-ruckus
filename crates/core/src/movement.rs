@@ -83,7 +83,8 @@ pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt
     let before = body.pos.truncate();
     let result = clip_move(map, body, v * dt, t.step_height);
     if result.blocked {
-        v = (body.pos.truncate() - before) / dt;
+        // Keep the direction actually travelled; a collision (or push-out) never adds speed.
+        v = ((body.pos.truncate() - before) / dt).clamp_length_max(v.length());
     }
     body.vel.x = v.x;
     body.vel.y = v.y;
@@ -255,5 +256,15 @@ mod tests {
             Tuning::default().crouch_height,
             "no room to stand up"
         );
+    }
+
+    #[test]
+    fn push_out_does_not_add_speed() {
+        let map = two_rooms(0.0, 3.0);
+        let mut b = spawn(&map, 2.0, 2.0);
+        b.pos.x = 0.1;
+        step_player(&map, &mut b, &MoveInput::default(), &Tuning::default(), DT);
+        assert!(b.pos.x > 0.34, "pushed out: {}", b.pos);
+        assert!(b.vel.truncate().length() < 1e-3, "no kick: {}", b.vel);
     }
 }
