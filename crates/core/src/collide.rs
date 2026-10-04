@@ -85,22 +85,51 @@ fn nearby_sectors(map: &Map, start: SectorId, p: Vec2, reach: f32) -> Vec<Sector
     found
 }
 
+/// How far `p` sits inside the nearest wall that blocks `body` (≤ 0 when clear).
+fn penetration(map: &Map, body: &Body, p: Vec2, step: f32) -> f32 {
+    let mut worst = f32::MIN;
+    for s in nearby_sectors(map, body.sector, p, body.radius + SKIN) {
+        for wid in map.sectors[s].walls() {
+            let w = &map.walls[wid];
+            if wall_blocks(map, w, body, step) {
+                worst = worst.max(body.radius - closest_point_on_segment(p, w.a, w.b).distance(p));
+            }
+        }
+    }
+    worst
+}
+
+/// Whether the body's footprint overlaps sector `s` (the same reach `z_range` uses).
+pub fn touches_sector(map: &Map, body: &Body, s: SectorId) -> bool {
+    nearby_sectors(
+        map,
+        body.sector,
+        body.pos.truncate(),
+        body.radius - Z_RANGE_MARGIN,
+    )
+    .contains(&s)
+}
+
 /// Moves `body` by `delta` in XY, sliding along blocking walls. Movement is split into
-/// sub-steps of at most half the radius, so fast bodies cannot tunnel through walls.
+/// sub-steps of at most half the radius, so fast bodies cannot tunnel through walls. A zero
+/// delta still pushes the body out of walls that moved into it (doors, lifts).
 ///
 /// Feet z is held constant for the whole call: callers move once per tick and update z
 /// between calls.
 pub fn clip_move(map: &Map, body: &mut Body, delta: Vec2, step_height: f32) -> ClipResult {
     let len = delta.length();
-    if len <= f32::EPSILON {
-        return ClipResult::default();
-    }
-    let n = ((len / (body.radius * 0.5)).ceil() as usize).clamp(1, 4096);
-    let sub = delta / n as f32;
+    let (n, sub) = if len <= f32::EPSILON {
+        (1, Vec2::ZERO)
+    } else {
+        let n = ((len / (body.radius * 0.5)).ceil() as usize).clamp(1, 4096);
+        (n, delta / n as f32)
+    };
     let mut blocked = false;
 
     for _ in 0..n {
-        let mut p = body.pos.truncate() + sub;
+        let start = body.pos.truncate();
+        let mut p = start + sub;
+        let mut pushed_any = false;
         for _ in 0..PUSH_ITERATIONS {
             let mut pushed = false;
             for s in nearby_sectors(map, body.sector, p, body.radius + sub.length() + SKIN) {
@@ -116,6 +145,7 @@ pub fn clip_move(map: &Map, body: &mut Body, delta: Vec2, step_height: f32) -> C
                         let normal = if d > 1e-6 { v / d } else { w.inward_normal() };
                         p = c + normal * body.radius;
                         pushed = true;
+                        pushed_any = true;
                         blocked = true;
                     }
                 }
@@ -123,6 +153,14 @@ pub fn clip_move(map: &Map, body: &mut Body, delta: Vec2, step_height: f32) -> C
             if !pushed {
                 break;
             }
+        }
+        // Sequential push-out converges slowly in acute corners: never accept a position deeper
+        // in a wall than the one we started from.
+        if pushed_any
+            && penetration(map, body, p, step_height)
+                > penetration(map, body, start, step_height).max(SKIN)
+        {
+            return ClipResult { blocked: true };
         }
         match map.find_sector(p, Some(body.sector)) {
             Some(s)
@@ -152,7 +190,7 @@ pub fn z_range(map: &Map, p: Vec2, radius: f32, sector: SectorId) -> (f32, f32) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{pillar_room, two_rooms};
+    use crate::fixtures::{pillar_room, two_rooms, wedge};
 
     const R: f32 = 0.35;
     const H: f32 = 1.8;
@@ -255,5 +293,39 @@ mod tests {
         let map = two_rooms(0.4, 2.5);
         assert_eq!(z_range(&map, Vec2::new(3.8, 2.0), R, 0), (0.4, 2.5));
         assert_eq!(z_range(&map, Vec2::new(3.5, 2.0), R, 0), (0.0, 3.0));
+    }
+
+    #[test]
+    fn resting_body_is_pushed_out_of_a_wall() {
+        let map = two_rooms(0.0, 3.0);
+        let mut b = body(&map, 2.0, 2.0);
+        b.pos.x = 0.1; // a wall moved into us (e.g. geometry changed)
+        let r = clip_move(&map, &mut b, Vec2::ZERO, STEP);
+        assert!(r.blocked);
+        assert!((b.pos.x - R).abs() < 1e-3, "x = {}", b.pos.x);
+    }
+
+    #[test]
+    fn acute_corner_never_penetrates() {
+        for h in [3.0, 1.5] {
+            let map = wedge(h);
+            let mut b = body(&map, 8.0, 0.4 * h);
+            for _ in 0..200 {
+                clip_move(&map, &mut b, Vec2::new(-0.3, 0.0), STEP);
+                let p = b.pos.truncate();
+                for w in &map.walls {
+                    let d = closest_point_on_segment(p, w.a, w.b).distance(p);
+                    assert!(d >= R - 0.01, "h={h}: {p} is {d} from {w:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn touches_sector_uses_the_footprint() {
+        let map = two_rooms(0.0, 3.0);
+        assert!(touches_sector(&map, &body(&map, 3.8, 2.0), 1));
+        assert!(!touches_sector(&map, &body(&map, 3.5, 2.0), 1));
+        assert!(touches_sector(&map, &body(&map, 3.5, 2.0), 0));
     }
 }

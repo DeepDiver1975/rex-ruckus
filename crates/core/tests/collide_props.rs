@@ -1,6 +1,6 @@
 use proptest::prelude::*;
 use rr_core::collide::{Body, clip_move};
-use rr_core::fixtures::{pillar_room, two_rooms};
+use rr_core::fixtures::{pillar_room, two_rooms, wedge};
 use rr_core::geom::closest_point_on_segment;
 use rr_core::glam::Vec2;
 use rr_core::map::Map;
@@ -46,5 +46,10 @@ proptest! {
     #[test]
     fn random_walks_stay_inside_blocking_two_rooms(steps in prop::collection::vec((-3.0f32..3.0, -3.0f32..3.0), 1..60)) {
         check_walk(&two_rooms(2.0, 3.0), Vec2::new(2.0, 2.0), &steps)?;
+    }
+
+    #[test]
+    fn random_walks_stay_inside_wedge(steps in prop::collection::vec((-3.0f32..3.0, -3.0f32..3.0), 1..60)) {
+        check_walk(&wedge(1.5), Vec2::new(8.0, 0.6), &steps)?;
     }
 }

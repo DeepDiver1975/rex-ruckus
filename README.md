@@ -17,6 +17,17 @@ development packages, e.g. on Debian/Ubuntu:
 
 GPL-3.0-or-later — see `LICENSE`.
 
-## Controls (M1)
+## Controls
 
-Click to capture the mouse · Esc releases it · WASD move · Mouse look · Space jump · C / Left Ctrl crouch
+Click to capture the mouse · Esc releases it · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches)
+
+Walking over a keycard picks it up.
+
+Run a specific level (a file name in `assets/levels/`, or a path to a level file):
+
+    cargo run -p rr-game --release -- test_yard.ron
+
+## Level tools
+
+    cargo run -p rr-tools -- validate assets/levels/*.ron
+    cargo run -p rr-tools -- render-svg assets/levels/mechanics_lab.ron -o lab.svg

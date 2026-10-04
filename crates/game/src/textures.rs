@@ -67,6 +67,18 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
                 n * 2 + (y as i32 % 5) * 2
             },
         ),
+        "door" => {
+            // Metal panel with a hazard-striped band across the middle.
+            if (12..20).contains(&y) {
+                if ((x + y) / 4) % 2 == 1 {
+                    [230, 180, 20, 255]
+                } else {
+                    [25, 25, 25, 255]
+                }
+            } else {
+                shade([110, 115, 125], if x % 16 == 0 { -30 } else { n })
+            }
+        }
         _ => {
             if (x / 8 + y / 8) % 2 == 0 {
                 [255, 0, 255, 255]
@@ -109,7 +121,7 @@ mod tests {
 
     #[test]
     fn textures_are_deterministic_32px_rgba() {
-        for name in ["brick", "concrete", "sky", "metal", "tile", "wood"] {
+        for name in ["brick", "concrete", "sky", "metal", "tile", "wood", "door"] {
             let a = pixels(name);
             assert_eq!(a.len(), (SIZE * SIZE * 4) as usize, "{name}");
             assert_eq!(a, pixels(name), "{name} must be deterministic");
@@ -120,6 +132,14 @@ mod tests {
     fn unknown_name_gives_missing_texture_checker() {
         let p = pixels("does-not-exist");
         assert_eq!(&p[0..4], &[255, 0, 255, 255]);
+    }
+
+    #[test]
+    fn door_has_hazard_band() {
+        let p = pixels("door");
+        let px = |x: u32, y: u32| &p[((y * SIZE + x) * 4) as usize..][..3];
+        assert_eq!(px(0, 12), &[230, 180, 20]);
+        assert_eq!(px(4, 12), &[25, 25, 25]);
     }
 
     #[test]

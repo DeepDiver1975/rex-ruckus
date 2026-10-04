@@ -5,7 +5,10 @@ pub mod collide;
 pub mod extrude;
 pub mod fixtures;
 pub mod geom;
+pub mod interact;
 pub mod map;
+pub mod mechanics;
 pub mod movement;
+pub mod validate;
 
 pub use glam;

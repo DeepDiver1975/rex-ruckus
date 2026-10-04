@@ -1,6 +1,7 @@
 //! Loads the map and spawns its meshes, materials and lights.
 
 use crate::coords::{to_bevy, to_bevy_arr};
+use crate::mechanics::DirtySectors;
 use crate::paths::assets_dir;
 use crate::textures;
 use bevy::asset::RenderAssetUsages;
@@ -10,6 +11,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
 use rr_core::extrude::{MeshData, extrude_sector};
 use rr_core::map::{Map, SectorId};
+use std::path::{Path, PathBuf};
 
 #[derive(Resource)]
 pub struct CurrentMap(pub Map);
@@ -18,8 +20,22 @@ pub struct CurrentMap(pub Map);
 #[derive(Component)]
 pub struct SectorMesh(pub SectorId);
 
+/// Material handles indexed like `Map::materials`, kept so moving sectors can be re-extruded.
+#[derive(Resource)]
+pub struct LevelMaterials(pub Vec<Handle<StandardMaterial>>);
+
+/// A level argument is either an existing file path or a file name under `assets/levels/`.
+pub fn level_path(arg: &str, assets: &Path) -> PathBuf {
+    let direct = Path::new(arg);
+    if direct.is_file() {
+        direct.to_path_buf()
+    } else {
+        assets.join("levels").join(arg)
+    }
+}
+
 pub fn load_map(file: &str) -> Map {
-    let path = assets_dir().join("levels").join(file);
+    let path = level_path(file, &assets_dir());
     let src = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read level {}: {e}", path.display()));
     Map::from_ron(&src).unwrap_or_else(|e| panic!("invalid level {}: {e}", path.display()))
@@ -57,7 +73,59 @@ impl Plugin for LevelRenderPlugin {
                 brightness: 250.0,
                 ..default()
             })
-            .add_systems(Startup, spawn_level);
+            .init_resource::<DirtySectors>()
+            .add_systems(Startup, spawn_level)
+            .add_systems(Update, rebuild_dirty_sectors);
+    }
+}
+
+fn spawn_sector(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    map: &Map,
+    mats: &[Handle<StandardMaterial>],
+    s: SectorId,
+) {
+    match extrude_sector(map, s) {
+        Ok(subs) => {
+            for sub in subs {
+                let mut e = commands.spawn((
+                    Mesh3d(meshes.add(to_bevy_mesh(&sub.mesh))),
+                    MeshMaterial3d(mats[sub.material].clone()),
+                    SectorMesh(s),
+                ));
+                if map.materials[sub.material] == "sky" {
+                    e.insert(NotShadowCaster);
+                }
+            }
+        }
+        Err(err) => error!("{}: {err}", map.name),
+    }
+}
+
+/// Re-extrudes every sector whose heights changed, plus its neighbours (their step faces
+/// depend on it), replacing the old mesh entities.
+pub fn rebuild_dirty_sectors(
+    mut commands: Commands,
+    map: Res<CurrentMap>,
+    mats: Res<LevelMaterials>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut dirty: ResMut<DirtySectors>,
+    existing: Query<(Entity, &SectorMesh)>,
+) {
+    if dirty.0.is_empty() {
+        return;
+    }
+    let mut todo = std::mem::take(&mut dirty.0);
+    let around: Vec<SectorId> = todo.iter().flat_map(|&s| map.0.neighbours(s)).collect();
+    todo.extend(around);
+    for (e, m) in &existing {
+        if todo.contains(&m.0) {
+            commands.entity(e).despawn();
+        }
+    }
+    for &s in &todo {
+        spawn_sector(&mut commands, &mut meshes, &map.0, &mats.0, s);
     }
 }
 
@@ -84,22 +152,9 @@ fn spawn_level(
         .collect();
 
     for s in 0..map.sectors.len() {
-        match extrude_sector(map, s) {
-            Ok(subs) => {
-                for sub in subs {
-                    let mut e = commands.spawn((
-                        Mesh3d(meshes.add(to_bevy_mesh(&sub.mesh))),
-                        MeshMaterial3d(mats[sub.material].clone()),
-                        SectorMesh(s),
-                    ));
-                    if map.materials[sub.material] == "sky" {
-                        e.insert(NotShadowCaster);
-                    }
-                }
-            }
-            Err(err) => error!("{}: {err}", map.name),
-        }
+        spawn_sector(&mut commands, &mut meshes, map, &mats, s);
     }
+    commands.insert_resource(LevelMaterials(mats));
 
     for l in &map.lights {
         commands.spawn((
@@ -122,4 +177,22 @@ fn spawn_level(
         },
         Transform::from_xyz(0.0, 10.0, 0.0).looking_at(Vec3::new(0.4, 0.0, -0.3), Vec3::Y),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn level_arg_is_a_name_under_assets_or_an_existing_path() {
+        let assets = Path::new("/nonexistent/assets");
+        assert_eq!(
+            level_path("test_yard.ron", assets),
+            Path::new("/nonexistent/assets/levels/test_yard.ron")
+        );
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/levels/test_yard.ron");
+        assert!(real.is_file());
+        let arg = real.to_str().unwrap();
+        assert_eq!(level_path(arg, assets), real);
+    }
 }

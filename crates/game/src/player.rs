@@ -7,13 +7,43 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
-use rr_core::collide::Body;
+use rr_core::collide::{Body, z_range};
+use rr_core::map::KeySet;
 use rr_core::movement::{MoveInput, Tuning, step_player};
 
 pub const PLAYER_RADIUS: f32 = 0.35;
 /// Eyes sit this far below the top of the body.
 pub const EYE_BELOW_TOP: f32 = 0.15;
+/// The eye never gets closer than this to the ceiling above the player.
+pub const EYE_CEIL_MARGIN: f32 = 0.05;
 const PITCH_LIMIT: f32 = 1.45;
+/// Rate (1/s) at which the eye eases to a new height after crouching or standing up.
+pub const EYE_EASE_RATE: f32 = 14.0;
+
+/// Frame-rate independent exponential approach of `current` towards `target`.
+pub fn ease_toward(current: f32, target: f32, rate: f32, dt: f32) -> f32 {
+    target + (current - target) * (-rate * dt).exp()
+}
+
+/// Keeps the eased eye height below the ceiling (`ceil` is an absolute z, `feet_z` the feet's).
+pub fn clamp_eye(eye: f32, feet_z: f32, ceil: f32) -> f32 {
+    eye.min(ceil - feet_z - EYE_CEIL_MARGIN)
+}
+
+/// Smoothed eye height above the feet (core metres).
+#[derive(Component)]
+pub struct EyeHeight(pub f32);
+
+/// Cursor grab decision: Some(true) grab, Some(false) release, None keep.
+fn grab_change(focused: bool, clicked: bool, escape: bool, grabbed: bool) -> Option<bool> {
+    if grabbed && (escape || !focused) {
+        Some(false)
+    } else if !grabbed && clicked && focused {
+        Some(true)
+    } else {
+        None
+    }
+}
 
 #[derive(Component)]
 pub struct Player;
@@ -32,14 +62,26 @@ pub struct Look {
     pub pitch: f32,
 }
 
-/// Latest movement intent, refreshed every frame and consumed by each fixed tick.
+/// Latest movement intent from the frame loop; held keys are re-read every frame.
 #[derive(Component, Default)]
 pub struct PendingInput {
     pub forward: f32,
     pub strafe: f32,
     pub jump: bool,
     pub crouch: bool,
+    /// Latched by a use-key press; the next fixed tick consumes it.
+    pub use_pressed: bool,
 }
+
+/// Keycards the player holds.
+#[derive(Component, Default)]
+pub struct Inventory {
+    pub keys: KeySet,
+}
+
+/// The fixed-tick player movement step; mechanics systems order themselves around it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlayerSimSet;
 
 #[derive(Component)]
 pub struct PlayerCamera;
@@ -58,7 +100,7 @@ impl Plugin for PlayerSimPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(60.0))
             .init_resource::<PlayerTuning>()
             .add_systems(Startup, spawn_player)
-            .add_systems(FixedUpdate, simulate_player);
+            .add_systems(FixedUpdate, simulate_player.in_set(PlayerSimSet));
     }
 }
 
@@ -85,6 +127,8 @@ fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<Player
             pitch: 0.0,
         },
         PendingInput::default(),
+        Inventory::default(),
+        EyeHeight(tuning.0.stand_height - EYE_BELOW_TOP),
     ));
 }
 
@@ -149,16 +193,26 @@ fn spawn_camera(mut commands: Commands) {
 
 fn grab_cursor(
     mut cursor: Single<&mut CursorOptions>,
+    window: Single<&Window>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
-    if mouse.just_pressed(MouseButton::Left) {
-        cursor.visible = false;
-        cursor.grab_mode = CursorGrabMode::Locked;
-    }
-    if keys.just_pressed(KeyCode::Escape) {
-        cursor.visible = true;
-        cursor.grab_mode = CursorGrabMode::None;
+    let grabbed = cursor.grab_mode != CursorGrabMode::None;
+    match grab_change(
+        window.focused,
+        mouse.just_pressed(MouseButton::Left),
+        keys.just_pressed(KeyCode::Escape),
+        grabbed,
+    ) {
+        Some(true) => {
+            cursor.visible = false;
+            cursor.grab_mode = CursorGrabMode::Locked;
+        }
+        Some(false) => {
+            cursor.visible = true;
+            cursor.grab_mode = CursorGrabMode::None;
+        }
+        None => {}
     }
 }
 
@@ -182,16 +236,27 @@ fn read_input(
     input.strafe = axis(KeyCode::KeyD, KeyCode::KeyA);
     input.jump = keys.pressed(KeyCode::Space);
     input.crouch = keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft);
+    input.use_pressed |= keys.just_pressed(KeyCode::KeyE);
 }
 
 fn update_camera(
     time: Res<Time<Fixed>>,
-    player: Single<(&PlayerBody, &PrevFeet, &Look), With<Player>>,
+    frame_time: Res<Time>,
+    map: Res<CurrentMap>,
+    player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
 ) {
-    let (body, prev, look) = player.into_inner();
+    let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
-    let eye = feet + Vec3::Z * (body.0.height - EYE_BELOW_TOP);
+    eye_h.0 = ease_toward(
+        eye_h.0,
+        body.0.height - EYE_BELOW_TOP,
+        EYE_EASE_RATE,
+        frame_time.delta_secs(),
+    );
+    let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
+    eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
+    let eye = feet + Vec3::Z * eye_h.0;
     camera.translation = to_bevy(eye);
     camera.rotation = Quat::from_euler(
         EulerRot::YXZ,
@@ -199,4 +264,51 @@ fn update_camera(
         look.pitch,
         0.0,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eye_is_clamped_below_the_ceiling() {
+        // Feet at 0, ceiling 1.2: an eased-up eye of 1.65 is pulled to 1.2 - margin.
+        assert!((clamp_eye(1.65, 0.0, 1.2) - (1.2 - EYE_CEIL_MARGIN)).abs() < 1e-6);
+        // Offset feet: the limit is relative to the feet.
+        assert!((clamp_eye(1.65, 2.4, 4.0) - (1.6 - EYE_CEIL_MARGIN)).abs() < 1e-6);
+        // Plenty of headroom: untouched.
+        assert_eq!(clamp_eye(1.65, 0.0, 4.0), 1.65);
+    }
+
+    #[test]
+    fn eye_eases_without_overshoot_and_is_frame_rate_independent() {
+        assert_eq!(ease_toward(1.65, 0.95, EYE_EASE_RATE, 0.0), 1.65);
+        let one = ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0 / 30.0);
+        let two = ease_toward(
+            ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0 / 60.0),
+            0.95,
+            EYE_EASE_RATE,
+            1.0 / 60.0,
+        );
+        assert!((one - two).abs() < 1e-5);
+        assert!(one < 1.65 && one > 0.95);
+        assert!((ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0) - 0.95).abs() < 1e-3);
+    }
+
+    #[test]
+    fn grab_follows_click_escape_and_focus() {
+        assert_eq!(grab_change(true, true, false, false), Some(true));
+        assert_eq!(
+            grab_change(false, true, false, false),
+            None,
+            "no grab while unfocused"
+        );
+        assert_eq!(grab_change(true, false, true, true), Some(false));
+        assert_eq!(
+            grab_change(false, false, false, true),
+            Some(false),
+            "focus lost releases"
+        );
+        assert_eq!(grab_change(true, false, false, true), None);
+    }
 }

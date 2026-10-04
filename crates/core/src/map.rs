@@ -22,6 +22,10 @@ pub struct RawLevel {
     pub player_start: PlayerStart,
     #[serde(default)]
     pub lights: Vec<RawLight>,
+    #[serde(default)]
+    pub switches: Vec<RawSwitch>,
+    #[serde(default)]
+    pub items: Vec<RawItem>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -32,6 +36,11 @@ pub struct RawSector {
     pub floor_mat: MaterialId,
     pub ceil_mat: MaterialId,
     pub wall_mat: MaterialId,
+    /// Material neighbours use for step faces on portals into this sector (a door's face).
+    #[serde(default)]
+    pub face_mat: Option<MaterialId>,
+    #[serde(default)]
+    pub mover: Option<MoverDef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -47,6 +56,111 @@ pub struct RawLight {
     /// Luminous power in lumens.
     pub intensity: f32,
     pub range: f32,
+}
+
+/// Keycard colours. Locked doors and keyed switches name one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+pub enum Key {
+    Red,
+    Blue,
+    Yellow,
+}
+
+impl Key {
+    pub const ALL: [Key; 3] = [Key::Red, Key::Blue, Key::Yellow];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Key::Red => "red",
+            Key::Blue => "blue",
+            Key::Yellow => "yellow",
+        }
+    }
+}
+
+/// The keycards someone holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeySet(u8);
+
+impl KeySet {
+    pub fn insert(&mut self, k: Key) {
+        self.0 |= 1 << k as u8;
+    }
+
+    pub fn contains(self, k: Key) -> bool {
+        self.0 & (1 << k as u8) != 0
+    }
+}
+
+/// Trigger channel (Build's lotag/hitag pairing): a switch fires it and every mover listening toggles.
+pub type Channel = u16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum MoverKind {
+    /// The ceiling travels from the floor (closed, the start pose) up to the authored `ceil_z`.
+    Door,
+    /// The floor travels between the authored `floor_z` (start) and `to`.
+    Lift { to: f32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct MoverDef {
+    pub kind: MoverKind,
+    /// Metres per second.
+    #[serde(default = "default_mover_speed")]
+    pub speed: f32,
+    /// Keycard needed to operate it by hand.
+    #[serde(default)]
+    pub lock: Option<Key>,
+    /// When set, only switches on this channel operate it; the use key does nothing.
+    #[serde(default)]
+    pub channel: Option<Channel>,
+    /// Seconds to wait at the far end before returning on its own.
+    #[serde(default)]
+    pub auto_return: Option<f32>,
+}
+
+fn default_mover_speed() -> f32 {
+    2.5
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum SwitchAction {
+    Channel(Channel),
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct RawSwitch {
+    /// Vertex indices (from, to) of the wall it is mounted on; it faces the sector owning that edge.
+    pub wall: (usize, usize),
+    pub action: SwitchAction,
+    #[serde(default)]
+    pub key: Option<Key>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum ItemKind {
+    Key(Key),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct RawItem {
+    pub kind: ItemKind,
+    pub pos: (f32, f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Switch {
+    pub wall: WallId,
+    pub action: SwitchAction,
+    pub key: Option<Key>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Item {
+    pub kind: ItemKind,
+    pub pos: Vec2,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +189,8 @@ pub struct Sector {
     pub floor_mat: MaterialId,
     pub ceil_mat: MaterialId,
     pub wall_mat: MaterialId,
+    pub face_mat: Option<MaterialId>,
+    pub mover: Option<MoverDef>,
 }
 
 impl Sector {
@@ -91,6 +207,8 @@ pub struct Map {
     pub walls: Vec<Wall>,
     pub player_start: PlayerStart,
     pub lights: Vec<RawLight>,
+    pub switches: Vec<Switch>,
+    pub items: Vec<Item>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -103,6 +221,10 @@ pub enum MapError {
     ShortLoop { sector: SectorId, loop_index: usize },
     #[error("sector {sector}: floor_z must be below ceil_z")]
     InvertedHeights { sector: SectorId },
+    #[error("sector {sector}: has no loops")]
+    NoLoops { sector: SectorId },
+    #[error("sector {sector}: floor_z and ceil_z must be finite")]
+    NonFiniteHeight { sector: SectorId },
     #[error("sector {sector}: material {material} out of range")]
     BadMaterial {
         sector: SectorId,
@@ -110,6 +232,17 @@ pub enum MapError {
     },
     #[error("edge {from}->{to} is used by more than one sector in the same direction")]
     DuplicateEdge { from: usize, to: usize },
+    #[error("switch {index}: no wall runs from vertex {from} to vertex {to}")]
+    BadSwitchWall {
+        index: usize,
+        from: usize,
+        to: usize,
+    },
+    #[error("sector {sector}: invalid mover: {reason}")]
+    BadMover {
+        sector: SectorId,
+        reason: &'static str,
+    },
 }
 
 impl Map {
@@ -125,10 +258,19 @@ impl Map {
         let mut edge_owner: HashMap<(usize, usize), WallId> = HashMap::new();
 
         for (si, rs) in raw.sectors.iter().enumerate() {
+            if !(rs.floor_z.is_finite() && rs.ceil_z.is_finite()) {
+                return Err(MapError::NonFiniteHeight { sector: si });
+            }
+            if rs.loops.is_empty() {
+                return Err(MapError::NoLoops { sector: si });
+            }
             if rs.floor_z >= rs.ceil_z {
                 return Err(MapError::InvertedHeights { sector: si });
             }
-            for material in [rs.floor_mat, rs.ceil_mat, rs.wall_mat] {
+            for material in [rs.floor_mat, rs.ceil_mat, rs.wall_mat]
+                .into_iter()
+                .chain(rs.face_mat)
+            {
                 if material >= raw.materials.len() {
                     return Err(MapError::BadMaterial {
                         sector: si,
@@ -136,6 +278,7 @@ impl Map {
                     });
                 }
             }
+            check_mover(si, rs)?;
             let mut loops = Vec::with_capacity(rs.loops.len());
             for (li, lp) in rs.loops.iter().enumerate() {
                 if lp.len() < 3 {
@@ -174,6 +317,8 @@ impl Map {
                 floor_mat: rs.floor_mat,
                 ceil_mat: rs.ceil_mat,
                 wall_mat: rs.wall_mat,
+                face_mat: rs.face_mat,
+                mover: rs.mover,
             });
         }
 
@@ -184,6 +329,31 @@ impl Map {
             }
         }
 
+        let switches = raw
+            .switches
+            .iter()
+            .enumerate()
+            .map(|(index, s)| {
+                let (from, to) = s.wall;
+                edge_owner
+                    .get(&(from, to))
+                    .map(|&wall| Switch {
+                        wall,
+                        action: s.action,
+                        key: s.key,
+                    })
+                    .ok_or(MapError::BadSwitchWall { index, from, to })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let items = raw
+            .items
+            .iter()
+            .map(|i| Item {
+                kind: i.kind,
+                pos: Vec2::new(i.pos.0, i.pos.1),
+            })
+            .collect();
+
         Ok(Map {
             name: raw.name,
             materials: raw.materials,
@@ -191,8 +361,33 @@ impl Map {
             walls,
             player_start: raw.player_start,
             lights: raw.lights,
+            switches,
+            items,
         })
     }
+}
+
+fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
+    let Some(m) = rs.mover else { return Ok(()) };
+    let bad = |reason| Err(MapError::BadMover { sector, reason });
+    if !(m.speed > 0.0 && m.speed.is_finite()) {
+        return bad("speed must be positive");
+    }
+    if m.auto_return.is_some_and(|t| t.is_nan() || t < 0.0) {
+        return bad("auto_return must not be negative");
+    }
+    if let MoverKind::Lift { to } = m.kind {
+        if !to.is_finite() {
+            return bad("lift end must be finite");
+        }
+        if to == rs.floor_z {
+            return bad("lift end must differ from its start");
+        }
+        if to >= rs.ceil_z {
+            return bad("lift end must be below the ceiling");
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -283,6 +478,40 @@ mod tests {
     }
 
     #[test]
+    fn rejects_sectors_without_loops() {
+        let src = level(
+            "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+            "(loops: [], floor_z: 0.0, ceil_z: 1.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)",
+        );
+        assert_eq!(
+            Map::from_ron(&src).unwrap_err(),
+            MapError::NoLoops { sector: 0 }
+        );
+    }
+
+    #[test]
+    fn rejects_non_finite_heights() {
+        for (floor, ceil) in [
+            ("NaN", "1.0"),
+            ("0.0", "NaN"),
+            ("0.0", "inf"),
+            ("-inf", "1.0"),
+        ] {
+            let src = level(
+                "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+                &format!(
+                    "(loops: [[0,1,2]], floor_z: {floor}, ceil_z: {ceil}, floor_mat: 0, ceil_mat: 0, wall_mat: 0)"
+                ),
+            );
+            assert_eq!(
+                Map::from_ron(&src).unwrap_err(),
+                MapError::NonFiniteHeight { sector: 0 },
+                "{floor}..{ceil}"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_bad_material() {
         let src = level(
             "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
@@ -316,5 +545,124 @@ mod tests {
             Map::from_ron("(nonsense"),
             Err(MapError::Parse(_))
         ));
+    }
+
+    use crate::fixtures::{door_rooms, lift_shaft};
+
+    #[test]
+    fn parses_movers_switches_and_items() {
+        let map = door_rooms(
+            "(kind: Door, lock: Some(Red), auto_return: Some(3.0))",
+            "switches: [(wall: (7, 0), action: Channel(4), key: Some(Blue))],
+             items: [(kind: Key(Red), pos: (2.0, 3.0))],",
+        );
+        let def = map.sectors[1].mover.unwrap();
+        assert_eq!(def.kind, MoverKind::Door);
+        assert_eq!(
+            (def.speed, def.lock, def.channel, def.auto_return),
+            (2.5, Some(Key::Red), None, Some(3.0))
+        );
+        assert_eq!(map.sectors[1].face_mat, Some(3));
+        let sw = map.switches[0];
+        assert_eq!(
+            (map.walls[sw.wall].a, map.walls[sw.wall].b),
+            (Vec2::new(0.0, 4.0), Vec2::new(0.0, 0.0))
+        );
+        assert_eq!(
+            (sw.action, sw.key),
+            (SwitchAction::Channel(4), Some(Key::Blue))
+        );
+        assert_eq!(
+            map.items,
+            vec![Item {
+                kind: ItemKind::Key(Key::Red),
+                pos: Vec2::new(2.0, 3.0)
+            }]
+        );
+        assert_eq!(
+            lift_shaft("(kind: Lift(to: 2.0))", "").sectors[1]
+                .mover
+                .unwrap()
+                .kind,
+            MoverKind::Lift { to: 2.0 }
+        );
+    }
+
+    #[test]
+    fn key_set_tracks_each_colour() {
+        let mut k = KeySet::default();
+        assert!(!k.contains(Key::Red));
+        k.insert(Key::Blue);
+        assert!(k.contains(Key::Blue) && !k.contains(Key::Red) && !k.contains(Key::Yellow));
+    }
+
+    #[test]
+    fn rejects_switch_on_missing_edge() {
+        let src = level(
+            "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+            "(loops: [[0,1,2]], floor_z: 0.0, ceil_z: 1.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)",
+        )
+        .replace(
+            "player_start",
+            "switches: [(wall: (1, 0), action: Exit)], player_start",
+        );
+        assert_eq!(
+            Map::from_ron(&src).unwrap_err(),
+            MapError::BadSwitchWall {
+                index: 0,
+                from: 1,
+                to: 0
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_bad_movers() {
+        let with_mover = |m: &str| {
+            Map::from_ron(&level(
+                "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+                &format!(
+                    "(loops: [[0,1,2]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0, mover: Some({m}))"
+                ),
+            ))
+        };
+        for (m, reason) in [
+            (
+                "(kind: Lift(to: 3.0))",
+                "lift end must be below the ceiling",
+            ),
+            (
+                "(kind: Lift(to: 0.0))",
+                "lift end must differ from its start",
+            ),
+            ("(kind: Lift(to: inf))", "lift end must be finite"),
+            ("(kind: Lift(to: NaN))", "lift end must be finite"),
+            ("(kind: Door, speed: 0.0)", "speed must be positive"),
+            (
+                "(kind: Door, auto_return: Some(-1.0))",
+                "auto_return must not be negative",
+            ),
+        ] {
+            assert_eq!(
+                with_mover(m).unwrap_err(),
+                MapError::BadMover { sector: 0, reason },
+                "{m}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_bad_face_material() {
+        let src = level(
+            "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+            "(loops: [[0,1,2]], floor_z: 0.0, ceil_z: 1.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0, face_mat: Some(9))",
+        );
+        assert_eq!(
+            Map::from_ron(&src).unwrap_err(),
+            MapError::BadMaterial {
+                sector: 0,
+                material: 9
+            }
+        );
     }
 }
