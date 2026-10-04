@@ -8,3 +8,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # rr-core's glam must be the exact version Bevy uses (shared Vec2/Vec3 types);
+      # bump it together with Bevy, never on its own.
+      - dependency-name: "glam"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
