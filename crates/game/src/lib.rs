@@ -2,12 +2,13 @@
 
 pub mod coords;
 pub mod level;
+pub mod mechanics;
 pub mod paths;
 pub mod player;
 pub mod textures;
 
 use bevy::prelude::*;
-use level::{CurrentMap, LevelRenderPlugin, load_map};
+use level::{LevelRenderPlugin, load_map};
 
 pub struct GamePlugin {
     /// Level file name inside `assets/levels/`.
@@ -16,11 +17,12 @@ pub struct GamePlugin {
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(CurrentMap(load_map(&self.level)))
-            .add_plugins((
-                LevelRenderPlugin,
-                player::PlayerSimPlugin,
-                player::PlayerControlPlugin,
-            ));
+        mechanics::insert_level(app, load_map(&self.level));
+        app.add_plugins((
+            LevelRenderPlugin,
+            player::PlayerSimPlugin,
+            mechanics::MechanicsSimPlugin,
+            player::PlayerControlPlugin,
+        ));
     }
 }

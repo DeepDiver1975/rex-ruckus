@@ -8,6 +8,7 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::collide::Body;
+use rr_core::map::KeySet;
 use rr_core::movement::{MoveInput, Tuning, step_player};
 
 pub const PLAYER_RADIUS: f32 = 0.35;
@@ -32,14 +33,26 @@ pub struct Look {
     pub pitch: f32,
 }
 
-/// Latest movement intent, refreshed every frame and consumed by each fixed tick.
+/// Latest movement intent from the frame loop; held keys are re-read every frame.
 #[derive(Component, Default)]
 pub struct PendingInput {
     pub forward: f32,
     pub strafe: f32,
     pub jump: bool,
     pub crouch: bool,
+    /// Latched by a use-key press; the next fixed tick consumes it.
+    pub use_pressed: bool,
 }
+
+/// Keycards the player holds.
+#[derive(Component, Default)]
+pub struct Inventory {
+    pub keys: KeySet,
+}
+
+/// The fixed-tick player movement step; mechanics systems order themselves around it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlayerSimSet;
 
 #[derive(Component)]
 pub struct PlayerCamera;
@@ -58,7 +71,7 @@ impl Plugin for PlayerSimPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(60.0))
             .init_resource::<PlayerTuning>()
             .add_systems(Startup, spawn_player)
-            .add_systems(FixedUpdate, simulate_player);
+            .add_systems(FixedUpdate, simulate_player.in_set(PlayerSimSet));
     }
 }
 
@@ -85,6 +98,7 @@ fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<Player
             pitch: 0.0,
         },
         PendingInput::default(),
+        Inventory::default(),
     ));
 }
 
@@ -182,6 +196,7 @@ fn read_input(
     input.strafe = axis(KeyCode::KeyD, KeyCode::KeyA);
     input.jump = keys.pressed(KeyCode::Space);
     input.crouch = keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft);
+    input.use_pressed |= keys.just_pressed(KeyCode::KeyE);
 }
 
 fn update_camera(
