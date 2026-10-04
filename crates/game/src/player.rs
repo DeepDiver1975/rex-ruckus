@@ -15,6 +15,28 @@ pub const PLAYER_RADIUS: f32 = 0.35;
 /// Eyes sit this far below the top of the body.
 pub const EYE_BELOW_TOP: f32 = 0.15;
 const PITCH_LIMIT: f32 = 1.45;
+/// Rate (1/s) at which the eye eases to a new height after crouching or standing up.
+pub const EYE_EASE_RATE: f32 = 14.0;
+
+/// Frame-rate independent exponential approach of `current` towards `target`.
+pub fn ease_toward(current: f32, target: f32, rate: f32, dt: f32) -> f32 {
+    target + (current - target) * (-rate * dt).exp()
+}
+
+/// Smoothed eye height above the feet (core metres).
+#[derive(Component)]
+pub struct EyeHeight(pub f32);
+
+/// Cursor grab decision: Some(true) grab, Some(false) release, None keep.
+fn grab_change(focused: bool, clicked: bool, escape: bool, grabbed: bool) -> Option<bool> {
+    if grabbed && (escape || !focused) {
+        Some(false)
+    } else if !grabbed && clicked && focused {
+        Some(true)
+    } else {
+        None
+    }
+}
 
 #[derive(Component)]
 pub struct Player;
@@ -99,6 +121,7 @@ fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<Player
         },
         PendingInput::default(),
         Inventory::default(),
+        EyeHeight(tuning.0.stand_height - EYE_BELOW_TOP),
     ));
 }
 
@@ -163,16 +186,26 @@ fn spawn_camera(mut commands: Commands) {
 
 fn grab_cursor(
     mut cursor: Single<&mut CursorOptions>,
+    window: Single<&Window>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
-    if mouse.just_pressed(MouseButton::Left) {
-        cursor.visible = false;
-        cursor.grab_mode = CursorGrabMode::Locked;
-    }
-    if keys.just_pressed(KeyCode::Escape) {
-        cursor.visible = true;
-        cursor.grab_mode = CursorGrabMode::None;
+    let grabbed = cursor.grab_mode != CursorGrabMode::None;
+    match grab_change(
+        window.focused,
+        mouse.just_pressed(MouseButton::Left),
+        keys.just_pressed(KeyCode::Escape),
+        grabbed,
+    ) {
+        Some(true) => {
+            cursor.visible = false;
+            cursor.grab_mode = CursorGrabMode::Locked;
+        }
+        Some(false) => {
+            cursor.visible = true;
+            cursor.grab_mode = CursorGrabMode::None;
+        }
+        None => {}
     }
 }
 
@@ -201,12 +234,19 @@ fn read_input(
 
 fn update_camera(
     time: Res<Time<Fixed>>,
-    player: Single<(&PlayerBody, &PrevFeet, &Look), With<Player>>,
+    frame_time: Res<Time>,
+    player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
 ) {
-    let (body, prev, look) = player.into_inner();
+    let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
-    let eye = feet + Vec3::Z * (body.0.height - EYE_BELOW_TOP);
+    eye_h.0 = ease_toward(
+        eye_h.0,
+        body.0.height - EYE_BELOW_TOP,
+        EYE_EASE_RATE,
+        frame_time.delta_secs(),
+    );
+    let eye = feet + Vec3::Z * eye_h.0;
     camera.translation = to_bevy(eye);
     camera.rotation = Quat::from_euler(
         EulerRot::YXZ,
@@ -214,4 +254,41 @@ fn update_camera(
         look.pitch,
         0.0,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eye_eases_without_overshoot_and_is_frame_rate_independent() {
+        assert_eq!(ease_toward(1.65, 0.95, EYE_EASE_RATE, 0.0), 1.65);
+        let one = ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0 / 30.0);
+        let two = ease_toward(
+            ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0 / 60.0),
+            0.95,
+            EYE_EASE_RATE,
+            1.0 / 60.0,
+        );
+        assert!((one - two).abs() < 1e-5);
+        assert!(one < 1.65 && one > 0.95);
+        assert!((ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0) - 0.95).abs() < 1e-3);
+    }
+
+    #[test]
+    fn grab_follows_click_escape_and_focus() {
+        assert_eq!(grab_change(true, true, false, false), Some(true));
+        assert_eq!(
+            grab_change(false, true, false, false),
+            None,
+            "no grab while unfocused"
+        );
+        assert_eq!(grab_change(true, false, true, true), Some(false));
+        assert_eq!(
+            grab_change(false, false, false, true),
+            Some(false),
+            "focus lost releases"
+        );
+        assert_eq!(grab_change(true, false, false, true), None);
+    }
 }
