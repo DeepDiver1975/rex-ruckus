@@ -6,6 +6,7 @@ pub mod extrude;
 pub mod fixtures;
 pub mod geom;
 pub mod map;
+pub mod mechanics;
 pub mod movement;
 
 pub use glam;
