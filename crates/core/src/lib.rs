@@ -9,5 +9,6 @@ pub mod interact;
 pub mod map;
 pub mod mechanics;
 pub mod movement;
+pub mod validate;
 
 pub use glam;
