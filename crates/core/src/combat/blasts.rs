@@ -4,7 +4,7 @@
 use super::{BODY_PLAYER, Combat, CombatEvent, PlayerTarget, hurt_player};
 use crate::collide::Body;
 use crate::defs::Defs;
-use crate::explosion::{Blast, solve};
+use crate::explosion::{Blast, solve, walls_in_reach};
 use crate::map::Map;
 use glam::Vec3;
 
@@ -34,7 +34,7 @@ impl Combat {
     /// barrel dies, and queues its blast, at most once.
     pub(super) fn process_blasts(
         &mut self,
-        map: &Map,
+        map: &mut Map,
         defs: &Defs,
         player: &mut PlayerTarget,
         dt: f32,
@@ -58,10 +58,12 @@ impl Combat {
     /// kills and barrel chains behave as for any other damage. Then its noise
     /// (`BLAST_NOISE`) wakes sleepers.
     ///
-    /// World effects of a blast (glass, cracked walls, lights) hook in here.
+    /// World effects of a blast hook in here. Glass it reaches (`walls_in_reach`) shatters
+    /// after the splash is dealt, so an intact pane still shields what is behind it from this
+    /// blast; the bang then carries through the broken panes.
     fn apply_blast(
         &mut self,
-        map: &Map,
+        map: &mut Map,
         defs: &Defs,
         player: &mut PlayerTarget,
         pb: &PendingBlast,
@@ -87,6 +89,9 @@ impl Combat {
             } else {
                 out.extend(self.damage_actor(defs, hit.body - 1, hit.damage));
             }
+        }
+        for w in walls_in_reach(map, blast) {
+            self.break_glass(map, w, out);
         }
         let woken = self.make_noise(map, blast.center, blast.sector, BLAST_NOISE);
         out.extend(woken.into_iter().map(CombatEvent::ActorWoke));

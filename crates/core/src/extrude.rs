@@ -1,5 +1,6 @@
-//! Turns sectors into triangle meshes: floors, ceilings, solid walls and the upper/lower
-//! "step" faces where a portal leads to a sector with a different floor or ceiling height.
+//! Turns sectors into triangle meshes: floors, ceilings, solid walls, the upper/lower "step"
+//! faces where a portal leads to a sector with a different floor or ceiling height, and the
+//! glass panes of `Wall::glass` portals (in `Map::glass_material`).
 
 use crate::map::{Map, MaterialId, SectorId};
 use glam::{Vec2, Vec3};
@@ -106,6 +107,20 @@ pub fn extrude_sector(map: &Map, s: SectorId) -> Result<Vec<SubMesh>, ExtrudeErr
                         sector.ceil_z,
                     );
                 }
+                // One pane per portal: the side with the lower wall id emits it, double-sided
+                // (a quad facing each sector), so it shows from both rooms. Breaking it dirties
+                // both sectors anyway.
+                if w.glass && w.next_wall.is_some_and(|back| wid < back) {
+                    let pane = out
+                        .entry(map.glass_material().unwrap_or(w.material))
+                        .or_default();
+                    let (z0, z1) = (
+                        sector.floor_z.max(other.floor_z),
+                        sector.ceil_z.min(other.ceil_z),
+                    );
+                    wall_quad(pane, w.a, w.b, z0, z1);
+                    wall_quad(pane, w.b, w.a, z0, z1);
+                }
             }
         }
     }
@@ -166,7 +181,7 @@ fn triangulate(map: &Map, s: SectorId) -> Result<Vec<[Vec2; 3]>, ExtrudeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{pillar_room, two_rooms};
+    use crate::fixtures::{glass_rooms, pillar_room, two_rooms};
 
     fn by_material(subs: &[SubMesh], m: MaterialId) -> &MeshData {
         &subs
@@ -217,7 +232,7 @@ mod tests {
 
     #[test]
     fn every_triangle_winds_counter_clockwise_around_its_normal() {
-        for map in [two_rooms(1.0, 2.0), pillar_room()] {
+        for map in [two_rooms(1.0, 2.0), pillar_room(), glass_rooms()] {
             for s in 0..map.sectors.len() {
                 for sub in extrude_sector(&map, s).unwrap() {
                     let m = &sub.mesh;
@@ -257,6 +272,45 @@ mod tests {
         let map = two_rooms(0.0, 3.0);
         let subs = extrude_sector(&map, 0).unwrap();
         assert_close(by_material(&subs, 0).area(), 3.0 * 4.0 * 3.0);
+    }
+
+    #[test]
+    fn glass_pane_fills_the_opening_once() {
+        let mut map = glass_rooms();
+        let glass = map.glass_material().unwrap();
+        // The hall (lower wall id) carries the whole pane, 2 m wide and as tall as the booth's
+        // 3 m opening, double-sided; the booth emits none of it.
+        let subs = extrude_sector(&map, 0).unwrap();
+        let pane = by_material(&subs, glass);
+        assert_close(pane.area(), 2.0 * 2.0 * 3.0);
+        assert!(pane.normals.iter().all(|n| n[0].abs() == 1.0));
+        assert!(pane.normals.iter().any(|n| n[0] > 0.0) && pane.normals.iter().any(|n| n[0] < 0.0));
+        assert!(
+            pane.positions
+                .iter()
+                .all(|p| p[0] == 10.0 && (0.0..=3.0).contains(&p[2]))
+        );
+        // The 1 m soffit above the booth is still there, in wall material.
+        assert_close(
+            by_material(&subs, 0).area(),
+            (10.0 + 10.0 + 10.0 + 4.0 + 4.0) * 4.0 + 4.0 * 2.0 * 4.0 + 2.0 * 1.0,
+        );
+        assert!(
+            extrude_sector(&map, 1)
+                .unwrap()
+                .iter()
+                .all(|s| s.material != glass)
+        );
+        let w = (0..map.walls.len()).find(|&w| map.walls[w].glass).unwrap();
+        crate::destruct::Destruct::new(&map).break_glass(&mut map, w);
+        for s in 0..2 {
+            assert!(
+                extrude_sector(&map, s)
+                    .unwrap()
+                    .iter()
+                    .all(|m| m.material != glass)
+            );
+        }
     }
 
     #[test]

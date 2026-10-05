@@ -101,6 +101,9 @@ pub fn render_svg(map: &Map) -> String {
         let (a, b) = (px(w.a), px(w.b));
         let style = match (w.next_sector, w.next_wall) {
             (None, _) => r##"stroke="#000" stroke-width="3""##.to_string(),
+            (Some(_), Some(n)) if w.glass && id < n => {
+                r##"stroke="#2a9fd6" stroke-width="2""##.to_string()
+            }
             (Some(t), Some(n)) if id < n => {
                 let ledge = (map.sectors[t].floor_z - map.sectors[w.sector].floor_z).abs() > step;
                 format!(

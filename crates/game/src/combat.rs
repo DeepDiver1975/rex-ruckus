@@ -4,6 +4,7 @@
 
 use crate::flow::{PlayState, SpawnLevel};
 use crate::level::CurrentMap;
+use crate::mechanics::{DirtySectors, LevelMechanics};
 use crate::paths::assets_dir;
 use crate::player::{
     EYE_BELOW_TOP, Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player,
@@ -101,14 +102,15 @@ pub fn aim_dir(angle: f32, pitch: f32) -> Vec3 {
     Vec3::new(cp * ca, cp * sa, sp)
 }
 
-/// Simulation only: safe to run headless. Needs `insert_level`, `insert_defs` and
-/// `PlayerSimPlugin`.
+/// Simulation only: safe to run headless. Needs `insert_level` (map and mechanics; shattered
+/// glass changes the map and lands in `DirtySectors`), `insert_defs` and `PlayerSimPlugin`.
 pub struct CombatSimPlugin;
 
 impl Plugin for CombatSimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FxQueue>()
             .init_resource::<PlayState>()
+            .init_resource::<DirtySectors>()
             .add_systems(SpawnLevel, spawn_combat.after(spawn_player))
             .add_systems(
                 FixedUpdate,
@@ -147,10 +149,11 @@ pub fn spawn_combat(
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn player_weapons(
     time: Res<Time<Fixed>>,
-    map: Res<CurrentMap>,
+    mut map: ResMut<CurrentMap>,
+    mut dirty: ResMut<DirtySectors>,
     defs: Res<GameDefs>,
     mut combat: ResMut<LevelCombat>,
     mut rng: ResMut<PlayRng>,
@@ -196,7 +199,8 @@ fn player_weapons(
             ) {
                 let out = combat
                     .0
-                    .player_attack(&map.0, &defs.0, eye, body.0.sector, ev);
+                    .player_attack(&mut map.0, &defs.0, eye, body.0.sector, ev);
+                mark_dirty(&out, &mut dirty);
                 fx.combat.extend(out);
             }
         }
@@ -204,9 +208,12 @@ fn player_weapons(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn combat_tick(
     time: Res<Time<Fixed>>,
-    map: Res<CurrentMap>,
+    mut map: ResMut<CurrentMap>,
+    mut mech: ResMut<LevelMechanics>,
+    mut dirty: ResMut<DirtySectors>,
     defs: Res<GameDefs>,
     mut combat: ResMut<LevelCombat>,
     mut fx: ResMut<FxQueue>,
@@ -220,8 +227,21 @@ fn combat_tick(
             vitals: &mut vitals.0,
             eye,
         };
-        let out = combat.0.tick(&map.0, &defs.0, &mut target, dt);
+        let out = combat
+            .0
+            .tick(&mut map.0, &mut mech.0, &defs.0, &mut target, dt);
+        mark_dirty(&out, &mut dirty);
         fx.combat.extend(out);
+    }
+}
+
+/// Queues the sectors a combat change (shattered glass) left stale for re-meshing, the same
+/// path movers use. The shard effect reads `GlassBroken` from [`FxQueue`] separately.
+fn mark_dirty(events: &[CombatEvent], dirty: &mut DirtySectors) {
+    for e in events {
+        if let CombatEvent::GlassBroken { dirty: sectors, .. } = e {
+            dirty.0.extend(sectors);
+        }
     }
 }
 

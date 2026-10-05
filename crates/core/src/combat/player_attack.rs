@@ -19,7 +19,8 @@ impl Combat {
     /// Resolves one player weapon event from the eye point `eye` (inside `sector`).
     /// - `Fire` and `Kick` trace their rays against living actors. Damage is summed per actor
     ///   and applied once each, in ascending actor index. Each pellet that hits the world
-    ///   reports an `Impact`.
+    ///   reports an `Impact`, except one that hits intact glass: it shatters the pane
+    ///   (`GlassBroken`) and stops there. Later pellets of the same shot already find it gone.
     /// - `Launch` spawns the weapon's projectile at the eye (`Targets::All`; the player, its
     ///   owner, is never hit by it). Thrown projectiles (with gravity) get a slight upward lob.
     /// - `Detonate` turns every live player remote bomb into a blast (see [`Combat::detonate`]).
@@ -28,7 +29,7 @@ impl Combat {
     /// earshot.
     pub fn player_attack(
         &mut self,
-        map: &Map,
+        map: &mut Map,
         defs: &Defs,
         eye: Vec3,
         sector: SectorId,
@@ -79,6 +80,7 @@ impl Combat {
             };
             match h.kind {
                 HitKind::Body(i) => dealt[i] += damage,
+                HitKind::Wall(w) if map.walls[w].glass => self.break_glass(map, w, &mut out),
                 _ => out.push(CombatEvent::Impact {
                     point: h.point,
                     normal: h.normal,

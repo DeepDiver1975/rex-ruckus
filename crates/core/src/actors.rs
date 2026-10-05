@@ -7,7 +7,7 @@
 use crate::collide::Body;
 use crate::defs::{EnemyAttack, EnemyDef, Locomotion};
 use crate::health::{DamageOutcome, Health};
-use crate::map::{ActorKind, ActorSpawn, Map, SectorId};
+use crate::map::{ActorKind, ActorSpawn, Map, SectorId, WallId};
 use crate::movement::{MoveInput, Tuning, can_cross};
 use crate::rng::Rng;
 use crate::trace::{HitKind, Ray, trace};
@@ -326,8 +326,11 @@ pub fn effective_muzzle(map: &Map, a: &Actor) -> (Vec3, SectorId) {
 pub struct Volley {
     /// Damage of the pellets that hit the player body.
     pub player_damage: i32,
-    /// `(point, normal, sector)` of every pellet that hit the world.
+    /// `(point, normal, sector)` of every pellet that hit the world, glass aside.
     pub impacts: Vec<(Vec3, Vec3, SectorId)>,
+    /// Glass walls pellets hit, once each. The volley is traced on the map as it was, so every
+    /// pellet stops at a pane; the caller breaks them (`Destruct::break_glass`).
+    pub glass: Vec<WallId>,
 }
 
 /// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
@@ -369,6 +372,11 @@ pub fn volley(
         match h.kind {
             HitKind::Body(0) => out.player_damage += damage,
             HitKind::Body(_) => {}
+            HitKind::Wall(w) if map.walls[w].glass => {
+                if !out.glass.contains(&w) {
+                    out.glass.push(w);
+                }
+            }
             _ => out.impacts.push((h.point, h.normal, h.sector)),
         }
     }
@@ -453,18 +461,19 @@ fn chase(
 }
 
 /// Just past the midpoint of the widest portal wall from sector `from` into `to`, or `None` if
-/// the two sectors share no portal.
+/// the two sectors share no portal (intact glass does not count).
 fn portal_waypoint(map: &Map, from: SectorId, to: SectorId) -> Option<Vec2> {
     let wall = map.sectors[from]
         .walls()
         .map(|w| &map.walls[w])
-        .filter(|w| w.next_sector == Some(to))
+        .filter(|w| w.passage() == Some(to))
         .max_by(|x, y| x.a.distance(x.b).total_cmp(&y.a.distance(y.b)))?;
     Some((wall.a + wall.b) * 0.5 - wall.inward_normal() * PORTAL_OVERSHOOT)
 }
 
 /// First sector on the shortest (fewest portals) walkable route from `from` to `to`, judged on
-/// live floor and ceiling heights with `can_cross`. `None` if `from == to` or `to` is unreachable.
+/// live floor and ceiling heights with `can_cross`, never through intact glass. `None` if
+/// `from == to` or `to` is unreachable.
 pub fn next_hop(map: &Map, from: SectorId, to: SectorId, t: &Tuning) -> Option<SectorId> {
     if from == to {
         return None;
@@ -476,7 +485,7 @@ pub fn next_hop(map: &Map, from: SectorId, to: SectorId, t: &Tuning) -> Option<S
     seen[from] = true;
     let mut queue = std::collections::VecDeque::from([from]);
     while let Some(s) = queue.pop_front() {
-        for n in map.neighbours(s) {
+        for n in map.passages(s) {
             if seen[n] || !can_cross(pose(s), pose(n), t) {
                 continue;
             }

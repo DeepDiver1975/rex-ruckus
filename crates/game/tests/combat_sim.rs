@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use rr_core::defs::{Defs, WeaponId};
-use rr_core::fixtures::{combat_room, door_rooms, lift_shaft};
+use rr_core::fixtures::{combat_room, door_rooms, glass_rooms, lift_shaft};
 use rr_core::map::{ActorKind, ActorSpawn, Map};
 use rr_core::mechanics::Motion;
 use rr_core::weapons::{WeaponEvent, WeaponPhase};
@@ -8,7 +8,10 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
 use rr_game::flow::FlowPlugin;
-use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::level::CurrentMap;
+use rr_game::mechanics::{
+    DirtySectors, HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level,
+};
 use rr_game::player::{
     EYE_BELOW_TOP, Inventory, Look, PendingInput, PlayerBody, PlayerSimPlugin, fire_gate,
 };
@@ -220,6 +223,26 @@ fn pistol_kills_grunt_headless() {
     }
     assert!(killed, "the grunt died");
     assert!(!app.world().resource::<LevelCombat>().0.actors[0].alive());
+}
+
+#[test]
+fn shooting_glass_breaks_it_and_dirties_both_sectors() {
+    // The start faces the pane, level, at eye height.
+    let mut app = app(glass_rooms());
+    input(&mut app).fire_pressed = true;
+    ticks(&mut app, 1);
+    let fx = take_fx(&mut app);
+    assert!(
+        fx.combat
+            .iter()
+            .any(|e| matches!(e, rr_core::combat::CombatEvent::GlassBroken { .. })),
+        "{:?}",
+        fx.combat
+    );
+    let map = &app.world().resource::<CurrentMap>().0;
+    assert!(map.walls.iter().all(|w| !w.glass));
+    let dirty = &app.world().resource::<DirtySectors>().0;
+    assert!(dirty.contains(&0) && dirty.contains(&1), "{dirty:?}");
 }
 
 #[test]

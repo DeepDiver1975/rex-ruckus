@@ -38,20 +38,33 @@ impl Player {
         self.body.pos + Vec3::Z * 1.6
     }
 
-    pub(super) fn tick(&mut self, c: &mut Combat, map: &Map, d: &Defs) -> Vec<CombatEvent> {
+    /// One combat tick. Glass changes `map`; the mechanics are a throwaway copy built from a
+    /// clone of `map` (`map` itself keeps its doors as they are).
+    pub(super) fn tick(&mut self, c: &mut Combat, map: &mut Map, d: &Defs) -> Vec<CombatEvent> {
+        let mut mech = Mechanics::new(&mut map.clone());
+        self.tick_with(c, map, &mut mech, d)
+    }
+
+    pub(super) fn tick_with(
+        &mut self,
+        c: &mut Combat,
+        map: &mut Map,
+        mech: &mut Mechanics,
+        d: &Defs,
+    ) -> Vec<CombatEvent> {
         let eye = self.eye();
         let mut t = PlayerTarget {
             body: &mut self.body,
             vitals: &mut self.vitals,
             eye,
         };
-        c.tick(map, d, &mut t, DT)
+        c.tick(map, mech, d, &mut t, DT)
     }
 
     pub(super) fn shoot(
         &self,
         c: &mut Combat,
-        map: &Map,
+        map: &mut Map,
         d: &Defs,
         weapon: WeaponId,
         dirs: Vec<Vec3>,
@@ -111,7 +124,7 @@ fn pistol_kills_grunt_in_three_shots() {
     let p = Player::at(&map, 1.5, 1.5);
     let dir = p.aim_at(&c, 0);
     for shot in 1..=3 {
-        let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir]);
+        let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir]);
         assert!(ev.contains(&CombatEvent::ActorHurt {
             actor: 0,
             amount: 12
@@ -122,7 +135,7 @@ fn pistol_kills_grunt_in_three_shots() {
     }
     assert!(!c.actors[0].alive());
     // A fourth shot passes through the corpse and hits the wall behind it.
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir]);
     assert_eq!(count(&ev, |e| matches!(e, CombatEvent::Impact { .. })), 1);
     assert_eq!(
         count(&ev, |e| matches!(
@@ -142,7 +155,7 @@ fn pellet_stops_at_first_body() {
     let mut c = Combat::spawn(&map, &d, 1);
     let p = Player::at(&map, 1.5, 1.5);
     let dir = p.aim_at(&c, 0);
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Shotgun, vec![dir, dir]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Shotgun, vec![dir, dir]);
     assert_eq!(
         ev.iter()
             .filter(|e| matches!(e, CombatEvent::ActorHurt { .. }))
@@ -168,7 +181,7 @@ fn shotgun_pellets_split_between_two_grunts() {
     let wall = Vec3::new(0.0, -1.0, 0.0);
     // Interleaved so the event order cannot simply follow the pellet order.
     let dirs = vec![b, a, b, a, wall, a];
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Shotgun, dirs);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Shotgun, dirs);
     let hurts: Vec<_> = ev
         .iter()
         .filter(|e| matches!(e, CombatEvent::ActorHurt { .. }))
@@ -209,7 +222,7 @@ fn kick_hits_only_within_reach() {
     let kick = WeaponEvent::Kick {
         dir: p.aim_at(&c, 0),
     };
-    let ev = c.player_attack(&map, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &kick);
     assert!(ev.contains(&CombatEvent::ActorHurt {
         actor: 0,
         amount: 12
@@ -218,11 +231,11 @@ fn kick_hits_only_within_reach() {
     let far = WeaponEvent::Kick {
         dir: p.aim_at(&c, 1),
     };
-    let ev = c.player_attack(&map, &d, p.eye(), p.body.sector, &far);
+    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &far);
     assert!(ev.is_empty(), "{ev:?}");
     // Non-attack events do nothing.
     for e in [WeaponEvent::DryFire, WeaponEvent::ReloadStart] {
-        assert!(c.player_attack(&map, &d, p.eye(), 0, &e).is_empty());
+        assert!(c.player_attack(&mut map, &d, p.eye(), 0, &e).is_empty());
     }
 }
 
@@ -235,14 +248,14 @@ fn hit_wakes_sleeper_but_kill_reports_only_killed() {
     let mut c = Combat::spawn(&map, &d, 1);
     let p = Player::at(&map, 1.5, 1.5);
     let dir = p.aim_at(&c, 0);
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir]);
     assert_eq!(count(&ev, |e| *e == CombatEvent::ActorWoke(0)), 1, "{ev:?}");
     // The noise wakes the other sleeper too.
     assert_eq!(count(&ev, |e| *e == CombatEvent::ActorWoke(1)), 1, "{ev:?}");
 
     let mut c = Combat::spawn(&map, &d, 1);
     let dir = p.aim_at(&c, 0);
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir; 3]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
     assert!(ev.contains(&CombatEvent::ActorKilled(0)));
     assert!(!ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
 }
@@ -258,15 +271,15 @@ fn actor_killed_this_tick_does_not_fire() {
 
     // Control: left alone, it fires this tick.
     let mut control = c.clone();
-    let ev = p.clone_tick(&mut control, &map, &d);
+    let ev = p.clone_tick(&mut control, &mut map, &d);
     assert!(ev.contains(&CombatEvent::ActorFired { actor: 0 }), "{ev:?}");
     assert_eq!(control.projectiles.len(), 1);
 
     let dir = p.aim_at(&c, 0);
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir; 3]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
     assert!(ev.contains(&CombatEvent::ActorKilled(0)));
     for _ in 0..120 {
-        let ev = p.tick(&mut c, &map, &d);
+        let ev = p.tick(&mut c, &mut map, &d);
         assert!(
             !ev.iter()
                 .any(|e| matches!(e, CombatEvent::ActorFired { .. })),
@@ -279,7 +292,7 @@ fn actor_killed_this_tick_does_not_fire() {
 
 impl Player {
     /// `tick` on a throwaway copy of the player.
-    fn clone_tick(&self, c: &mut Combat, map: &Map, d: &Defs) -> Vec<CombatEvent> {
+    fn clone_tick(&self, c: &mut Combat, map: &mut Map, d: &Defs) -> Vec<CombatEvent> {
         let mut copy = Player {
             body: self.body,
             vitals: self.vitals,
@@ -301,7 +314,7 @@ fn gunfire_wakes_nearby_but_not_behind_closed_door() {
     let wall = Vec3::new(0.0, -1.0, 0.0);
 
     let mut c = Combat::spawn(&closed, &d, 1);
-    let ev = p.shoot(&mut c, &closed, &d, WeaponId::Pistol, vec![wall]);
+    let ev = p.shoot(&mut c, &mut closed, &d, WeaponId::Pistol, vec![wall]);
     assert!(ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
     assert!(!ev.contains(&CombatEvent::ActorWoke(1)), "{ev:?}");
     assert_eq!(c.actors[0].state, AiState::Alert { t: 0.0 });
@@ -309,14 +322,14 @@ fn gunfire_wakes_nearby_but_not_behind_closed_door() {
 
     // Door open: the same shot carries into room B.
     let mut c = Combat::spawn(&authored, &d, 1);
-    let ev = p.shoot(&mut c, &authored, &d, WeaponId::Pistol, vec![wall]);
+    let ev = p.shoot(&mut c, &mut authored, &d, WeaponId::Pistol, vec![wall]);
     assert!(ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
     assert!(ev.contains(&CombatEvent::ActorWoke(1)), "{ev:?}");
 
     // A kick is quiet: 4 m does not reach a sleeper 8 m away.
     let mut c = Combat::spawn(&authored, &d, 1);
     let kick = WeaponEvent::Kick { dir: wall };
-    let ev = c.player_attack(&authored, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(&mut authored, &d, p.eye(), p.body.sector, &kick);
     assert!(!ev.iter().any(|e| matches!(e, CombatEvent::ActorWoke(_))));
     assert_eq!(
         c.make_noise(&authored, p.eye(), 0, 4.0),
@@ -340,7 +353,7 @@ fn bolt_damages_player_and_reports_direction() {
     let mut p = Player::at(&map, 1.5, 1.5);
     let mut log = Vec::new();
     for _ in 0..120 {
-        log.extend(p.tick(&mut c, &map, &d));
+        log.extend(p.tick(&mut c, &mut map, &d));
         if log
             .iter()
             .any(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
@@ -417,7 +430,7 @@ fn player_killed_reported_once() {
     bolt(&mut c, &map, Vec3::new(4.0, 1.5, 1.0));
     let mut log = Vec::new();
     for _ in 0..60 {
-        log.extend(p.tick(&mut c, &map, &d));
+        log.extend(p.tick(&mut c, &mut map, &d));
     }
     assert_eq!(count(&log, |e| *e == CombatEvent::PlayerKilled), 1);
     assert_eq!(
@@ -443,7 +456,7 @@ fn grunt_rides_lift() {
     let mut p = Player::at(&map, 1.0, 2.0);
     mech.toggle(0);
     for _ in 0..120 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
     }
     assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
@@ -462,7 +475,7 @@ fn doorway() -> (Map, Mechanics, Combat, Player, Defs) {
     let mut p = Player::at(&map, 1.0, 2.0);
     mech.toggle(0);
     for _ in 0..120 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
     }
     assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
@@ -476,7 +489,7 @@ fn door_reverses_on_grunt() {
     mech.toggle(0);
     let mut reversed = false;
     for _ in 0..180 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
         assert!(
             map.sectors[1].ceil_z >= top - 1e-3,
@@ -491,12 +504,12 @@ fn door_reverses_on_grunt() {
 fn corpse_does_not_hold_door_open() {
     let (mut map, mut mech, mut c, mut p, d) = doorway();
     let dir = p.aim_at(&c, 0);
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir; 3]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
     assert!(ev.contains(&CombatEvent::ActorKilled(0)), "{ev:?}");
     assert!(c.living_bodies().0.is_empty());
     mech.toggle(0);
     for _ in 0..180 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
     }
     assert_eq!(mech.movers[0].motion, Motion::AtStart);
@@ -513,11 +526,11 @@ fn corpse_snaps_to_floor() {
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.0, 2.0);
     let dir = p.aim_at(&c, 0);
-    p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir; 3]);
+    p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
     assert!(!c.actors[0].alive());
     mech.toggle(0);
     for _ in 0..120 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
     }
     assert_eq!(
@@ -538,7 +551,7 @@ fn player_and_grunt_do_not_overlap() {
     let mut p = Player::at(&map, 1.5, 1.5);
     let mut q = Player::at(&map, 0.36, 6.0);
     let reach = |a: &Body, b: &Body| a.radius + b.radius;
-    p.tick(&mut c, &map, &d);
+    p.tick(&mut c, &mut map, &d);
     let gap = c.actors[0]
         .body
         .pos
@@ -549,7 +562,7 @@ fn player_and_grunt_do_not_overlap() {
     assert!((p.body.pos.x - 1.35).abs() < 1e-3, "{}", p.body.pos);
     assert!((c.actors[0].body.pos.x - 2.05).abs() < 1e-3);
     for _ in 0..120 {
-        q.tick(&mut c, &map, &d);
+        q.tick(&mut c, &mut map, &d);
     }
     let gap = c.actors[1]
         .body
@@ -576,9 +589,9 @@ fn combat_is_deterministic_for_a_seed() {
         for i in 0..600 {
             if i % 40 == 0 {
                 let dir = p.aim_at(&c, 1);
-                log.extend(p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![dir]));
+                log.extend(p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir]));
             }
-            log.extend(p.tick(&mut c, &map, &d));
+            log.extend(p.tick(&mut c, &mut map, &d));
         }
         (log, c.actors, p.body, p.vitals)
     };
@@ -622,7 +635,7 @@ fn bolt_spawns_at_muzzle_offset() {
     let def = d.enemy(ActorKind::Grunt);
     let (fwd, side, up) = def.muzzle;
     for _ in 0..120 {
-        let ev = p.tick(&mut c, &map, &d);
+        let ev = p.tick(&mut c, &mut map, &d);
         if count(&ev, |e| matches!(e, CombatEvent::ActorFired { .. })) > 0 {
             let a = &c.actors[0];
             let b = &c.projectiles[0];
@@ -650,7 +663,7 @@ fn enforcer_hitscan_hurts_player() {
     let (mut volleys, mut impacts) = (0, 0);
     for _ in 0..900 {
         let before = p.vitals.health.hp;
-        let ev = p.tick(&mut c, &map, &d);
+        let ev = p.tick(&mut c, &mut map, &d);
         volleys += count(&ev, |e| matches!(e, CombatEvent::ActorFired { .. }));
         impacts += count(&ev, |e| matches!(e, CombatEvent::Impact { .. }));
         for e in &ev {
@@ -691,7 +704,7 @@ fn hitscan_pellets_stop_at_other_bodies() {
     let mut p = Player::at(&map, 7.0, 1.5);
     // Actors walk through each other, so only the first volley, fired from behind the
     // crate, is guaranteed to be blocked.
-    let ev = p.tick(&mut c, &map, &d);
+    let ev = p.tick(&mut c, &mut map, &d);
     assert!(ev.contains(&CombatEvent::ActorFired { actor: 0 }), "{ev:?}");
     assert_eq!(
         count(&ev, |e| matches!(e, CombatEvent::PlayerHurt { .. })),
@@ -712,7 +725,7 @@ fn slasher_lunges_and_hits() {
     let mut p = Player::at(&map, 3.4, 1.5);
     let mut top_speed = 0.0_f32;
     for _ in 0..120 {
-        let ev = p.tick(&mut c, &map, &d);
+        let ev = p.tick(&mut c, &mut map, &d);
         if matches!(c.actors[0].state, AiState::Attack { .. }) {
             top_speed = top_speed.max(c.actors[0].body.vel.truncate().length());
         }
@@ -747,7 +760,7 @@ fn slasher_misses_when_player_backs_off() {
             p.body.pos.x = 7.5;
             swung = true;
         }
-        let ev = p.tick(&mut c, &map, &d);
+        let ev = p.tick(&mut c, &mut map, &d);
         assert_eq!(
             count(&ev, |e| matches!(e, CombatEvent::PlayerHurt { .. })),
             0
@@ -771,7 +784,7 @@ fn barrel_never_thinks() {
     let start = c.actors[0].clone();
     let mut p = Player::at(&map, 2.0, 1.5);
     for _ in 0..300 {
-        assert!(p.tick(&mut c, &map, &d).is_empty());
+        assert!(p.tick(&mut c, &mut map, &d).is_empty());
     }
     assert!(c.make_noise(&map, p.eye(), p.body.sector, 30.0).is_empty());
     assert_eq!(c.actors[0], start, "no state change, no movement");
@@ -779,7 +792,7 @@ fn barrel_never_thinks() {
     // It is still a body: a trace hits it, damage lands without pain or waking, a kill goes
     // through Dying to Dead.
     let aim = p.aim_at(&c, 0);
-    let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![aim]);
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![aim]);
     assert!(
         ev.iter()
             .any(|e| matches!(e, CombatEvent::ActorHurt { .. }))
@@ -789,7 +802,7 @@ fn barrel_never_thinks() {
     let ev = c.damage_actor(&d, 0, 1000);
     assert!(ev.contains(&CombatEvent::ActorKilled(0)));
     for _ in 0..30 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
     }
     assert_eq!(c.actors[0].state, AiState::Dead);
 }
@@ -808,7 +821,7 @@ fn player_cannot_shove_a_barrel() {
     };
     for _ in 0..60 {
         step_player(&map, &mut p.body, &walk, &Tuning::default(), DT);
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         let reach = c.actors[0].body.radius + p.body.radius;
         let dist = p.body.pos.truncate().distance(barrel_at.truncate());
         assert!(dist >= reach - 1e-3, "player inside the barrel: {dist}");

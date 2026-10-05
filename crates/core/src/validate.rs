@@ -346,8 +346,9 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
 const NEAR_START: f32 = 3.0;
 
 /// Actor spawns. Sizes come from `Defs::builtin()`. "Blocking wall" means any wall of the actor's
-/// own sector with no `next_sector` (a solid wall); portal walls never block, matching how the
-/// start's room-to-stand check treats geometry (it only looks at sector height).
+/// own sector with no `passage` (a solid wall or a glass pane); open portal walls never block,
+/// matching how the start's room-to-stand check treats geometry (it only looks at sector
+/// height).
 fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
     let defs = Defs::builtin();
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
@@ -371,7 +372,7 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
         }
         let near_wall = sec.walls().any(|w| {
             let wall = &map.walls[w];
-            wall.next_sector.is_none()
+            wall.passage().is_none()
                 && closest_point_on_segment(a.pos, wall.a, wall.b).distance(a.pos) < def.radius
         });
         if near_wall {

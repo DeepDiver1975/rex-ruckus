@@ -28,7 +28,15 @@ pub struct RawLevel {
     pub items: Vec<RawItem>,
     #[serde(default)]
     pub actors: Vec<RawActor>,
+    /// Breakable glass panes: vertex indices (from, to) of one side of a portal, like a switch's
+    /// `wall`. Both sides of the portal get `Wall::glass`.
+    #[serde(default)]
+    pub glass: Vec<(usize, usize)>,
 }
+
+/// Material name the glass pane of a `Wall::glass` portal renders with. `Map::from_raw` appends
+/// it to `Map::materials` when the level has glass and does not list it already.
+pub const GLASS_MATERIAL: &str = "glass";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawSector {
@@ -211,9 +219,18 @@ pub struct Wall {
     pub next_sector: Option<SectorId>,
     pub next_wall: Option<WallId>,
     pub material: MaterialId,
+    /// Runtime: an intact glass pane fills this portal. It behaves as a solid wall (movement,
+    /// shots, sight, sound, pathing) until `Destruct::break_glass` clears it on both sides.
+    pub glass: bool,
 }
 
 impl Wall {
+    /// The sector beyond this wall when something can pass through it: `next_sector`, unless
+    /// the wall is solid or holds intact glass.
+    pub fn passage(&self) -> Option<SectorId> {
+        self.next_sector.filter(|_| !self.glass)
+    }
+
     /// Unit normal pointing into this wall's own sector (left of a→b).
     pub fn inward_normal(&self) -> Vec2 {
         let d = (self.b - self.a).normalize_or_zero();
@@ -286,6 +303,12 @@ pub enum MapError {
     },
     #[error("actor {index}: {reason}")]
     BadActor { index: usize, reason: &'static str },
+    #[error("glass {index}: no portal runs from vertex {from} to vertex {to}")]
+    GlassNotPortal {
+        index: usize,
+        from: usize,
+        to: usize,
+    },
 }
 
 impl Map {
@@ -349,6 +372,7 @@ impl Map {
                         next_sector: None,
                         next_wall: None,
                         material: rs.wall_mat,
+                        glass: false,
                     });
                 }
                 loops.push(ids);
@@ -370,6 +394,19 @@ impl Map {
                 walls[wid].next_sector = Some(walls[other].sector);
                 walls[wid].next_wall = Some(other);
             }
+        }
+
+        for (index, &(from, to)) in raw.glass.iter().enumerate() {
+            let side = edge_owner.get(&(from, to)).copied();
+            let Some((w, back)) = side.and_then(|w| Some((w, walls[w].next_wall?))) else {
+                return Err(MapError::GlassNotPortal { index, from, to });
+            };
+            walls[w].glass = true;
+            walls[back].glass = true;
+        }
+        let mut materials = raw.materials;
+        if !raw.glass.is_empty() && !materials.iter().any(|m| m == GLASS_MATERIAL) {
+            materials.push(GLASS_MATERIAL.to_string());
         }
 
         let switches = raw
@@ -424,7 +461,7 @@ impl Map {
 
         Ok(Map {
             name: raw.name,
-            materials: raw.materials,
+            materials,
             sectors,
             walls,
             player_start: raw.player_start,
@@ -433,6 +470,13 @@ impl Map {
             items,
             actors,
         })
+    }
+}
+
+impl Map {
+    /// Index of `GLASS_MATERIAL` in `materials`, if the level has one.
+    pub fn glass_material(&self) -> Option<MaterialId> {
+        self.materials.iter().position(|m| m == GLASS_MATERIAL)
     }
 }
 
@@ -774,6 +818,37 @@ mod tests {
                 with_mover(m).unwrap_err(),
                 MapError::BadMover { sector: 0, reason },
                 "{m}"
+            );
+        }
+    }
+
+    #[test]
+    fn glass_marks_both_sides_and_adds_its_material() {
+        let map = crate::fixtures::glass_rooms();
+        let panes: Vec<WallId> = (0..map.walls.len())
+            .filter(|&w| map.walls[w].glass)
+            .collect();
+        assert_eq!(panes.len(), 2);
+        let (w, back) = (panes[0], panes[1]);
+        assert_eq!(map.walls[w].next_wall, Some(back));
+        assert_eq!(map.walls[w].passage(), None);
+        assert_eq!(map.glass_material(), Some(3));
+        assert_eq!(map.materials[3], GLASS_MATERIAL);
+        assert_eq!(two_rooms(0.0, 3.0).glass_material(), None);
+    }
+
+    #[test]
+    fn glass_on_solid_wall_rejected() {
+        let src = level(
+            "(0.0,0.0),(1.0,0.0),(1.0,1.0)",
+            "(loops: [[0,1,2]], floor_z: 0.0, ceil_z: 1.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)",
+        );
+        for (pair, from, to) in [("(0, 1)", 0, 1), ("(1, 0)", 1, 0)] {
+            let src = src.replace("player_start", &format!("glass: [{pair}], player_start"));
+            assert_eq!(
+                Map::from_ron(&src).unwrap_err(),
+                MapError::GlassNotPortal { index: 0, from, to },
+                "{pair}"
             );
         }
     }

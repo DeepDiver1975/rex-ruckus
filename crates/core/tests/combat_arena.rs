@@ -82,14 +82,14 @@ fn scripted_arena_fight() {
             if matches!(ev, WeaponEvent::Fire { .. }) {
                 shots += 1;
             }
-            combat.player_attack(&map, &defs, eye, body.sector, &ev);
+            combat.player_attack(&mut map, &defs, eye, body.sector, &ev);
         }
         let mut player = PlayerTarget {
             body: &mut body,
             vitals: &mut vitals,
             eye,
         };
-        let events = combat.tick(&map, &defs, &mut player, DT);
+        let events = combat.tick(&mut map, &mut mech, &defs, &mut player, DT);
         assert!(!events.contains(&CombatEvent::PlayerKilled), "player died");
         let (idx, mut bodies) = combat.living_bodies();
         mech.tick(&mut map, &mut bodies, DT);

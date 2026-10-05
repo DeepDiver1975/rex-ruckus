@@ -5,6 +5,7 @@ pub mod actors;
 pub mod collide;
 pub mod combat;
 pub mod defs;
+pub mod destruct;
 pub mod explosion;
 pub mod extrude;
 pub mod fixtures;

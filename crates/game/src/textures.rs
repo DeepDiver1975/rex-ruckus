@@ -35,6 +35,8 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
             }
         }
         "concrete" => shade([120, 120, 115], n * 2),
+        // Placeholder pane: pale blue with diagonal glints (translucency comes later).
+        "glass" => shade([170, 205, 220], if (x + y) % 11 == 0 { 35 } else { n / 2 }),
         "sky" => shade([40, 60, 120], (SIZE - y) as i32 * 2 + n / 4),
         "metal" => {
             let seam = x % 16 == 0 || y % 16 == 0;

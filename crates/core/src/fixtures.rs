@@ -92,6 +92,28 @@ pub fn wedge(h: f32) -> Map {
     .expect("wedge fixture is valid")
 }
 
+/// A 10×10 m hall A (sector 0, floor 0, ceiling 4) with a 2×2 m pillar hole at x,y∈[4,6],
+/// and a 4×2 m booth B (sector 1, x∈[10,14], y∈[4,6], floor 0, ceiling 3) behind a glass pane
+/// on the shared wall x = 10. Materials: 0 wall, 1 floor, 2 ceiling, 3 glass (added at load).
+/// Start (8,5) facing east, at the pane.
+pub fn glass_rooms() -> Map {
+    Map::from_ron(
+        r#"(
+        name: "glass rooms",
+        materials: ["wall", "floor", "ceiling"],
+        vertices: [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (10.0, 6.0), (10.0, 10.0), (0.0, 10.0),
+                   (4.0, 4.0), (4.0, 6.0), (6.0, 6.0), (6.0, 4.0), (14.0, 4.0), (14.0, 6.0)],
+        sectors: [
+            (loops: [[0, 1, 2, 3, 4, 5], [6, 7, 8, 9]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[2, 10, 11, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+        ],
+        player_start: (pos: (8.0, 5.0), angle_deg: 0.0),
+        glass: [(2, 3)],
+    )"#,
+    )
+    .expect("glass_rooms fixture is valid")
+}
+
 /// The shipped weapon and enemy defs.
 pub fn defs() -> crate::defs::Defs {
     crate::defs::Defs::builtin()

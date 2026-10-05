@@ -16,7 +16,7 @@ impl Player {
     fn launch(
         &self,
         c: &mut Combat,
-        map: &Map,
+        map: &mut Map,
         d: &Defs,
         weapon: WeaponId,
         dir: Vec3,
@@ -29,7 +29,7 @@ impl Player {
     fn tick_until_explosion(
         &mut self,
         c: &mut Combat,
-        map: &Map,
+        map: &mut Map,
         d: &Defs,
         n: usize,
     ) -> Vec<CombatEvent> {
@@ -100,7 +100,7 @@ fn player_rocket_hurts_grunt() {
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
     let dir = p.aim_at(&c, 0);
-    let ev = p.launch(&mut c, &map, &d, WeaponId::Rockets, dir);
+    let ev = p.launch(&mut c, &mut map, &d, WeaponId::Rockets, dir);
     assert_eq!(c.projectiles.len(), 1, "{ev:?}");
     let r = &c.projectiles[0];
     assert_eq!(r.owner, Shooter::Player);
@@ -115,7 +115,7 @@ fn player_rocket_hurts_grunt() {
     // The launch is loud: both sleepers wake.
     assert!(ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
 
-    let log = p.tick_until_explosion(&mut c, &map, &d, 60);
+    let log = p.tick_until_explosion(&mut c, &mut map, &d, 60);
     assert_eq!(hurts(&log, 0)[0], pd.damage, "direct hit first: {log:?}");
     assert!(
         log.contains(&CombatEvent::ActorKilled(0)),
@@ -152,7 +152,7 @@ fn hurts(ev: &[CombatEvent], actor: usize) -> Vec<i32> {
 
 /// Fires one rocket from (1.5, 1.5) at `target` and returns the log up to its explosion and
 /// 30 quiet ticks after it.
-fn rocket_at(c: &mut Combat, map: &Map, d: &Defs, target: Vec3) -> Vec<CombatEvent> {
+fn rocket_at(c: &mut Combat, map: &mut Map, d: &Defs, target: Vec3) -> Vec<CombatEvent> {
     let mut p = Player::at(map, 1.5, 1.5);
     p.launch(c, map, d, WeaponId::Rockets, (target - p.eye()).normalize());
     let mut log = p.tick_until_explosion(c, map, d, 60);
@@ -169,7 +169,7 @@ fn direct_hit_not_double_counted() {
     spawn_at(&mut map, 6.0, 1.5, 0.0, true);
     let mut c = Combat::spawn(&map, &d, 1);
     let chest = c.actors[0].body.pos + Vec3::Z * 1.0;
-    let log = rocket_at(&mut c, &map, &d, chest);
+    let log = rocket_at(&mut c, &mut map, &d, chest);
     let direct = proj_def(&d, WeaponId::Rockets).damage;
     let booms = explosions(&log);
     assert_eq!(booms.len(), 1);
@@ -192,10 +192,10 @@ fn direct_rocket_hit_beats_near_miss() {
     let mut c = Combat::spawn(&map, &d, 1);
     let near = c.clone();
     let chest = c.actors[0].body.pos + Vec3::Z * 1.0;
-    let hit = rocket_at(&mut c, &map, &d, chest);
+    let hit = rocket_at(&mut c, &mut map, &d, chest);
     // Into the floor 1 m short of the grunt.
     let mut c2 = near;
-    let miss = rocket_at(&mut c2, &map, &d, Vec3::new(6.5, 1.5, 0.0));
+    let miss = rocket_at(&mut c2, &mut map, &d, Vec3::new(6.5, 1.5, 0.0));
     let (hit, miss) = (hurt_total(&hit, 0), hurt_total(&miss, 0));
     assert!(miss > 0, "the near miss still splashes it");
     assert!(hit > miss, "direct {hit} vs near miss {miss}");
@@ -219,7 +219,7 @@ fn explosion_wakes_sleeping_grunt_out_of_splash_range() {
             owner: Shooter::Player,
         },
     });
-    let ev = p.tick(&mut c, &map, &d);
+    let ev = p.tick(&mut c, &mut map, &d);
     assert!(ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
     assert_eq!(hurt_total(&ev, 0), 0, "out of the splash");
     assert_ne!(c.actors[0].state, AiState::Sleep);
@@ -228,12 +228,12 @@ fn explosion_wakes_sleeping_grunt_out_of_splash_range() {
 #[test]
 fn rocket_explodes_off_the_wall() {
     let d = defs();
-    let map = combat_room();
+    let mut map = combat_room();
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
     p.vitals.armour = 50;
-    p.launch(&mut c, &map, &d, WeaponId::Rockets, Vec3::NEG_Y);
-    let log = p.tick_until_explosion(&mut c, &map, &d, 60);
+    p.launch(&mut c, &mut map, &d, WeaponId::Rockets, Vec3::NEG_Y);
+    let log = p.tick_until_explosion(&mut c, &mut map, &d, 60);
     let impact = log
         .iter()
         .find_map(|e| match e {
@@ -268,12 +268,12 @@ fn rocket_explodes_off_the_wall() {
 #[test]
 fn rocket_expiring_in_flight_explodes() {
     let d = defs();
-    let map = combat_room();
+    let mut map = combat_room();
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
-    p.launch(&mut c, &map, &d, WeaponId::Rockets, Vec3::X);
+    p.launch(&mut c, &mut map, &d, WeaponId::Rockets, Vec3::X);
     c.projectiles[0].life = 0.05;
-    let log = p.tick_until_explosion(&mut c, &map, &d, 10);
+    let log = p.tick_until_explosion(&mut c, &mut map, &d, 10);
     let booms = explosions(&log);
     assert_eq!(booms.len(), 1, "{log:?}");
     assert!(booms[0].x > 2.5 && booms[0].x < 4.0, "{booms:?}");
@@ -288,7 +288,7 @@ fn bomb_is_lobbed_and_bounces_off_actors() {
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
     let aim = Vec3::new(1.0, 0.0, -0.3).normalize();
-    p.launch(&mut c, &map, &d, WeaponId::PipeBombs, aim);
+    p.launch(&mut c, &mut map, &d, WeaponId::PipeBombs, aim);
     let pd = proj_def(&d, WeaponId::PipeBombs);
     let b = &c.projectiles[0];
     let want = (aim + Vec3::Z * 0.15).normalize() * pd.speed;
@@ -297,7 +297,7 @@ fn bomb_is_lobbed_and_bounces_off_actors() {
     assert_eq!(c.live_bombs(), 1);
     let mut log = Vec::new();
     for _ in 0..30 {
-        log.extend(p.tick(&mut c, &map, &d));
+        log.extend(p.tick(&mut c, &mut map, &d));
     }
     assert_eq!(hurt_total(&log, 0), 0, "a bomb never hurts on contact");
     assert!(explosions(&log).is_empty());
@@ -313,25 +313,25 @@ fn detonate_blows_every_live_bomb() {
     spawn_kind(&mut map, ActorKind::Barrel, 7.0, 6.5, 0.0, true);
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
-    p.launch(&mut c, &map, &d, WeaponId::PipeBombs, Vec3::X);
-    p.launch(&mut c, &map, &d, WeaponId::PipeBombs, Vec3::Y);
+    p.launch(&mut c, &mut map, &d, WeaponId::PipeBombs, Vec3::X);
+    p.launch(&mut c, &mut map, &d, WeaponId::PipeBombs, Vec3::Y);
     for _ in 0..180 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
     }
     assert!(c.projectiles.iter().all(|b| b.resting), "both settled");
     assert_eq!(c.live_bombs(), 2);
     let at: Vec<Vec3> = c.projectiles.iter().map(|b| b.pos).collect();
-    let ev = c.player_attack(&map, &d, p.eye(), p.body.sector, &WeaponEvent::Detonate);
+    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &WeaponEvent::Detonate);
     assert_eq!(count(&ev, |e| *e == CombatEvent::BombsDetonated), 1);
     assert!(ev.contains(&CombatEvent::ProjectileGone(0)));
     assert!(ev.contains(&CombatEvent::ProjectileGone(1)));
     assert_eq!(c.live_bombs(), 0);
-    let log = p.tick(&mut c, &map, &d);
+    let log = p.tick(&mut c, &mut map, &d);
     assert_eq!(explosions(&log), at, "one per bomb, where it lay");
     // A rocket in flight is not a remote bomb.
-    p.launch(&mut c, &map, &d, WeaponId::Rockets, Vec3::X);
+    p.launch(&mut c, &mut map, &d, WeaponId::Rockets, Vec3::X);
     assert_eq!(c.live_bombs(), 0);
-    let ev = c.player_attack(&map, &d, p.eye(), p.body.sector, &WeaponEvent::Detonate);
+    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &WeaponEvent::Detonate);
     assert!(ev.is_empty(), "{ev:?}");
     assert_eq!(c.projectiles.len(), 1);
 }
@@ -339,7 +339,7 @@ fn detonate_blows_every_live_bomb() {
 #[test]
 fn thrown_last_bomb_keeps_launcher_while_live() {
     let d = defs();
-    let map = combat_room();
+    let mut map = combat_room();
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
     let mut a = Arsenal::new(&d);
@@ -359,9 +359,9 @@ fn thrown_last_bomb_keeps_launcher_while_live() {
         let ev = a.tick(&d, input, Vec3::X, &mut rng, DT);
         let mut out = Vec::new();
         for e in &ev {
-            out.extend(c.player_attack(&map, &d, p.eye(), p.body.sector, e));
+            out.extend(c.player_attack(&mut map, &d, p.eye(), p.body.sector, e));
         }
-        out.extend(p.tick(c, &map, &d));
+        out.extend(p.tick(c, &mut map, &d));
         (ev, out)
     };
     let (ev, _) = step(&press, &mut a, &mut c, &mut p);
@@ -416,7 +416,7 @@ fn resting_bomb_follows_lift_floor() {
     let r = c.projectiles[0].radius;
     mech.toggle(0);
     for _ in 0..180 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
         let b = &c.projectiles[0];
         assert!(b.resting);
@@ -428,23 +428,23 @@ fn resting_bomb_follows_lift_floor() {
         );
     }
     assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
-    p.tick(&mut c, &map, &d);
+    p.tick(&mut c, &mut map, &d);
     assert!((c.projectiles[0].pos.z - (2.0 + r)).abs() < 1e-4);
     // And back down with it.
     mech.toggle(0);
     for _ in 0..180 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
         mech_tick(&mut mech, &mut map, &mut c, &mut p);
         assert!(c.projectiles[0].resting);
     }
-    p.tick(&mut c, &map, &d);
+    p.tick(&mut c, &mut map, &d);
     assert!((c.projectiles[0].pos.z - r).abs() < 1e-4);
     // A floor that drops away at once leaves the bomb to fall.
     map.sectors[1].floor_z = -1.0;
-    p.tick(&mut c, &map, &d);
+    p.tick(&mut c, &mut map, &d);
     assert!(!c.projectiles[0].resting);
     for _ in 0..120 {
-        p.tick(&mut c, &map, &d);
+        p.tick(&mut c, &mut map, &d);
     }
     let b = &c.projectiles[0];
     assert!(b.resting, "settled again");
@@ -469,12 +469,12 @@ fn barrel_chain_explodes_each_once() {
     let aim = p.aim_at(&c, 0);
     let mut log: Vec<(usize, CombatEvent)> = Vec::new();
     for _ in 0..2 {
-        let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![aim]);
+        let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![aim]);
         log.extend(ev.into_iter().map(|e| (0, e)));
     }
     assert!(log.iter().any(|(_, e)| *e == CombatEvent::ActorKilled(0)));
     for t in 1..=120 {
-        log.extend(p.tick(&mut c, &map, &d).into_iter().map(|e| (t, e)));
+        log.extend(p.tick(&mut c, &mut map, &d).into_iter().map(|e| (t, e)));
     }
     for i in 0..3 {
         assert_eq!(
@@ -526,13 +526,13 @@ fn two_splashes_one_barrel_one_explosion() {
             },
         });
     }
-    let ev = p.tick(&mut c, &map, &d);
+    let ev = p.tick(&mut c, &mut map, &d);
     assert_eq!(explosions(&ev).len(), 2);
     assert_eq!(count(&ev, |e| *e == CombatEvent::ActorKilled(0)), 1);
     assert_eq!(c.pending_blasts.len(), 1, "the barrel's own, on its fuse");
     let mut log = ev;
     for _ in 0..60 {
-        log.extend(p.tick(&mut c, &map, &d));
+        log.extend(p.tick(&mut c, &mut map, &d));
     }
     assert_eq!(explosions(&log).len(), 3);
     assert_eq!(count(&log, |e| *e == CombatEvent::ActorKilled(0)), 1);
@@ -562,7 +562,7 @@ fn chain_terminates() {
     });
     let mut log = Vec::new();
     for _ in 0..600 {
-        log.extend(p.tick(&mut c, &map, &d));
+        log.extend(p.tick(&mut c, &mut map, &d));
     }
     assert!(c.pending_blasts.is_empty());
     assert!(c.actors.iter().all(|a| !a.alive()));
@@ -571,7 +571,7 @@ fn chain_terminates() {
     }
     assert_eq!(explosions(&log).len(), 1 + c.actors.len());
     for _ in 0..60 {
-        assert!(p.tick(&mut c, &map, &d).is_empty(), "all quiet");
+        assert!(p.tick(&mut c, &mut map, &d).is_empty(), "all quiet");
     }
 }
 
@@ -591,7 +591,7 @@ fn grunt_killed_by_splash_reports_once() {
             owner: Shooter::Player,
         },
     });
-    let ev = p.tick(&mut c, &map, &d);
+    let ev = p.tick(&mut c, &mut map, &d);
     assert_eq!(
         count(&ev, |e| *e == CombatEvent::ActorKilled(0)),
         1,

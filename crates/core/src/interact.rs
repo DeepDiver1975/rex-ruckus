@@ -34,7 +34,7 @@ pub fn use_target(map: &Map, mech: &Mechanics, body: &Body, heading: f32) -> Opt
         if let Some(i) = map.switches.iter().position(|s| s.wall == wid) {
             return Some(UseTarget::Switch(i));
         }
-        let Some(next) = map.walls[wid].next_sector else {
+        let Some(next) = map.walls[wid].passage() else {
             break;
         };
         if let Some(m) = mech.mover_in(next) {

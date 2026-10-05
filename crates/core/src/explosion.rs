@@ -2,9 +2,9 @@
 
 use crate::collide::Body;
 use crate::defs::SplashDef;
-use crate::map::SectorId;
+use crate::map::{Map, SectorId, WallId};
 use crate::projectile::Shooter;
-use crate::trace::can_see;
+use crate::trace::{Hit, HitKind, Ray, can_see, trace_world};
 use glam::Vec3;
 
 /// One explosion.
@@ -38,7 +38,7 @@ fn distance_to_body(p: Vec3, body: &Body) -> f32 {
 /// linearly from `splash.damage` at the cylinder surface to 0 at `splash.radius`; the owner's
 /// own body takes `self_scale` of it. `skip` excludes bodies (e.g. the dead).
 pub fn solve(
-    map: &crate::map::Map,
+    map: &Map,
     blast: &Blast,
     bodies: &[Body],
     skip: impl Fn(usize) -> bool,
@@ -83,6 +83,65 @@ pub fn solve(
     }
     hits
 }
+
+/// Glass panes a blast shatters, one wall id per pane (the side with the lower id). A pane is
+/// reached when the point of its opening (between the higher floor and the lower ceiling of
+/// the two sectors) nearest the centre lies within `splash.radius`, and the world leaves a
+/// clear line from the centre to that point, the pane itself being where the line ends.
+pub fn walls_in_reach(map: &Map, blast: &Blast) -> Vec<WallId> {
+    let c = blast.center;
+    let mut out = Vec::new();
+    for (id, w) in map.walls.iter().enumerate() {
+        let (Some(back), Some(far)) = (w.next_wall, w.next_sector) else {
+            continue;
+        };
+        if !w.glass || back < id {
+            continue;
+        }
+        let (near, far) = (&map.sectors[w.sector], &map.sectors[far]);
+        let (lo, hi) = (near.floor_z.max(far.floor_z), near.ceil_z.min(far.ceil_z));
+        let edge = w.b - w.a;
+        let len = edge.length();
+        if hi <= lo || len <= f32::EPSILON {
+            continue;
+        }
+        // The nearest point of the opening, pulled in from its rim so the line from the centre
+        // lands on the pane rather than on the frame around it.
+        let (du, dz) = (PANE_INSET.min(len * 0.5), PANE_INSET.min((hi - lo) * 0.5));
+        let u = ((c.truncate() - w.a).dot(edge) / (len * len)).clamp(du / len, 1.0 - du / len);
+        let target = (w.a + edge * u).extend(c.z.clamp(lo + dz, hi - dz));
+        if target.distance(c) >= blast.splash.radius {
+            continue;
+        }
+        if pane_in_view(map, blast, target, [id, back]) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// Whether the first thing on the line from the blast centre to `target` (a point on a pane)
+/// is one of the pane's two `sides`.
+fn pane_in_view(map: &Map, blast: &Blast, target: Vec3, sides: [WallId; 2]) -> bool {
+    let delta = target - blast.center;
+    let dist = delta.length();
+    if dist <= f32::EPSILON {
+        return true;
+    }
+    let ray = Ray {
+        origin: blast.center,
+        dir: delta / dist,
+        sector: blast.sector,
+        max: dist + PANE_INSET,
+    };
+    matches!(
+        trace_world(map, &ray),
+        Some(Hit { kind: HitKind::Wall(h), .. }) if sides.contains(&h)
+    )
+}
+
+/// How far (m) inside the rim of a glass opening `walls_in_reach` aims.
+const PANE_INSET: f32 = 0.02;
 
 #[cfg(test)]
 mod tests {
@@ -132,6 +191,34 @@ mod tests {
             solve(&map, &b, &bodies, |_| false).is_empty(),
             "closed door"
         );
+    }
+
+    #[test]
+    fn splash_reaches_glass_in_view() {
+        let map = crate::fixtures::glass_rooms();
+        let pane = (0..map.walls.len())
+            .filter(|&w| map.walls[w].glass)
+            .min()
+            .unwrap();
+        // In view and in range, from either side of the pane.
+        let b = blast(&map, Vec3::new(8.0, 5.0, 1.0), Shooter::Player);
+        assert_eq!(walls_in_reach(&map, &b), vec![pane]);
+        let b = blast(&map, Vec3::new(13.0, 4.5, 2.5), Shooter::Player);
+        assert_eq!(walls_in_reach(&map, &b), vec![pane]);
+        // Off to the side of the pane: the nearest point of its opening is its corner.
+        let b = blast(&map, Vec3::new(9.0, 9.0, 3.5), Shooter::Player);
+        assert_eq!(walls_in_reach(&map, &b), vec![pane]);
+        // Out of range.
+        let mut b = blast(&map, Vec3::new(8.0, 5.0, 1.0), Shooter::Player);
+        b.splash.radius = 1.5;
+        assert!(walls_in_reach(&map, &b).is_empty());
+        // In range, but the pillar stands between the blast and the pane.
+        let b = blast(&map, Vec3::new(2.0, 5.0, 1.0), Shooter::Player);
+        assert!(walls_in_reach(&map, &b).is_empty());
+        // Panes only: an ordinary room has nothing to shatter.
+        let room = pillar_room();
+        let b = blast(&room, Vec3::new(1.0, 1.0, 1.0), Shooter::Player);
+        assert!(walls_in_reach(&room, &b).is_empty());
     }
 
     #[test]

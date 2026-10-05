@@ -21,12 +21,15 @@ use crate::actors::{
 };
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
+use crate::destruct::Destruct;
 use crate::explosion::Blast;
 use crate::health::DamageOutcome;
-use crate::map::{Map, SectorId};
+use crate::map::{Map, SectorId, WallId};
+use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_player};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
 use crate::rng::Rng;
+use crate::trace::HitKind;
 use crate::vitals::Vitals;
 use blasts::sector_of;
 use glam::{Vec2, Vec3};
@@ -38,7 +41,7 @@ pub const BODY_PLAYER: usize = 0;
 /// A portal carries sound only while its live opening is taller than this (metres).
 const NOISE_GAP: f32 = 0.1;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CombatEvent {
     /// A non-ignored hit on actor `actor`; `amount` is the total damage dealt this attack.
     ActorHurt {
@@ -74,6 +77,12 @@ pub enum CombatEvent {
     },
     /// The player set off their live pipe bombs (once per detonation).
     BombsDetonated,
+    /// A shot, projectile, kick or blast shattered the glass pane in portal `wall` (the side
+    /// it was hit from, or either side for a blast). `dirty` lists the sectors to re-mesh.
+    GlassBroken {
+        wall: WallId,
+        dirty: Vec<SectorId>,
+    },
 }
 
 /// The player as combat sees it this tick.
@@ -92,6 +101,8 @@ pub struct Combat {
     /// Blasts waiting for their fuse, in the order they were queued.
     pub pending_blasts: Vec<PendingBlast>,
     pub rng: Rng,
+    /// What shots and blasts have broken (glass so far).
+    pub destruct: Destruct,
     next_id: u32,
 }
 
@@ -135,7 +146,16 @@ impl Combat {
             projectiles: Vec::new(),
             pending_blasts: Vec::new(),
             rng: Rng::new(seed),
+            destruct: Destruct::new(map),
             next_id: 0,
+        }
+    }
+
+    /// Breaks the glass in wall `w`, reporting `GlassBroken` if there was any.
+    fn break_glass(&mut self, map: &mut Map, w: WallId, out: &mut Vec<CombatEvent>) {
+        let dirty = self.destruct.break_glass(map, w);
+        if !dirty.is_empty() {
+            out.push(CombatEvent::GlassBroken { wall: w, dirty });
         }
     }
 
@@ -187,16 +207,16 @@ impl Combat {
     }
 
     /// A noise of loudness `radius` (metres) at `at` in `sector`. Sound spreads through
-    /// portals whose live opening is taller than 0.1 m (so closed doors block it) and wakes
-    /// every sleeping actor in a reached sector within `radius` of `at`. Returns the woken
-    /// actors in ascending order.
+    /// portals whose live opening is taller than 0.1 m (so closed doors block it) and that hold
+    /// no intact glass, and wakes every sleeping actor in a reached sector within `radius` of
+    /// `at`. Returns the woken actors in ascending order.
     pub fn make_noise(&mut self, map: &Map, at: Vec3, sector: SectorId, radius: f32) -> Vec<usize> {
         let mut heard = vec![false; map.sectors.len()];
         heard[sector] = true;
         let mut queue = std::collections::VecDeque::from([sector]);
         while let Some(s) = queue.pop_front() {
             let here = &map.sectors[s];
-            for n in map.neighbours(s) {
+            for n in map.passages(s) {
                 let there = &map.sectors[n];
                 let gap = here.ceil_z.min(there.ceil_z) - here.floor_z.max(there.floor_z);
                 if !heard[n] && gap > NOISE_GAP {
@@ -229,13 +249,19 @@ impl Combat {
     /// 4. projectiles fly; a hit on the player damages it; splash projectiles queue blasts;
     /// 5. queued blasts whose fuse ran out go off (see [`Combat::process_blasts`]);
     /// 6. corpses snap to their floor.
+    ///
+    /// Shots, projectiles and blasts that shatter glass change `map` (through `destruct`) and
+    /// report `GlassBroken`. `mech` is where blasts will open cracked walls; glass does not
+    /// need it.
     pub fn tick(
         &mut self,
-        map: &Map,
+        map: &mut Map,
+        mech: &mut Mechanics,
         defs: &Defs,
         player: &mut PlayerTarget,
         dt: f32,
     ) -> Vec<CombatEvent> {
+        let _ = mech;
         let mut out = Vec::new();
         for a in &mut self.actors {
             a.prev_pos = a.body.pos;
@@ -286,6 +312,9 @@ impl Combat {
                                 sector,
                             }
                         }));
+                        for w in v.glass {
+                            self.break_glass(map, w, &mut out);
+                        }
                         if v.player_damage > 0 {
                             let from = effective_muzzle(map, &self.actors[i]).0;
                             hurt_player(player, v.player_damage, from, &mut out);
@@ -373,7 +402,7 @@ impl Combat {
     /// resting one rides its sector's floor (lifts) and falls again if the floor drops away.
     fn fly(
         &mut self,
-        map: &Map,
+        map: &mut Map,
         defs: &Defs,
         player: &mut PlayerTarget,
         dt: f32,
@@ -395,11 +424,17 @@ impl Combat {
                 }
                 ProjectileStep::Expired => {}
                 ProjectileStep::HitWorld(h) => {
-                    out.push(CombatEvent::Impact {
-                        point: h.point,
-                        normal: h.normal,
-                        sector: h.sector,
-                    });
+                    match h.kind {
+                        // The projectile is spent on the pane; a rocket still goes off.
+                        HitKind::Wall(w) if map.walls[w].glass => {
+                            self.break_glass(map, w, &mut out);
+                        }
+                        _ => out.push(CombatEvent::Impact {
+                            point: h.point,
+                            normal: h.normal,
+                            sector: h.sector,
+                        }),
+                    }
                     // The blast centre: just off the surface, not inside it.
                     p.pos = h.point + h.normal * BLAST_NUDGE;
                     p.sector = sector_of(map, p.pos, h.sector);
@@ -496,5 +531,7 @@ fn bounce_off_body(map: &Map, p: &mut Projectile, body: &Body) {
 
 #[cfg(test)]
 mod blast_tests;
+#[cfg(test)]
+mod glass_tests;
 #[cfg(test)]
 mod tests;

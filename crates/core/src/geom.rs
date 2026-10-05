@@ -20,6 +20,14 @@ impl Map {
             .filter_map(|w| self.walls[w].next_sector)
     }
 
+    /// Sectors a body, a shot or a sound can pass into from this sector: one entry per portal
+    /// wall that holds no intact glass.
+    pub fn passages(&self, s: SectorId) -> impl Iterator<Item = SectorId> + '_ {
+        self.sectors[s]
+            .walls()
+            .filter_map(|w| self.walls[w].passage())
+    }
+
     /// Even-odd test over all of the sector's loops, so holes are excluded automatically.
     /// Points exactly on the bottom/left edge count as inside (half-open rule), which makes a
     /// shared portal line belong to exactly one of its two sectors.
