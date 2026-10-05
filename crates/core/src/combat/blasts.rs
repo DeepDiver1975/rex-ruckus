@@ -10,6 +10,9 @@ use glam::Vec3;
 
 /// Gap left between a blast centre and the surface it went off against (m).
 pub const BLAST_NUDGE: f32 = 0.05;
+/// How far (m) the bang of a blast carries: sleepers this close, in sectors sound reaches,
+/// wake up.
+pub const BLAST_NOISE: f32 = 40.0;
 
 /// A blast waiting to go off.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,19 +20,12 @@ pub struct PendingBlast {
     /// Seconds until it goes off; 0 means this tick.
     pub fuse: f32,
     pub blast: Blast,
-    /// Body (combat convention `[player, actor 0, ..]`) the splash skips: the one a direct hit
-    /// already damaged.
-    pub exclude: Option<usize>,
 }
 
 impl Combat {
     /// Queues `blast` to go off in `fuse` seconds.
-    pub(super) fn queue_blast(&mut self, fuse: f32, blast: Blast, exclude: Option<usize>) {
-        self.pending_blasts.push(PendingBlast {
-            fuse,
-            blast,
-            exclude,
-        });
+    pub(super) fn queue_blast(&mut self, fuse: f32, blast: Blast) {
+        self.pending_blasts.push(PendingBlast { fuse, blast });
     }
 
     /// Runs every queued blast's fuse down by `dt` and sets off, in queue order, those that
@@ -56,9 +52,11 @@ impl Combat {
         }
     }
 
-    /// One explosion going off: reports `Explosion` and deals splash to the player (through
-    /// `Vitals`, reporting `PlayerHurt { from: centre }`) and to living actors (through the
-    /// usual hurt path, so pain, kills and barrel chains behave as for any other damage).
+    /// One explosion going off: reports `Explosion`, deals splash once to each body it reaches
+    /// (a body a projectile hit directly included): the player through `Vitals` (reporting
+    /// `PlayerHurt { from: centre }`), living actors through the usual hurt path, so pain,
+    /// kills and barrel chains behave as for any other damage. Then its noise
+    /// (`BLAST_NOISE`) wakes sleepers.
     ///
     /// World effects of a blast (glass, cracked walls, lights) hook in here.
     fn apply_blast(
@@ -77,12 +75,11 @@ impl Combat {
         let mut bodies: Vec<Body> = vec![*player.body];
         bodies.extend(self.actors.iter().map(|a| a.body));
         let skip = |i: usize| {
-            pb.exclude == Some(i)
-                || if i == BODY_PLAYER {
-                    !player.vitals.health.alive()
-                } else {
-                    !self.actors[i - 1].alive()
-                }
+            if i == BODY_PLAYER {
+                !player.vitals.health.alive()
+            } else {
+                !self.actors[i - 1].alive()
+            }
         };
         for hit in solve(map, blast, &bodies, skip) {
             if hit.body == BODY_PLAYER {
@@ -91,6 +88,8 @@ impl Combat {
                 out.extend(self.damage_actor(defs, hit.body - 1, hit.damage));
             }
         }
+        let woken = self.make_noise(map, blast.center, blast.sector, BLAST_NOISE);
+        out.extend(woken.into_iter().map(CombatEvent::ActorWoke));
     }
 }
 

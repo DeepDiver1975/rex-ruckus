@@ -147,7 +147,6 @@ impl Combat {
                     splash,
                     owner: p.owner,
                 },
-                exclude: None,
             }));
             out.push(CombatEvent::ProjectileGone(p.id));
             false

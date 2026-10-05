@@ -3,7 +3,7 @@
 use super::tests::{DT, Player, count, mech_tick, spawn_at, spawn_kind};
 use super::*;
 use crate::defs::{AmmoKind, Attack, SplashDef, WeaponId};
-use crate::explosion::{Blast, solve};
+use crate::explosion::Blast;
 use crate::fixtures::{combat_room, defs, lift_shaft};
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::ActorKind;
@@ -116,7 +116,11 @@ fn player_rocket_hurts_grunt() {
     assert!(ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
 
     let log = p.tick_until_explosion(&mut c, &map, &d, 60);
-    assert_eq!(hurt_total(&log, 0), pd.damage, "direct hit: {log:?}");
+    assert_eq!(hurts(&log, 0)[0], pd.damage, "direct hit first: {log:?}");
+    assert!(
+        log.contains(&CombatEvent::ActorKilled(0)),
+        "then the splash kills it"
+    );
     assert!(
         hurt_total(&log, 1) > 0,
         "the neighbour takes splash: {log:?}"
@@ -136,34 +140,89 @@ fn player_rocket_hurts_grunt() {
     );
 }
 
+/// The ActorHurt amounts reported for `actor`, in order.
+fn hurts(ev: &[CombatEvent], actor: usize) -> Vec<i32> {
+    ev.iter()
+        .filter_map(|e| match e {
+            CombatEvent::ActorHurt { actor: a, amount } if *a == actor => Some(*amount),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Fires one rocket from (1.5, 1.5) at `target` and returns the log up to its explosion and
+/// 30 quiet ticks after it.
+fn rocket_at(c: &mut Combat, map: &Map, d: &Defs, target: Vec3) -> Vec<CombatEvent> {
+    let mut p = Player::at(map, 1.5, 1.5);
+    p.launch(c, map, d, WeaponId::Rockets, (target - p.eye()).normalize());
+    let mut log = p.tick_until_explosion(c, map, d, 60);
+    for _ in 0..30 {
+        log.extend(p.tick(c, map, d));
+    }
+    log
+}
+
 #[test]
 fn direct_hit_not_double_counted() {
     let d = tough_grunts(1000);
     let mut map = combat_room();
     spawn_at(&mut map, 6.0, 1.5, 0.0, true);
     let mut c = Combat::spawn(&map, &d, 1);
-    let mut p = Player::at(&map, 1.5, 1.5);
-    let dir = p.aim_at(&c, 0);
-    p.launch(&mut c, &map, &d, WeaponId::Rockets, dir);
-    let log = p.tick_until_explosion(&mut c, &map, &d, 60);
+    let chest = c.actors[0].body.pos + Vec3::Z * 1.0;
+    let log = rocket_at(&mut c, &map, &d, chest);
     let direct = proj_def(&d, WeaponId::Rockets).damage;
-    assert_eq!(hurt_total(&log, 0), direct, "{log:?}");
-    assert_eq!(c.actors[0].health.hp, 1000 - direct);
-    // Without the exclusion the same blast would have hit it again.
-    let center = explosions(&log)[0];
-    let blast = Blast {
-        center,
-        sector: 0,
-        splash: rocket_splash(&d),
-        owner: Shooter::Player,
-    };
-    let again = solve(&map, &blast, &[p.body, c.actors[0].body], |i| i == 0);
-    assert!(!again.is_empty(), "the grunt is inside the splash");
-    // Later ticks add nothing.
-    for _ in 0..30 {
-        let ev = p.tick(&mut c, &map, &d);
-        assert_eq!(hurt_total(&ev, 0), 0);
-    }
+    let booms = explosions(&log);
+    assert_eq!(booms.len(), 1);
+    // The blast centre is the rocket's centre touching the grunt: d = rocket radius, so the
+    // splash is all but full (80 at d = 0).
+    let sp = rocket_splash(&d);
+    let r = proj_def(&d, WeaponId::Rockets).radius;
+    let splash = (sp.damage as f32 * (1.0 - r / sp.radius)).round() as i32;
+    assert_eq!((direct, sp.damage, splash), (20, 80, 78));
+    // One hurt per source: the direct hit, then the blast, each exactly once.
+    assert_eq!(hurts(&log, 0), vec![direct, splash], "{log:?}");
+    assert_eq!(c.actors[0].health.hp, 1000 - direct - splash);
+}
+
+#[test]
+fn direct_rocket_hit_beats_near_miss() {
+    let d = tough_grunts(1000);
+    let mut map = combat_room();
+    spawn_at(&mut map, 7.5, 1.5, 0.0, true);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let near = c.clone();
+    let chest = c.actors[0].body.pos + Vec3::Z * 1.0;
+    let hit = rocket_at(&mut c, &map, &d, chest);
+    // Into the floor 1 m short of the grunt.
+    let mut c2 = near;
+    let miss = rocket_at(&mut c2, &map, &d, Vec3::new(6.5, 1.5, 0.0));
+    let (hit, miss) = (hurt_total(&hit, 0), hurt_total(&miss, 0));
+    assert!(miss > 0, "the near miss still splashes it");
+    assert!(hit > miss, "direct {hit} vs near miss {miss}");
+    assert!(hit >= 95, "{hit}");
+}
+
+#[test]
+fn explosion_wakes_sleeping_grunt_out_of_splash_range() {
+    let d = defs();
+    let mut map = combat_room();
+    // Asleep and facing away, 6 m from the blast: beyond the 5 m splash.
+    spawn_at(&mut map, 7.0, 7.0, 0.0, true);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let mut p = Player::at(&map, 1.5, 1.5);
+    c.pending_blasts.push(PendingBlast {
+        fuse: 0.0,
+        blast: Blast {
+            center: Vec3::new(1.0, 7.0, 0.5),
+            sector: 0,
+            splash: rocket_splash(&d),
+            owner: Shooter::Player,
+        },
+    });
+    let ev = p.tick(&mut c, &map, &d);
+    assert!(ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
+    assert_eq!(hurt_total(&ev, 0), 0, "out of the splash");
+    assert_ne!(c.actors[0].state, AiState::Sleep);
 }
 
 #[test]
@@ -465,7 +524,6 @@ fn two_splashes_one_barrel_one_explosion() {
                 splash: rocket_splash(&d),
                 owner: Shooter::Player,
             },
-            exclude: None,
         });
     }
     let ev = p.tick(&mut c, &map, &d);
@@ -501,7 +559,6 @@ fn chain_terminates() {
             splash: rocket_splash(&d),
             owner: Shooter::Player,
         },
-        exclude: None,
     });
     let mut log = Vec::new();
     for _ in 0..600 {
@@ -533,7 +590,6 @@ fn grunt_killed_by_splash_reports_once() {
             splash: rocket_splash(&d),
             owner: Shooter::Player,
         },
-        exclude: None,
     });
     let ev = p.tick(&mut c, &map, &d);
     assert_eq!(

@@ -36,7 +36,7 @@ fn distance_to_body(p: Vec3, body: &Body) -> f32 {
 /// Splash hits in ascending body order. A body is exposed when the world leaves a clear line
 /// from the centre to its middle or to its head (walls and closed doors block). Damage falls
 /// linearly from `splash.damage` at the cylinder surface to 0 at `splash.radius`; the owner's
-/// own body takes `self_scale` of it. `skip` excludes bodies (dead, or already hit directly).
+/// own body takes `self_scale` of it. `skip` excludes bodies (e.g. the dead).
 pub fn solve(
     map: &crate::map::Map,
     blast: &Blast,

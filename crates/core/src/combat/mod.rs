@@ -14,7 +14,7 @@
 mod blasts;
 mod player_attack;
 
-pub use blasts::{BLAST_NUDGE, PendingBlast};
+pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast};
 
 use crate::actors::{
     Actor, AiState, Perception, effective_muzzle, hurt, swipe_reaches, think, tuning, volley, wake,
@@ -181,7 +181,7 @@ impl Combat {
                 splash,
                 owner: Shooter::Actor(i),
             };
-            self.queue_blast(def.death_fuse, blast, None);
+            self.queue_blast(def.death_fuse, blast);
         }
         out
     }
@@ -364,8 +364,8 @@ impl Combat {
 
     /// Steps every projectile. A projectile that hits something or expires leaves play, and
     /// one with splash queues its blast (fuse 0, so it goes off this tick):
-    /// - body hit: the direct `damage` to that body, then a blast at the impact point whose
-    ///   splash skips that body;
+    /// - body hit: the direct `damage` to that body, then a blast at the impact point (whose
+    ///   splash reaches that body too, once);
     /// - world hit: a blast `BLAST_NUDGE` off the surface, along its normal;
     /// - expiry: a blast where it is.
     ///
@@ -387,7 +387,6 @@ impl Combat {
                 follow_floor(map, p);
             }
             let skip = |i: usize| i != BODY_PLAYER && !self.actors[i - 1].alive();
-            let mut exclude = None;
             match step_projectile(map, p, &bodies, skip, dt) {
                 ProjectileStep::Flying | ProjectileStep::Resting => return true,
                 ProjectileStep::HitBody(i) if p.bounce.is_some() => {
@@ -407,11 +406,9 @@ impl Combat {
                 }
                 ProjectileStep::HitBody(BODY_PLAYER) => {
                     hurt_player(player, p.damage, p.prev, &mut out);
-                    exclude = Some(BODY_PLAYER);
                 }
                 ProjectileStep::HitBody(i) => {
                     out.extend(self.damage_actor(defs, i - 1, p.damage));
-                    exclude = Some(i);
                 }
             }
             if let Some(splash) = p.splash {
@@ -426,7 +423,7 @@ impl Combat {
                     splash,
                     owner: p.owner,
                 };
-                self.queue_blast(0.0, blast, exclude);
+                self.queue_blast(0.0, blast);
             }
             out.push(CombatEvent::ProjectileGone(p.id));
             false
