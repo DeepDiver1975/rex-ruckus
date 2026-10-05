@@ -18,6 +18,7 @@ pub mod projectile;
 pub mod rng;
 pub mod trace;
 pub mod validate;
+pub mod vitals;
 pub mod weapons;
 
 pub use glam;
