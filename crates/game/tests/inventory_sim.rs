@@ -147,16 +147,51 @@ fn nightvision_toggles_ambient() {
     assert!(!overlay_visible(&mut app));
 }
 
+/// HUD text, colour, background and visibility components flagged changed during the frames after `armed` is set.
+#[derive(Resource, Default)]
+struct HudChanges {
+    armed: bool,
+    changed: usize,
+}
+
+/// Runs in `Last`, so `is_changed` compares against this system's previous run: it sees
+/// exactly the writes made during the current frame.
+fn count_hud_changes(
+    mut counts: ResMut<HudChanges>,
+    texts: Query<Ref<Text>>,
+    colors: Query<Ref<TextColor>>,
+    backgrounds: Query<Ref<BackgroundColor>>,
+    visibility: Query<Ref<Visibility>>,
+) {
+    let n = texts.iter().filter(|t| t.is_changed()).count()
+        + colors.iter().filter(|c| c.is_changed()).count()
+        + backgrounds.iter().filter(|b| b.is_changed()).count()
+        + visibility.iter().filter(|v| v.is_changed()).count();
+    if counts.armed {
+        counts.changed += n;
+    }
+}
+
 #[test]
 fn hud_text_unchanged_not_marked_changed() {
     let mut app = app();
-    app.update();
-    app.update();
-    let mut q = app.world_mut().query::<Ref<Text>>();
-    let texts: Vec<bool> = q.iter(app.world()).map(|t| t.is_changed()).collect();
-    assert!(!texts.is_empty());
+    app.init_resource::<HudChanges>()
+        .add_systems(Last, count_hud_changes);
+    // Warm-up: spawn and the first real values legitimately flag changes.
+    for _ in 0..3 {
+        app.update();
+    }
     assert!(
-        texts.iter().all(|c| !c),
-        "no HUD text may be rewritten without a state change"
+        app.world_mut().query::<&Text>().iter(app.world()).count() > 0,
+        "the HUD has text cells"
+    );
+    app.world_mut().resource_mut::<HudChanges>().armed = true;
+    for _ in 0..10 {
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<HudChanges>().changed,
+        0,
+        "no HUD text or colour may be rewritten without a state change"
     );
 }

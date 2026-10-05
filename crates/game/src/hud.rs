@@ -308,16 +308,21 @@ fn spawn_hud(mut commands: Commands) {
         });
 }
 
-fn set(text: &mut Text, s: &str) {
+// The helpers take `Mut<T>` and compare through `Deref`: coercing a `Mut<T>` to `&mut T`
+// goes through `DerefMut`, which flags the component changed before any comparison.
+
+fn set(text: &mut Mut<Text>, s: &str) {
     if text.0 != s {
         text.0 = s.to_string();
     }
 }
 
-fn set_color(color: &mut TextColor, c: Color) {
-    if color.0 != c {
-        color.0 = c;
-    }
+fn set_color(color: &mut Mut<TextColor>, c: Color) {
+    color.set_if_neq(TextColor(c));
+}
+
+fn set_bg(bg: &mut Mut<BackgroundColor>, c: Color) {
+    bg.set_if_neq(BackgroundColor(c));
 }
 
 fn update_prompt(
@@ -397,10 +402,7 @@ fn update_keycards(
         } else {
             MISSING_KEY_ALPHA
         };
-        let c = key_color(card.0).with_alpha(alpha);
-        if bg.0 != c {
-            bg.0 = c;
-        }
+        set_bg(&mut bg, key_color(card.0).with_alpha(alpha));
     }
 }
 
@@ -418,10 +420,10 @@ fn update_flash(
     mut flash: ResMut<DamageFlash>,
     mut node: Single<&mut BackgroundColor, With<FlashNode>>,
 ) {
-    let c = Color::srgba(0.85, 0.0, 0.0, flash.0 * FLASH_ALPHA);
-    if node.0 != c {
-        node.0 = c;
-    }
+    set_bg(
+        &mut node,
+        Color::srgba(0.85, 0.0, 0.0, flash.0 * FLASH_ALPHA),
+    );
     if flash.0 > 0.0 {
         flash.0 = flash_decay(flash.0, time.delta_secs());
     }
@@ -436,10 +438,7 @@ fn update_overlay(
     match overlay_text(*state) {
         Some(s) => {
             vis.set_if_neq(Visibility::Inherited);
-            let tint = overlay_tint(*state);
-            if bg.0 != tint {
-                bg.0 = tint;
-            }
+            set_bg(bg, overlay_tint(*state));
             set(&mut text, s);
         }
         None => {
