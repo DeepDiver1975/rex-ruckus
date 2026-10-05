@@ -3,11 +3,12 @@
 
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::level::CurrentMap;
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::collide::{Body, z_range};
+use rr_core::defs::WeaponId;
 use rr_core::map::KeySet;
 use rr_core::movement::{MoveInput, Tuning, step_player};
 
@@ -71,6 +72,30 @@ pub struct PendingInput {
     pub crouch: bool,
     /// Latched by a use-key press; the next fixed tick consumes it.
     pub use_pressed: bool,
+    /// Fire button held (gated by [`fire_gate`]); re-read every frame.
+    pub fire: bool,
+    /// Latched: fire was pressed since the last tick, so a tap between ticks still fires.
+    pub fire_pressed: bool,
+    /// Latched reload press (R).
+    pub reload: bool,
+    /// Latched quick-kick press (F).
+    pub kick: bool,
+    /// Latched weapon selection (keys 1/2/3); the last press before a tick wins.
+    pub select: Option<WeaponId>,
+    /// Latched mouse-wheel steps: +1 per wheel-up frame (next weapon), -1 per wheel-down.
+    pub cycle: i32,
+}
+
+/// Whether a held fire button may shoot. Fire is armed only after the button was seen released
+/// while the cursor is grabbed, so the click that grabs the cursor never fires. Losing the
+/// grab disarms.
+pub fn fire_gate(grabbed: bool, pressed: bool, armed: &mut bool) -> bool {
+    if !grabbed {
+        *armed = false;
+    } else if !pressed {
+        *armed = true;
+    }
+    grabbed && pressed && *armed
 }
 
 /// Keycards the player holds.
@@ -104,7 +129,7 @@ impl Plugin for PlayerSimPlugin {
     }
 }
 
-fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
+pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
     let start = map.0.player_start;
     let body = Body::spawn(
         &map.0,
@@ -216,16 +241,21 @@ fn grab_cursor(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_input(
     keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
+    scroll: Res<AccumulatedMouseScroll>,
     sensitivity: Res<MouseSensitivity>,
     cursor: Single<&CursorOptions>,
     player: Single<(&mut PendingInput, &mut Look), With<Player>>,
+    mut fire_armed: Local<bool>,
 ) {
     let (mut input, mut look) = player.into_inner();
     // Any active grab counts: on X11 `Locked` may fall back to `Confined`.
-    if cursor.grab_mode != CursorGrabMode::None {
+    let grabbed = cursor.grab_mode != CursorGrabMode::None;
+    if grabbed {
         look.angle -= mouse.delta.x * sensitivity.0;
         look.pitch = (look.pitch - mouse.delta.y * sensitivity.0).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
@@ -237,6 +267,28 @@ fn read_input(
     input.jump = keys.pressed(KeyCode::Space);
     input.crouch = keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft);
     input.use_pressed |= keys.just_pressed(KeyCode::KeyE);
+
+    let fire = fire_gate(grabbed, buttons.pressed(MouseButton::Left), &mut fire_armed);
+    input.fire = fire;
+    // `*fire_armed` rather than `fire`: a press and release within one frame still counts.
+    input.fire_pressed |= grabbed && *fire_armed && buttons.just_pressed(MouseButton::Left);
+    if grabbed {
+        input.reload |= keys.just_pressed(KeyCode::KeyR);
+        input.kick |= keys.just_pressed(KeyCode::KeyF);
+        for (key, w) in [
+            (KeyCode::Digit1, WeaponId::Boot),
+            (KeyCode::Digit2, WeaponId::Pistol),
+            (KeyCode::Digit3, WeaponId::Shotgun),
+        ] {
+            if keys.just_pressed(key) {
+                input.select = Some(w);
+            }
+        }
+        // `signum` of 0.0 is 1.0, so only count frames that actually scrolled.
+        if scroll.delta.y != 0.0 {
+            input.cycle += scroll.delta.y.signum() as i32;
+        }
+    }
 }
 
 fn update_camera(

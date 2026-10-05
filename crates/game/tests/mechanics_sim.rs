@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+use rr_core::defs::Defs;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{Key, Map};
 use rr_core::mechanics::Motion;
+use rr_game::combat::{CombatSimPlugin, insert_defs};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
     DirtySectors, HudMessage, LevelComplete, LevelMechanics, MechanicsSimPlugin, insert_level,
@@ -12,7 +14,8 @@ fn app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     insert_level(&mut app, map);
-    app.add_plugins((PlayerSimPlugin, MechanicsSimPlugin));
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((PlayerSimPlugin, MechanicsSimPlugin, CombatSimPlugin));
     app.update();
     app
 }

@@ -1,5 +1,6 @@
 //! Bevy front-end for Rex Ruckus: Meltdown.
 
+pub mod combat;
 pub mod coords;
 pub mod hud;
 pub mod level;
@@ -20,10 +21,12 @@ pub struct GamePlugin {
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         mechanics::insert_level(app, load_map(&self.level));
+        combat::insert_defs(app, combat::load_defs());
         app.add_plugins((
             LevelRenderPlugin,
             player::PlayerSimPlugin,
             mechanics::MechanicsSimPlugin,
+            combat::CombatSimPlugin,
             player::PlayerControlPlugin,
             props::PropsPlugin,
             hud::HudPlugin,
