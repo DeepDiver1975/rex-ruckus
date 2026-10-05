@@ -14,7 +14,7 @@ use glam::Vec3;
 pub struct WeaponInput {
     /// Fire held (a tap between ticks also counts).
     pub fire: bool,
-    /// Fire went down since the last tick (edge). Detonates live pipe bombs.
+    /// Fire went down since the last tick (edge). Throws a pipe bomb, or detonates live ones.
     pub fire_pressed: bool,
     pub reload: bool,
     pub kick: bool,
@@ -323,6 +323,10 @@ impl Arsenal {
             let best = self.best_armed(defs);
             self.begin_switch(defs, best);
             return matches!(self.phase, WeaponPhase::Switching { .. });
+        }
+        // One throw per press: holding fire never lobs a second bomb.
+        if w == WeaponId::PipeBombs && !input.fire_pressed {
+            return false;
         }
         if let Some(kind) = d.ammo {
             if d.clip.is_some() {
@@ -963,11 +967,32 @@ mod tests {
             }]
         );
         assert_eq!(a.reserve[AmmoKind::Bombs.index()], 2);
-        // Live bombs but a mere hold: throws (no edge), consuming ammo.
+        // Live bombs but a mere hold: no edge, so neither a throw nor a detonation.
         let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 0, 0, 3);
         a.live_bombs = 1;
         let ev = a.tick(&d, &held(), Vec3::X, &mut rng, DT);
-        assert_eq!(launches(&ev), 1);
+        assert!(ev.is_empty(), "{ev:?}");
+        assert_eq!(a.reserve[AmmoKind::Bombs.index()], 3);
+    }
+
+    #[test]
+    fn held_fire_never_rethrows_bombs() {
+        let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 0, 0, 5);
+        let press = WeaponInput {
+            fire: true,
+            fire_pressed: true,
+            ..Default::default()
+        };
+        assert_eq!(launches(&a.tick(&d, &press, Vec3::X, &mut rng, DT)), 1);
+        // Held for two seconds (four refires' worth): nothing more is thrown.
+        let ev = run(&mut a, &d, &held(), &mut rng, 2.0);
+        assert_eq!(launches(&ev), 0, "{ev:?}");
+        assert_eq!(a.reserve[AmmoKind::Bombs.index()], 4);
+        // A fresh press throws the next one.
+        assert_eq!(launches(&a.tick(&d, &press, Vec3::X, &mut rng, DT)), 1);
+        // Rockets keep auto-firing while held.
+        let (d, mut a, mut rng) = armed(WeaponId::Rockets, 0, 5, 0);
+        assert_eq!(launches(&run(&mut a, &d, &held(), &mut rng, 1.0)), 2);
     }
 
     #[test]
