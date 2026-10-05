@@ -284,12 +284,16 @@ fn walk_past_item(app: &mut App) {
 
 #[test]
 fn dead_player_picks_nothing_up() {
+    // 0.3 m from the start (2, 2): well inside pickup reach (radius 0.35 + 0.6).
     let mut app = app(door_rooms(
         "(kind: Door)",
-        "items: [(kind: Key(Red), pos: (3.0, 1.5))],",
+        "items: [(kind: Key(Red), pos: (2.3, 2.0))],",
     ));
+    assert!(!app.world().resource::<LevelMechanics>().0.taken[0]);
+    let loadout = arsenal(&mut app).0.clone();
     health(&mut app).0.damage(1000);
-    walk_past_item(&mut app);
+    // `pickup_items` still runs on this tick (still `Playing`); `check_player_death` follows it.
+    ticks(&mut app, 1);
     assert!(!app.world().resource::<LevelMechanics>().0.taken[0]);
     let mut q = app.world_mut().query::<&Inventory>();
     assert!(
@@ -298,6 +302,8 @@ fn dead_player_picks_nothing_up() {
             .keys
             .contains(rr_core::map::Key::Red)
     );
+    assert_eq!(arsenal(&mut app).0, loadout);
+    assert_eq!(app.world().resource::<HudMessage>().text, "");
 }
 
 #[test]
