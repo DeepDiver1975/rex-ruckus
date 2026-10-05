@@ -1,5 +1,6 @@
 //! Loads the map and spawns its meshes, materials and lights.
 
+use crate::breakables::{FixtureMaterials, LightFixture};
 use crate::coords::{to_bevy, to_bevy_arr};
 use crate::flow::{LevelEntity, SpawnLevel};
 use crate::mechanics::DirtySectors;
@@ -10,8 +11,9 @@ use bevy::light::{GlobalAmbientLight, NotShadowCaster};
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::render::render_resource::PrimitiveTopology;
+use rr_core::destruct::FIXTURE_RADIUS;
 use rr_core::extrude::{MeshData, extrude_sector};
-use rr_core::map::{Map, SectorId};
+use rr_core::map::{GLASS_MATERIAL, Map, SectorId};
 use std::path::{Path, PathBuf};
 
 #[derive(Resource)]
@@ -96,7 +98,7 @@ fn spawn_sector(
                     SectorMesh(s),
                     LevelEntity,
                 ));
-                if map.materials[sub.material] == "sky" {
+                if matches!(map.materials[sub.material].as_str(), "sky" | GLASS_MATERIAL) {
                     e.insert(NotShadowCaster);
                 }
             }
@@ -135,12 +137,31 @@ pub fn rebuild_dirty_sectors(
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LevelLight(pub usize);
 
+/// The material of a named level texture. Glass is translucent light cyan; the sky is unlit.
+fn level_material(name: &str, texture: Handle<Image>) -> StandardMaterial {
+    let mut m = StandardMaterial {
+        base_color_texture: Some(texture),
+        perceptual_roughness: 0.9,
+        unlit: name == "sky",
+        ..default()
+    };
+    if name == GLASS_MATERIAL {
+        // Both faces of a pane are separate quads facing opposite ways, so back-face culling
+        // stays on and the coplanar quads never z-fight.
+        m.base_color = Color::srgba(0.75, 0.95, 1.0, 0.35);
+        m.alpha_mode = AlphaMode::Blend;
+        m.perceptual_roughness = 0.1;
+    }
+    m
+}
+
 /// Sector meshes and lights (in [`SpawnLevel`]). The materials are generated on the first spawn
 /// and reused by restarts of the same level.
 fn spawn_level(
     mut commands: Commands,
     map: Res<CurrentMap>,
     existing: Option<Res<LevelMaterials>>,
+    fixtures: Option<Res<FixtureMaterials>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
@@ -154,12 +175,7 @@ fn spawn_level(
                 .iter()
                 .map(|name| {
                     let texture = images.add(textures::generate(name));
-                    materials.add(StandardMaterial {
-                        base_color_texture: Some(texture),
-                        perceptual_roughness: 0.9,
-                        unlit: name == "sky",
-                        ..default()
-                    })
+                    materials.add(level_material(name, texture))
                 })
                 .collect();
             commands.insert_resource(LevelMaterials(mats.clone()));
@@ -171,7 +187,40 @@ fn spawn_level(
         spawn_sector(&mut commands, &mut meshes, map, &mats, s);
     }
 
+    let fixtures = match fixtures {
+        Some(f) => f.clone(),
+        None => {
+            let f = FixtureMaterials {
+                lit: materials.add(StandardMaterial {
+                    base_color: Color::srgb(1.0, 0.95, 0.8),
+                    emissive: LinearRgba::new(6.0, 5.5, 4.0, 1.0),
+                    unlit: true,
+                    ..default()
+                }),
+                dark: materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.08, 0.08, 0.09),
+                    perceptual_roughness: 0.8,
+                    ..default()
+                }),
+                mesh: meshes.add(Sphere::new(FIXTURE_RADIUS)),
+            };
+            commands.insert_resource(f.clone());
+            f
+        }
+    };
+
     for (i, l) in map.lights.iter().enumerate() {
+        if l.breakable {
+            // A visible fixture so the player can see what to shoot.
+            commands.spawn((
+                Mesh3d(fixtures.mesh.clone()),
+                MeshMaterial3d(fixtures.lit.clone()),
+                Transform::from_translation(to_bevy(Vec3::new(l.pos.0, l.pos.1, l.pos.2))),
+                NotShadowCaster,
+                LightFixture(i),
+                LevelEntity,
+            ));
+        }
         commands.spawn((
             PointLight {
                 color: Color::srgb(l.color.0, l.color.1, l.color.2),

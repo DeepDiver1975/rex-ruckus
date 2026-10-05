@@ -8,6 +8,9 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 pub const SIZE: u32 = 32;
 
+/// Material name of crack walls (see `mechanics::mark_crack_walls`).
+pub const CRACKED: &str = "cracked";
+
 /// Cheap deterministic integer hash → 0..=255 noise.
 fn noise(x: u32, y: u32, seed: u32) -> u8 {
     let mut h = x.wrapping_mul(374_761_393)
@@ -35,6 +38,19 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
             }
         }
         "concrete" => shade([120, 120, 115], n * 2),
+        // Concrete scarred by dark zig-zag fissures: the walls a blast can open.
+        "cracked" => {
+            let fissure = |cx: u32, phase: u32| {
+                let wobble = (noise(y / 3, phase, 11) % 3) as i32 - 1;
+                x as i32
+                    == cx as i32 + (y as i32 % 8) / 2 * if y / 8 % 2 == 0 { 1 } else { -1 } + wobble
+            };
+            if fissure(8, 1) || fissure(23, 2) || (y == 15 && (4..28).contains(&x)) {
+                [25, 25, 25, 255]
+            } else {
+                shade([105, 105, 100], n * 2)
+            }
+        }
         // Placeholder pane: pale blue with diagonal glints (translucency comes later).
         "glass" => shade([170, 205, 220], if (x + y) % 11 == 0 { 35 } else { n / 2 }),
         "sky" => shade([40, 60, 120], (SIZE - y) as i32 * 2 + n / 4),
@@ -123,7 +139,9 @@ mod tests {
 
     #[test]
     fn textures_are_deterministic_32px_rgba() {
-        for name in ["brick", "concrete", "sky", "metal", "tile", "wood", "door"] {
+        for name in [
+            "brick", "concrete", "sky", "metal", "tile", "wood", "door", "cracked", "glass",
+        ] {
             let a = pixels(name);
             assert_eq!(a.len(), (SIZE * SIZE * 4) as usize, "{name}");
             assert_eq!(a, pixels(name), "{name} must be deterministic");
@@ -134,6 +152,14 @@ mod tests {
     fn unknown_name_gives_missing_texture_checker() {
         let p = pixels("does-not-exist");
         assert_eq!(&p[0..4], &[255, 0, 255, 255]);
+    }
+
+    #[test]
+    fn cracked_concrete_has_dark_fissures_unlike_plain_concrete() {
+        let (c, p) = (pixels(CRACKED), pixels("concrete"));
+        assert_ne!(c, p);
+        let dark = c.chunks(4).filter(|px| px[0] < 40).count();
+        assert!(dark > 30, "fissure pixels: {dark}");
     }
 
     #[test]
