@@ -10,6 +10,10 @@ const MARGIN: f32 = 2.0;
 /// Red, blue, yellow; indexed by `Key as usize`.
 pub const KEY_COLORS: [&str; 3] = ["#e74c3c", "#3498db", "#f1c40f"];
 
+pub const AMMO_COLOR: &str = "#f4d03f";
+pub const SHELLS_COLOR: &str = "#e67e22";
+pub const SHOTGUN_COLOR: &str = "#8b5a2b";
+
 fn key_color(k: Key) -> &'static str {
     KEY_COLORS[k as usize]
 }
@@ -131,15 +135,51 @@ pub fn render_svg(map: &Map) -> String {
     }
 
     for item in &map.items {
-        let color = match item.kind {
-            ItemKind::Key(k) => key_color(k),
-            _ => "#888",
-        };
         let p = px(item.pos);
+        let title = format!("<title>{:?}</title>", item.kind);
+        let (x, y) = (p.x, p.y);
+        match item.kind {
+            ItemKind::HealthSmall => writeln!(
+                o,
+                r##"<g class="item"><rect x="{:.1}" y="{:.1}" width="12" height="12" fill="#fff" stroke="#c0392b"/><path d="M{x:.1} {:.1}V{:.1}M{:.1} {y:.1}H{:.1}" stroke="#c0392b" stroke-width="3"/>{title}</g>"##,
+                x - 6.0, y - 6.0, y - 4.0, y + 4.0, x - 4.0, x + 4.0
+            ),
+            kind => {
+                let color = match kind {
+                    ItemKind::Key(k) => key_color(k),
+                    ItemKind::PistolAmmo => AMMO_COLOR,
+                    ItemKind::ShotgunShells => SHELLS_COLOR,
+                    _ => SHOTGUN_COLOR,
+                };
+                writeln!(
+                    o,
+                    r##"<circle class="item" cx="{x:.1}" cy="{y:.1}" r="6" fill="{color}" stroke="#fff">{title}</circle>"##
+                )
+            }
+        }
+        .unwrap();
+    }
+
+    for a in &map.actors {
+        let (c, s) = (a.angle.cos(), a.angle.sin());
+        // Triangle in metres: nose 0.5 ahead, base corners 0.35 behind and 0.35 to either side.
+        let pt = |f: f32, l: f32| px(a.pos + Vec2::new(c * f - s * l, s * f + c * l));
+        let (n, l, r) = (pt(0.5, 0.0), pt(-0.35, 0.35), pt(-0.35, -0.35));
+        let (paint, state) = if a.asleep {
+            (
+                r##"fill="none" stroke="#e74c3c" stroke-width="2""##,
+                "asleep",
+            )
+        } else {
+            (
+                r##"fill="#e74c3c" stroke="#fff" stroke-width="1""##,
+                "awake",
+            )
+        };
         writeln!(
             o,
-            r##"<circle class="item" cx="{:.1}" cy="{:.1}" r="6" fill="{}" stroke="#fff"/>"##,
-            p.x, p.y, color
+            r#"<polygon class="actor" points="{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}" {paint}><title>{:?} ({state})</title></polygon>"#,
+            n.x, n.y, l.x, l.y, r.x, r.y, a.kind
         )
         .unwrap();
     }
@@ -198,5 +238,34 @@ mod tests {
         let svg = render_svg(&map);
         assert!(svg.contains("a&lt;b&amp;&quot;c&quot;"), "{svg}");
         assert!(!svg.contains("a<b"), "{svg}");
+    }
+
+    #[test]
+    fn draws_actors_and_item_kinds() {
+        let map = door_rooms(
+            "(kind: Door)",
+            "items: [(kind: Key(Red), pos: (1.0, 1.0)), (kind: PistolAmmo, pos: (1.0, 2.0)), (kind: ShotgunShells, pos: (1.0, 3.0)), (kind: Shotgun, pos: (2.0, 1.0)), (kind: HealthSmall, pos: (2.0, 3.0))], actors: [(kind: Grunt, pos: (6.0, 2.0), angle_deg: 90.0, asleep: true), (kind: Grunt, pos: (7.0, 2.0), asleep: false)],",
+        );
+        let svg = render_svg(&map);
+        assert_eq!(svg.matches("class=\"actor\"").count(), 2, "{svg}");
+        assert!(
+            svg.contains("Grunt (asleep)") && svg.contains("Grunt (awake)"),
+            "{svg}"
+        );
+        assert_eq!(svg.matches("fill=\"none\"").count(), 1, "one hollow actor");
+        assert_eq!(svg.matches("class=\"item\"").count(), 5);
+        for c in [AMMO_COLOR, SHELLS_COLOR, SHOTGUN_COLOR, KEY_COLORS[0]] {
+            assert!(svg.contains(c), "{c}");
+        }
+        for t in [
+            "PistolAmmo",
+            "ShotgunShells",
+            "Shotgun",
+            "HealthSmall",
+            "Key(Red)",
+        ] {
+            assert!(svg.contains(&format!("<title>{t}</title>")), "{t}");
+        }
+        assert!(!svg.contains("#888"), "grey fallback is gone");
     }
 }

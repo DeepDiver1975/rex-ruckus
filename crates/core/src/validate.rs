@@ -2,6 +2,8 @@
 //! exit (and every keycard) can be reached from the start. Run it on an authored map (straight
 //! from `Map::from_raw`, doors open), never on a live one.
 
+use crate::defs::Defs;
+use crate::geom::closest_point_on_segment;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
 };
@@ -60,7 +62,8 @@ pub fn validate(map: &Map) -> Vec<Issue> {
     check_portals(map, &mut r);
     check_overlaps(map, &mut r);
     check_wiring(map, &mut r);
-    check_reachability(map, &mut r);
+    let reached = check_reachability(map, &mut r);
+    check_actors(map, reached.as_deref(), &mut r);
     r.0
 }
 
@@ -267,11 +270,13 @@ fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning
     reached
 }
 
-fn check_reachability(map: &Map, r: &mut Report) {
+/// Reports unreachable items and exits; returns the final reachable-sector set (None when the
+/// start is outside every sector).
+fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
     let t = Tuning::default();
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
     let Some(start) = map.find_sector(start, None) else {
-        return; // reported by check_wiring
+        return None; // reported by check_wiring
     };
     // A channel switch also needs the lock key of every mover listening on its channel.
     let usable = |sw: &Switch, keys: KeySet| {
@@ -333,6 +338,57 @@ fn check_reachability(map: &Map, r: &mut Report) {
             .any(|sw| reached[map.walls[sw.wall].sector] && usable(sw, keys))
     {
         r.error("no exit switch can be reached and used from the start".into());
+    }
+    Some(reached)
+}
+
+/// Awake actors closer than this (straight-line XY, metres) to the player start get a warning.
+const NEAR_START: f32 = 3.0;
+
+/// Actor spawns. Sizes come from `Defs::builtin()`. "Blocking wall" means any wall of the actor's
+/// own sector with no `next_sector` (a solid wall); portal walls never block, matching how the
+/// start's room-to-stand check treats geometry (it only looks at sector height).
+fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
+    let defs = Defs::builtin();
+    let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
+    for (i, a) in map.actors.iter().enumerate() {
+        let at = format!("({:?}, {:?})", a.pos.x, a.pos.y);
+        let who = format!("actor {i} ({:?}) at {at}", a.kind);
+        let Some(s) = map.find_sector(a.pos, None) else {
+            r.error(format!("{who} is outside every sector"));
+            continue;
+        };
+        let def = defs.enemy(a.kind);
+        let sec = &map.sectors[s];
+        if sec.ceil_z - sec.floor_z < def.height {
+            r.error(format!(
+                "{who}: sector {s} is too low for its height ({} m)",
+                def.height
+            ));
+        }
+        if sec.mover.is_some_and(|m| matches!(m.kind, MoverKind::Door)) {
+            r.error(format!("{who} is in a door sector ({s})"));
+        }
+        let near_wall = sec.walls().any(|w| {
+            let wall = &map.walls[w];
+            wall.next_sector.is_none()
+                && closest_point_on_segment(a.pos, wall.a, wall.b).distance(a.pos) < def.radius
+        });
+        if near_wall {
+            r.error(format!(
+                "{who} is within {} m of a blocking wall",
+                def.radius
+            ));
+        }
+        if reached.is_some_and(|re| !re[s]) {
+            r.warn(format!("{who} cannot be reached from the start"));
+        }
+        if !a.asleep && a.pos.distance(start) < NEAR_START {
+            r.warn(format!(
+                "awake actor {i} ({:?}) at {at} is within {NEAR_START} m of the player start",
+                a.kind
+            ));
+        }
     }
 }
 
@@ -528,5 +584,97 @@ mod tests {
             "switches: [(wall: (7, 0), action: Channel(1)), (wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (2.0, 3.0))],",
         );
         assert_eq!(validate(&ok), vec![]);
+    }
+
+    fn actor(x: f32, y: f32, asleep: bool) -> String {
+        format!("(kind: Grunt, pos: ({x:?}, {y:?}), angle_deg: 0.0, asleep: {asleep})")
+    }
+
+    #[test]
+    fn actor_outside_or_in_wall_is_an_error() {
+        let out = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(50.0, 50.0, true)),
+        );
+        assert!(has(
+            &errors(&out),
+            "actor 0 (Grunt) at (50.0, 50.0) is outside every sector"
+        ));
+        // 0.2 m from the west wall of room A: inside the 0.35 m radius.
+        let near = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(0.2, 2.0, true)),
+        );
+        assert!(
+            has(&errors(&near), "actor 0 (Grunt) at (0.2, 2.0)"),
+            "{:?}",
+            errors(&near)
+        );
+        assert!(has(&errors(&near), "wall"));
+        // Clear of every wall: fine.
+        let ok = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(2.0, 2.0, true)),
+        );
+        assert_eq!(errors(&ok), Vec::<String>::new());
+        // Too low for a 1.75 m grunt.
+        let mut low = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(2.0, 2.0, true)),
+        );
+        low.sectors[0].ceil_z = 1.5;
+        assert!(has(&errors(&low), "too low"));
+    }
+
+    #[test]
+    fn actor_in_door_sector_is_an_error() {
+        let map = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(4.25, 2.0, true)),
+        );
+        assert!(
+            has(
+                &errors(&map),
+                "actor 0 (Grunt) at (4.25, 2.0) is in a door sector"
+            ),
+            "{:?}",
+            errors(&map)
+        );
+    }
+
+    #[test]
+    fn unreachable_actor_warns() {
+        let map = door_rooms(
+            "(kind: Door, lock: Some(Red))",
+            &format!("actors: [{}],", actor(6.5, 2.0, true)),
+        );
+        assert!(has(
+            &warnings(&map),
+            "actor 0 (Grunt) at (6.5, 2.0) cannot be reached from the start"
+        ));
+        let open = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(6.5, 2.0, true)),
+        );
+        assert!(!has(&warnings(&open), "actor 0"));
+    }
+
+    #[test]
+    fn awake_actor_near_start_warns() {
+        let awake = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(2.0, 2.0, false)),
+        );
+        assert!(has(&warnings(&awake), "awake actor 0"));
+        let asleep = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(2.0, 2.0, true)),
+        );
+        assert!(!has(&warnings(&asleep), "actor 0"));
+        let far = door_rooms(
+            "(kind: Door)",
+            &format!("actors: [{}],", actor(6.5, 2.0, false)),
+        );
+        assert!(!has(&warnings(&far), "awake actor 0"));
     }
 }
