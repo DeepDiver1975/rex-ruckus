@@ -3,10 +3,10 @@ use rr_core::collide::Body;
 use rr_core::combat::{Combat, CombatEvent, PlayerTarget, level_seed};
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::glam::{Vec2, Vec3};
-use rr_core::health::{Health, PLAYER_MAX_HEALTH};
 use rr_core::map::{ActorKind, ItemKind, Key, Map};
 use rr_core::mechanics::Mechanics;
 use rr_core::validate::validate;
+use rr_core::vitals::Vitals;
 use rr_core::weapons::{Arsenal, WeaponEvent, WeaponInput};
 
 const ARENA: &str = include_str!("../../../assets/levels/combat_arena.ron");
@@ -64,7 +64,7 @@ fn scripted_arena_fight() {
     body = Body::spawn(&map, Vec2::new(5.0, 10.0), body.radius, body.height).unwrap();
     assert_eq!(map.sectors[body.sector].floor_z, 0.0);
 
-    let mut health = Health::new(PLAYER_MAX_HEALTH);
+    let mut vitals = Vitals::new();
     let mut arsenal = Arsenal::new(&defs);
     assert_eq!(arsenal.current, WeaponId::Pistol);
     let mut shots = 0;
@@ -82,14 +82,14 @@ fn scripted_arena_fight() {
             if matches!(ev, WeaponEvent::Fire { .. }) {
                 shots += 1;
             }
-            combat.player_attack(&map, &defs, eye, body.sector, &ev);
+            combat.player_attack(&mut map, &defs, eye, body.sector, &ev);
         }
         let mut player = PlayerTarget {
             body: &mut body,
-            health: &mut health,
+            vitals: &mut vitals,
             eye,
         };
-        let events = combat.tick(&map, &defs, &mut player, DT);
+        let events = combat.tick(&mut map, &mut mech, &defs, &mut player, DT);
         assert!(!events.contains(&CombatEvent::PlayerKilled), "player died");
         let (idx, mut bodies) = combat.living_bodies();
         mech.tick(&mut map, &mut bodies, DT);
@@ -106,6 +106,7 @@ fn scripted_arena_fight() {
         "player left the map: {}",
         body.pos
     );
-    assert!(health.hp > 0, "player survived with {} hp", health.hp);
+    let hp = vitals.health.hp;
+    assert!(hp > 0, "player survived with {hp} hp");
     assert!((3..=24).contains(&shots), "{shots} shots");
 }

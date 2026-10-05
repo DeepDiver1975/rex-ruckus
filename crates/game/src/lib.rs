@@ -1,10 +1,14 @@
 //! Bevy front-end for Rex Ruckus: Meltdown.
 
 pub mod actors;
+pub mod breakables;
 pub mod combat;
 pub mod coords;
+pub mod decals;
 pub mod flow;
+pub mod fx;
 pub mod hud;
+pub mod inventory;
 pub mod level;
 pub mod mechanics;
 pub mod paths;
@@ -34,6 +38,10 @@ impl Plugin for GamePlugin {
             player::PlayerControlPlugin,
             props::PropsPlugin,
             actors::ActorVisualsPlugin,
+            fx::FxPlugin,
+            decals::DecalsPlugin,
+            breakables::BreakablesPlugin,
+            inventory::NightVisionPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
         ));

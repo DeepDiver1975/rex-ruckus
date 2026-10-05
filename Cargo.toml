@@ -13,3 +13,5 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+# Dependencies carry no debuginfo: keeps debug test binaries small.
+debug = false

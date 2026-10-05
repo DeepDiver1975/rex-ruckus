@@ -3,25 +3,53 @@
     ammo: [
         (kind: Bullets, max: 200, start: 48, pickup: 12),
         (kind: Shells, max: 50, start: 0, pickup: 8),
+        (kind: Rockets, max: 50, start: 0, pickup: 5),
+        (kind: Bombs, max: 10, start: 0, pickup: 2),
     ],
     weapons: [
         (
             id: Boot, name: "Boot",
             attack: Melee(range: 1.4, damage: 12),
             refire: 0.45, ammo: None, clip: None, reload: 0.0,
-            switch_time: 0.3, noise: 4.0, pickup_ammo: 0,
+            switch_time: 0.3, noise: 4.0, pickup_ammo: 0, priority: 0,
         ),
         (
             id: Pistol, name: "Pistol",
             attack: Hitscan(damage: 12, pellets: 1, spread_deg: 0.8, range: 200.0),
             refire: 0.18, ammo: Some(Bullets), clip: Some(12), reload: 1.2,
-            switch_time: 0.3, noise: 25.0, pickup_ammo: 0,
+            switch_time: 0.3, noise: 25.0, pickup_ammo: 0, priority: 2,
         ),
         (
             id: Shotgun, name: "Shotgun",
             attack: Hitscan(damage: 8, pellets: 7, spread_deg: 6.0, range: 200.0),
             refire: 0.9, ammo: Some(Shells), clip: None, reload: 0.0,
-            switch_time: 0.3, noise: 30.0, pickup_ammo: 10,
+            switch_time: 0.3, noise: 30.0, pickup_ammo: 10, priority: 3,
+        ),
+        (
+            id: Chaingun, name: "Chaingun",
+            attack: Hitscan(damage: 9, pellets: 1, spread_deg: 2.5, range: 200.0),
+            refire: 0.07, ammo: Some(Bullets), clip: None, reload: 0.0,
+            switch_time: 0.4, noise: 30.0, pickup_ammo: 50, priority: 4,
+        ),
+        (
+            id: Rockets, name: "Rocket Launcher",
+            attack: Projectile(proj: (
+                speed: 30.0, damage: 20, radius: 0.15, life: 5.0,
+                splash: Some((radius: 5.0, damage: 80, self_scale: 0.5)),
+            )),
+            refire: 0.8, ammo: Some(Rockets), clip: None, reload: 0.0,
+            switch_time: 0.5, noise: 30.0, pickup_ammo: 5, priority: 0,
+        ),
+        (
+            id: PipeBombs, name: "Pipe Bombs",
+            attack: Projectile(proj: (
+                // `life` is unused: a remote bomb never expires (it waits for the detonator).
+                speed: 12.0, damage: 0, radius: 0.1, life: 60.0,
+                gravity: 12.0, bounce: Some(0.45), remote: true,
+                splash: Some((radius: 6.0, damage: 100, self_scale: 1.0)),
+            )),
+            refire: 0.5, ammo: Some(Bombs), clip: None, reload: 0.0,
+            switch_time: 0.4, noise: 10.0, pickup_ammo: 3, priority: 0,
         ),
     ],
     start_weapons: [Boot, Pistol],

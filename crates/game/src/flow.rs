@@ -5,7 +5,7 @@
 //! once, and [`restart_level`] despawns every [`LevelEntity`], resets the level resources and
 //! runs it again. The camera and the HUD are spawned outside it and persist across restarts.
 
-use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerHealth};
+use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerVitals};
 use crate::mechanics::{DirtySectors, HudMessage, UsePrompt, fresh_level, pickup_items};
 use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
@@ -93,8 +93,8 @@ fn run_spawn_level(world: &mut World) {
     world.run_schedule(SpawnLevel);
 }
 
-fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerHealth, With<Player>>) {
-    if q.iter().any(|h| !h.0.alive()) {
+fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerVitals, With<Player>>) {
+    if q.iter().any(|v| !v.0.health.alive()) {
         *state = PlayState::Dead;
     }
 }
@@ -172,6 +172,10 @@ pub fn restart_level(world: &mut World) {
     world.insert_resource(DirtySectors::default());
     world.insert_resource(FxQueue::default());
     world.insert_resource(HudMessage::default());
+    // The decal entities went with the level; forget them in the ring too.
+    if let Some(mut ring) = world.get_resource_mut::<crate::decals::DecalRing>() {
+        ring.reset();
+    }
     // Reset in place: the flash exists only with the HUD, and resources are entities.
     if let Some(mut flash) = world.get_resource_mut::<crate::hud::DamageFlash>() {
         flash.0 = 0.0;
@@ -184,6 +188,13 @@ pub fn restart_level(world: &mut World) {
     if let Some(mut roll) = world.get_resource_mut::<crate::player::ViewRoll>() {
         roll.0 = 0.0;
     }
+    // Camera shake and night vision belong to the dead run too. (Vitals, armour and the carried
+    // inventory live on the player entity, so the loadout in `SpawnLevel` renews them; the
+    // player's input latches are reborn empty with it, so a key pressed while dead cannot fire.)
+    if let Some(mut shake) = world.get_resource_mut::<crate::fx::ScreenShake>() {
+        shake.reset();
+    }
+    crate::inventory::reset_night_vision(world);
     world.insert_resource(UsePrompt::default());
     *world.resource_mut::<PlayState>() = PlayState::Playing;
     world.resource_mut::<StateAge>().0 = 0.0;

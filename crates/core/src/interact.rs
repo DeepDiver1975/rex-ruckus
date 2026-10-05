@@ -1,7 +1,7 @@
 //! What the use key points at (Build's `neartag`).
 
 use crate::collide::Body;
-use crate::map::Map;
+use crate::map::{Map, MoverKind};
 use crate::mechanics::{Mechanics, UseTarget};
 use crate::trace::wall_t;
 use glam::Vec2;
@@ -15,7 +15,9 @@ pub fn use_target(map: &Map, mech: &Mechanics, body: &Body, heading: f32) -> Opt
     let origin = body.pos.truncate();
     let dir = Vec2::new(heading.cos(), heading.sin());
     let eye = body.pos.z + body.height * EYE_FRACTION;
-    let manual = |m: usize| mech.movers[m].def.channel.is_none();
+    let manual = |m: usize| {
+        mech.movers[m].def.channel.is_none() && mech.movers[m].def.kind != MoverKind::Crack
+    };
 
     let mut hits: Vec<(f32, usize)> = map
         .walls
@@ -34,7 +36,7 @@ pub fn use_target(map: &Map, mech: &Mechanics, body: &Body, heading: f32) -> Opt
         if let Some(i) = map.switches.iter().position(|s| s.wall == wid) {
             return Some(UseTarget::Switch(i));
         }
-        let Some(next) = map.walls[wid].next_sector else {
+        let Some(next) = map.walls[wid].passage() else {
             break;
         };
         if let Some(m) = mech.mover_in(next) {

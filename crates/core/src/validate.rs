@@ -7,6 +7,7 @@ use crate::geom::closest_point_on_segment;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
 };
+use crate::mechanics::channel_required_keys;
 use crate::movement::{Pose, Tuning, can_cross};
 use glam::Vec2;
 use std::collections::BTreeSet;
@@ -178,6 +179,10 @@ fn check_wiring(map: &Map, r: &mut Report) {
     let has_key = |k: Key| map.items.iter().any(|i| i.kind == ItemKind::Key(k));
     for (s, sec) in map.sectors.iter().enumerate() {
         let Some(def) = sec.mover else { continue };
+        if def.kind == MoverKind::Crack && !sec.walls().any(|w| map.walls[w].next_sector.is_some())
+        {
+            r.error(format!("sector {s}: crack wall has no portal to open"));
+        }
         if let Some(c) = def.channel
             && !map
                 .switches
@@ -247,6 +252,8 @@ fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
         (MoverKind::Door, false) => vec![],
         (MoverKind::Lift { to }, true) => vec![(sec.floor_z, sec.ceil_z), (to, sec.ceil_z)],
         (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
+        // Only a blast opens it, and no level may depend on one.
+        (MoverKind::Crack, _) => vec![],
     }
 }
 
@@ -270,6 +277,21 @@ fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning
     reached
 }
 
+/// Can a player holding `keys` operate `sw`? A channel switch also needs the lock key of every
+/// mover listening on its channel (the same rule the runtime applies).
+fn switch_usable(map: &Map, sw: &Switch, keys: KeySet) -> bool {
+    sw.key.is_none_or(|k| keys.contains(k))
+        && match sw.action {
+            SwitchAction::Channel(c) => {
+                let need = channel_required_keys(map, c);
+                Key::ALL
+                    .iter()
+                    .all(|&k| !need.contains(k) || keys.contains(k))
+            }
+            SwitchAction::Exit => true,
+        }
+}
+
 /// Reports unreachable items and exits; returns the final reachable-sector set (None when the
 /// start is outside every sector).
 fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
@@ -278,19 +300,7 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
     let Some(start) = map.find_sector(start, None) else {
         return None; // reported by check_wiring
     };
-    // A channel switch also needs the lock key of every mover listening on its channel.
-    let usable = |sw: &Switch, keys: KeySet| {
-        sw.key.is_none_or(|k| keys.contains(k))
-            && match sw.action {
-                SwitchAction::Channel(c) => map
-                    .sectors
-                    .iter()
-                    .filter_map(|s| s.mover)
-                    .filter(|m| m.channel == Some(c))
-                    .all(|m| m.lock.is_none_or(|k| keys.contains(k))),
-                SwitchAction::Exit => true,
-            }
-    };
+    let usable = |sw: &Switch, keys: KeySet| switch_usable(map, sw, keys);
     let mut keys = KeySet::default();
     let mut fired: Vec<Channel> = Vec::new();
     let reached = loop {
@@ -346,8 +356,9 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
 const NEAR_START: f32 = 3.0;
 
 /// Actor spawns. Sizes come from `Defs::builtin()`. "Blocking wall" means any wall of the actor's
-/// own sector with no `next_sector` (a solid wall); portal walls never block, matching how the
-/// start's room-to-stand check treats geometry (it only looks at sector height).
+/// own sector with no `passage` (a solid wall or a glass pane); open portal walls never block,
+/// matching how the start's room-to-stand check treats geometry (it only looks at sector
+/// height).
 fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
     let defs = Defs::builtin();
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
@@ -371,7 +382,7 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
         }
         let near_wall = sec.walls().any(|w| {
             let wall = &map.walls[w];
-            wall.next_sector.is_none()
+            wall.passage().is_none()
                 && closest_point_on_segment(a.pos, wall.a, wall.b).distance(a.pos) < def.radius
         });
         if near_wall {
@@ -547,6 +558,31 @@ mod tests {
     }
 
     #[test]
+    fn exit_behind_crack_rejected() {
+        let behind = door_rooms("(kind: Crack)", "switches: [(wall: (3, 4), action: Exit)],");
+        assert!(has(&errors(&behind), "exit"), "{:?}", errors(&behind));
+        // A key behind the crack cannot unlock anything either.
+        let keyed = door_rooms(
+            "(kind: Crack)",
+            "switches: [(wall: (3, 4), action: Exit, key: Some(Red))], items: [(kind: Key(Red), pos: (6.5, 2.0))],",
+        );
+        assert!(has(&errors(&keyed), "exit"));
+        // The exit on the near side is fine, however the crack sits.
+        let near = door_rooms("(kind: Crack)", "switches: [(wall: (7, 0), action: Exit)],");
+        assert_eq!(validate(&near), vec![]);
+    }
+
+    #[test]
+    fn crack_needs_a_portal() {
+        let map = raw(
+            "(0.0,0.0),(4.0,0.0),(4.0,4.0),(0.0,4.0)",
+            &format!("(loops: [[0,1,2,3]], {SQ}, mover: Some((kind: Crack)))"),
+            "",
+        );
+        assert!(has(&errors(&map), "crack"), "{:?}", errors(&map));
+    }
+
+    #[test]
     fn remote_door_opens_when_its_switch_is_reachable() {
         let map = door_rooms(
             "(kind: Door, channel: Some(1))",
@@ -585,6 +621,41 @@ mod tests {
             "switches: [(wall: (7, 0), action: Channel(1)), (wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (2.0, 3.0))],",
         );
         assert_eq!(validate(&ok), vec![]);
+    }
+
+    #[test]
+    fn validate_and_runtime_agree_on_channel_keys() {
+        use crate::mechanics::{Mechanics, UseOutcome, UseTarget};
+        let mut map = door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            "switches: [(wall: (7, 0), action: Channel(1))],",
+        );
+        map.sectors[0].mover = Some(crate::map::MoverDef {
+            kind: crate::map::MoverKind::Door,
+            speed: 2.5,
+            lock: Some(Key::Blue),
+            channel: Some(1),
+            auto_return: None,
+        });
+        let need = channel_required_keys(&map, 1);
+        assert!(need.contains(Key::Red) && need.contains(Key::Blue) && !need.contains(Key::Yellow));
+        assert_eq!(channel_required_keys(&map, 2), KeySet::default());
+        for bits in 0..8u8 {
+            let mut keys = KeySet::default();
+            for (i, k) in Key::ALL.into_iter().enumerate() {
+                if bits >> i & 1 == 1 {
+                    keys.insert(k);
+                }
+            }
+            let mut m = map.clone();
+            let mut mech = Mechanics::new(&mut m);
+            let runtime = mech.activate(&m, UseTarget::Switch(0), keys) == UseOutcome::Activated;
+            assert_eq!(
+                switch_usable(&map, &map.switches[0], keys),
+                runtime,
+                "keys {bits:03b}"
+            );
+        }
     }
 
     fn actor(x: f32, y: f32, asleep: bool) -> String {

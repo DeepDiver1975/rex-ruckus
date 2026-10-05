@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use rr_core::defs::Defs;
 use rr_core::map::Map;
-use rr_game::combat::{CombatSimPlugin, LevelCombat, PlayerHealth, insert_defs};
+use rr_game::combat::{CombatSimPlugin, LevelCombat, PlayerVitals, insert_defs};
 use rr_game::flow::FlowPlugin;
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::paths::assets_dir;
@@ -39,7 +39,13 @@ fn check(app: &mut App, map: &Map, name: &str, tick: usize) {
         "{name} tick {tick}: player left the map at {:?}",
         b.pos
     );
-    let hp = world.query::<&PlayerHealth>().single(world).unwrap().0.hp;
+    let hp = world
+        .query::<&PlayerVitals>()
+        .single(world)
+        .unwrap()
+        .0
+        .health
+        .hp;
     assert!((0..=100).contains(&hp), "{name} tick {tick}: health {hp}");
     for (i, a) in world
         .resource::<LevelCombat>()
@@ -61,7 +67,11 @@ fn check(app: &mut App, map: &Map, name: &str, tick: usize) {
 #[test]
 fn every_shipped_level_survives_scripted_play() {
     let levels = levels();
-    assert!(levels.len() >= 3, "found only {} levels", levels.len());
+    assert!(levels.len() >= 4, "found only {} levels", levels.len());
+    assert!(
+        levels.iter().any(|(name, _)| name == "arsenal_depot.ron"),
+        "the M4a showcase level is in the scripted play"
+    );
     for (name, map) in levels {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);

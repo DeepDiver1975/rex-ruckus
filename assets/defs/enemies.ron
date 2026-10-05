@@ -1,11 +1,60 @@
 // Enemy tuning. Starting values, to be adjusted in playtests.
+// `muzzle` is (forward, side, up) in metres from the feet, side positive to the actor's left.
 [
     (
         kind: Grunt,
         health: 30, radius: 0.35, height: 1.75, speed: 3.5,
         sight_range: 30.0, fov_deg: 120.0, reaction: 0.4,
-        attack_range: 20.0, attack_refire: 1.6, burst: 2, burst_gap: 0.25, aim_error_deg: 3.0,
-        projectile: (speed: 15.0, damage: 8, radius: 0.12, life: 4.0),
-        pain_chance: 0.5, pain_time: 0.35, death_time: 0.8, strafe: true,
+        attack_range: 20.0, attack_refire: 1.6, aim_error_deg: 3.0,
+        attack: Bolts(
+            proj: (speed: 15.0, damage: 8, radius: 0.12, life: 4.0),
+            burst: 2, burst_gap: 0.25,
+        ),
+        // The gun tip of the rig in rr-game: right hand 0.33 out, 1.32 up, 0.62 ahead.
+        muzzle: (0.62, -0.33, 1.32),
+        pain_chance: 0.5, pain_time: 0.35, pain_cooldown: 0.8, death_time: 0.8, strafe: true,
+    ),
+    (
+        kind: Enforcer,
+        health: 70, radius: 0.4, height: 1.85, speed: 3.0,
+        sight_range: 30.0, fov_deg: 120.0, reaction: 0.5,
+        attack_range: 14.0, attack_refire: 1.8, aim_error_deg: 2.0,
+        attack: Hitscan(damage: 5, pellets: 6, spread_deg: 7.0),
+        muzzle: (0.6, -0.3, 1.3),
+        pain_chance: 0.25, pain_time: 0.3, pain_cooldown: 1.0, death_time: 0.9, strafe: true,
+    ),
+    (
+        kind: Slasher,
+        health: 45, radius: 0.4, height: 1.5, speed: 7.5,
+        sight_range: 25.0, fov_deg: 140.0, reaction: 0.25,
+        attack_range: 1.6, attack_refire: 0.9, aim_error_deg: 0.0,
+        attack: Melee(damage: 18, lunge_speed: 12.0),
+        muzzle: (0.5, 0.0, 1.0),
+        pain_chance: 0.35, pain_time: 0.25, pain_cooldown: 0.8, death_time: 0.7, strafe: false,
+    ),
+    (
+        kind: Drone,
+        health: 25, radius: 0.4, height: 0.6, speed: 6.0,
+        sight_range: 30.0, fov_deg: 120.0, reaction: 0.4,
+        attack_range: 18.0, attack_refire: 1.1, aim_error_deg: 3.0,
+        attack: Bolts(
+            proj: (speed: 18.0, damage: 6, radius: 0.12, life: 4.0),
+            burst: 1, burst_gap: 0.0,
+        ),
+        locomotion: Fly(hover: 2.5, swoop: true),
+        muzzle: (0.3, 0.0, 0.3),
+        pain_chance: 0.4, pain_time: 0.25, pain_cooldown: 0.8, death_time: 0.6, strafe: false,
+    ),
+    (
+        kind: Barrel,
+        health: 15, radius: 0.4, height: 1.0, speed: 0.0,
+        sight_range: 0.0, fov_deg: 360.0, reaction: 0.0,
+        attack_range: 0.0, attack_refire: 0.0, aim_error_deg: 0.0,
+        attack: None,
+        locomotion: Static,
+        muzzle: (0.0, 0.0, 0.5),
+        pain_chance: 0.0, pain_time: 0.0, death_time: 0.1, strafe: false,
+        death_splash: Some((radius: 4.0, damage: 70, self_scale: 1.0)),
+        death_fuse: 0.15,
     ),
 ]

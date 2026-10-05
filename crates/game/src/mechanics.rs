@@ -1,12 +1,15 @@
 //! Doors, lifts, switches and keycards: core `Mechanics` driven from FixedUpdate.
 
-use crate::combat::{CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerHealth};
+use crate::combat::{
+    CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+};
 use crate::flow::{LevelSource, PlayState};
 use crate::level::CurrentMap;
 use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
+use crate::textures;
 use bevy::prelude::*;
 use rr_core::interact::use_target;
-use rr_core::map::{Map, SectorId};
+use rr_core::map::{Map, MoverKind, SectorId};
 use rr_core::mechanics::{Mechanics, UseOutcome, UseTarget};
 use rr_core::pickups::{Loadout, apply_pickup};
 use std::collections::BTreeSet;
@@ -41,7 +44,37 @@ impl HudMessage {
 /// The live map and its mechanics for an authored map, in the start pose (doors closed).
 pub fn fresh_level(mut map: Map) -> (CurrentMap, LevelMechanics) {
     let mech = Mechanics::new(&mut map);
+    mark_crack_walls(&mut map);
     (CurrentMap(map), LevelMechanics(mech))
+}
+
+/// Gives crack walls the cracked-concrete look: the step faces neighbours draw into a crack
+/// sector use its `face_mat`, and its own side walls use `wall_mat`; both are pointed at the
+/// `cracked` material, which is appended to `Map::materials` when missing. Done on the live map
+/// at load (the core knows nothing of textures), so restarts redo it from the authored map.
+pub fn mark_crack_walls(map: &mut Map) {
+    let is_crack = |s: &rr_core::map::Sector| s.mover.is_some_and(|m| m.kind == MoverKind::Crack);
+    if !map.sectors.iter().any(is_crack) {
+        return;
+    }
+    let id = match map.materials.iter().position(|m| m == textures::CRACKED) {
+        Some(i) => i,
+        None => {
+            map.materials.push(textures::CRACKED.to_string());
+            map.materials.len() - 1
+        }
+    };
+    for s in 0..map.sectors.len() {
+        if !is_crack(&map.sectors[s]) {
+            continue;
+        }
+        map.sectors[s].face_mat = Some(id);
+        map.sectors[s].wall_mat = id;
+        let walls: Vec<usize> = map.sectors[s].walls().collect();
+        for w in walls {
+            map.walls[w].material = id;
+        }
+    }
 }
 
 /// Inserts the map and its mechanics in their start pose, and keeps the authored map in
@@ -83,7 +116,7 @@ impl Plugin for MechanicsSimPlugin {
     }
 }
 
-fn use_key(
+pub fn use_key(
     map: Res<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
     mut prompt: ResMut<UsePrompt>,
@@ -143,18 +176,20 @@ pub fn pickup_items(
     mut q: Query<(
         &PlayerBody,
         &mut Inventory,
-        &mut PlayerHealth,
+        &mut PlayerVitals,
         &mut PlayerArsenal,
+        &mut PlayerInventory,
     )>,
 ) {
-    for (body, mut inv, mut health, mut arsenal) in &mut q {
-        if !health.0.alive() {
+    for (body, mut inv, mut health, mut arsenal, mut carried) in &mut q {
+        if !health.0.health.alive() {
             continue;
         }
         let mut loadout = Loadout {
-            health: &mut health.0,
+            vitals: &mut health.0,
             arsenal: &mut arsenal.0,
             keys: &mut inv.keys,
+            inventory: &mut carried.0,
         };
         mech.0.pickup(&map.0, &body.0, |kind| {
             apply_pickup(&defs.0, kind, &mut loadout)

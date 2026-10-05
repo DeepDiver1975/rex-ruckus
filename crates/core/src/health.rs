@@ -43,6 +43,16 @@ impl Health {
         true
     }
 
+    /// Heals up to `cap`, which may exceed `max` (overcharge). Returns false
+    /// (and changes nothing) when dead or already at or above `cap`.
+    pub fn heal_to(&mut self, n: i32, cap: i32) -> bool {
+        if !self.alive() || self.hp >= cap {
+            return false;
+        }
+        self.hp = (self.hp + n.max(0)).min(cap);
+        true
+    }
+
     pub fn alive(&self) -> bool {
         self.hp > 0
     }

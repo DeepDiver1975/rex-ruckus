@@ -46,10 +46,10 @@ fn can_hold(s: &Sector, feet: f32, height: f32, step: f32) -> bool {
 }
 
 /// A portal only needs to admit the sector the body is moving into, so a body
-/// standing in a sector it cannot hold can still leave it.
+/// standing in a sector it cannot hold can still leave it. Intact glass blocks like a wall.
 fn wall_blocks(map: &Map, w: &Wall, body: &Body, step: f32) -> bool {
     let (feet, height) = (body.pos.z, body.height);
-    match w.next_sector {
+    match w.passage() {
         None => true,
         Some(t) => {
             let near = !can_hold(&map.sectors[w.sector], feet, height, step);

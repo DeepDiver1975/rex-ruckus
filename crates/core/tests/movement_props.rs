@@ -10,8 +10,8 @@ use rr_core::movement::{MoveInput, Tuning, step_player};
 
 const DT: f32 = 1.0 / 60.0;
 
-/// (wish x, wish y, jump, crouch, ticks, toggle the lift first)
-type Segment = (f32, f32, bool, bool, usize, bool);
+/// (wish x, wish y, jump, crouch, ticks, toggle the lift first, jetpack, thrust)
+type Segment = (f32, f32, bool, bool, usize, bool, bool, f32);
 
 fn segments() -> impl Strategy<Value = Vec<Segment>> {
     prop::collection::vec(
@@ -22,6 +22,9 @@ fn segments() -> impl Strategy<Value = Vec<Segment>> {
             any::<bool>(),
             1usize..20,
             any::<bool>(),
+            // About a third of the segments fly.
+            prop::bool::weighted(0.33),
+            -1.0f32..=1.0,
         ),
         1..40,
     )
@@ -31,7 +34,7 @@ fn play(mut map: Map, start: Vec2, segs: &[Segment]) -> Result<(), TestCaseError
     let mut mech = Mechanics::new(&mut map);
     let t = Tuning::default();
     let mut b = Body::spawn(&map, start, 0.35, t.stand_height).unwrap();
-    for &(x, y, jump, crouch, ticks, toggle) in segs {
+    for &(x, y, jump, crouch, ticks, toggle, jetpack, thrust) in segs {
         if toggle && !mech.movers.is_empty() {
             mech.activate(&map, UseTarget::Mover(0), KeySet::default());
         }
@@ -43,6 +46,8 @@ fn play(mut map: Map, start: Vec2, segs: &[Segment]) -> Result<(), TestCaseError
                     wish: Vec2::new(x, y),
                     jump,
                     crouch,
+                    thrust,
+                    jetpack,
                 },
                 &t,
                 DT,
