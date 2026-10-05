@@ -27,6 +27,19 @@ pub fn ease_toward(current: f32, target: f32, rate: f32, dt: f32) -> f32 {
     target + (current - target) * (-rate * dt).exp()
 }
 
+/// Eye height above the feet once dead (core metres).
+pub const DEATH_EYE: f32 = 0.25;
+/// View roll once dead (radians).
+pub const DEATH_ROLL: f32 = 0.35;
+
+/// Where the eye height and view roll ease to: the live values, or the death camera's.
+pub fn view_targets(state: PlayState, live_eye: f32) -> (f32, f32) {
+    match state {
+        PlayState::Dead => (DEATH_EYE, DEATH_ROLL),
+        _ => (live_eye, 0.0),
+    }
+}
+
 /// Keeps the eased eye height below the ceiling (`ceil` is an absolute z, `feet_z` the feet's).
 pub fn clamp_eye(eye: f32, feet_z: f32, ceil: f32) -> f32 {
     eye.min(ceil - feet_z - EYE_CEIL_MARGIN)
@@ -321,17 +334,17 @@ fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
     map: Res<CurrentMap>,
+    state: Res<PlayState>,
     player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
+    mut roll: Local<f32>,
 ) {
     let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
-    eye_h.0 = ease_toward(
-        eye_h.0,
-        body.0.height - EYE_BELOW_TOP,
-        EYE_EASE_RATE,
-        frame_time.delta_secs(),
-    );
+    let (eye_target, roll_target) = view_targets(*state, body.0.height - EYE_BELOW_TOP);
+    let dt = frame_time.delta_secs();
+    eye_h.0 = ease_toward(eye_h.0, eye_target, EYE_EASE_RATE, dt);
+    *roll = ease_toward(*roll, roll_target, EYE_EASE_RATE, dt);
     let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
     eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
     let eye = feet + Vec3::Z * eye_h.0;
@@ -340,7 +353,7 @@ fn update_camera(
         EulerRot::YXZ,
         core_angle_to_yaw(look.angle),
         look.pitch,
-        0.0,
+        *roll,
     );
 }
 
@@ -356,6 +369,13 @@ mod tests {
         assert!((clamp_eye(1.65, 2.4, 4.0) - (1.6 - EYE_CEIL_MARGIN)).abs() < 1e-6);
         // Plenty of headroom: untouched.
         assert_eq!(clamp_eye(1.65, 0.0, 4.0), 1.65);
+    }
+
+    #[test]
+    fn dead_view_drops_the_eye_and_rolls() {
+        assert_eq!(view_targets(PlayState::Playing, 1.65), (1.65, 0.0));
+        assert_eq!(view_targets(PlayState::Complete, 1.65), (1.65, 0.0));
+        assert_eq!(view_targets(PlayState::Dead, 1.65), (DEATH_EYE, DEATH_ROLL));
     }
 
     #[test]

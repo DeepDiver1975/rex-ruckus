@@ -136,6 +136,10 @@ pub fn restart_level(world: &mut World) {
     world.insert_resource(DirtySectors::default());
     world.insert_resource(FxQueue::default());
     world.insert_resource(HudMessage::default());
+    // Reset in place: the flash exists only with the HUD, and resources are entities.
+    if let Some(mut flash) = world.get_resource_mut::<crate::hud::DamageFlash>() {
+        flash.0 = 0.0;
+    }
     world.insert_resource(UsePrompt::default());
     *world.resource_mut::<PlayState>() = PlayState::Playing;
     world.resource_mut::<StateAge>().0 = 0.0;
