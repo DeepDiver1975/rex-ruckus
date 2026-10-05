@@ -568,6 +568,11 @@ mod tests {
             owner: rr_core::projectile::Shooter::Actor(0),
             targets: rr_core::projectile::Targets::Player,
             life: 1.0,
+            gravity: 0.0,
+            bounce: None,
+            remote: false,
+            splash: None,
+            resting: false,
         };
         let t = bolt_transform(&p, 0.5);
         assert!(t.translation.distance(Vec3::new(0.5, 1.0, 0.0)) < 1e-6);

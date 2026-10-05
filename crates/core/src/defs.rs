@@ -118,6 +118,26 @@ pub struct ProjectileDef {
     pub damage: i32,
     pub radius: f32,
     pub life: f32,
+    /// Downward acceleration in m/s^2 (0 = flies straight).
+    #[serde(default)]
+    pub gravity: f32,
+    /// Restitution: `Some(e)` bounces off world surfaces instead of detonating there.
+    #[serde(default)]
+    pub bounce: Option<f32>,
+    /// Never expires; detonated by the owner.
+    #[serde(default)]
+    pub remote: bool,
+    #[serde(default)]
+    pub splash: Option<SplashDef>,
+}
+
+/// Area damage: full `damage` at the centre, falling off to nothing at `radius`; the
+/// shooter takes `self_scale` of it.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct SplashDef {
+    pub radius: f32,
+    pub damage: i32,
+    pub self_scale: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

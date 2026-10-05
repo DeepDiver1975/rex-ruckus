@@ -2,6 +2,7 @@
 //! orchestrator, which owns ids and event emission.
 
 use crate::collide::Body;
+use crate::defs::SplashDef;
 use crate::map::{Map, SectorId};
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::Vec3;
@@ -36,6 +37,15 @@ pub struct Projectile {
     pub targets: Targets,
     /// Seconds remaining.
     pub life: f32,
+    /// Downward acceleration (m/s^2), applied before each move.
+    pub gravity: f32,
+    /// Restitution: `Some(e)` bounces off the world instead of ending on a world hit.
+    pub bounce: Option<f32>,
+    /// Remote-fuse: `life` never runs down, so it never expires.
+    pub remote: bool,
+    pub splash: Option<SplashDef>,
+    /// Settled on a floor; `step_projectile` leaves it where it is.
+    pub resting: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,6 +55,8 @@ pub enum ProjectileStep {
     /// Index into the bodies slice; use `bodies[i].sector` for its sector.
     HitBody(usize),
     Expired,
+    /// A bouncing projectile that has come to rest (reported on every step from then on).
+    Resting,
 }
 
 impl Projectile {
@@ -64,9 +76,23 @@ impl Projectile {
     }
 }
 
-/// Advances `p` by `dt`. A body or world hit within the step ends it (`pos` is set to the hit
-/// point). The trace skips every body for which `p.ignores(i)` or the caller's `skip` is true
-/// (use `skip` for e.g. dead actors), so callers need not repeat the owner/targets rules.
+/// Most world bounces handled within one step; any motion left after that is dropped.
+const MAX_BOUNCES: usize = 3;
+/// A projectile bouncing off a floor this flat (normal.z) ...
+const FLOOR_NORMAL_Z: f32 = 0.7;
+/// ... slower than this (m/s) comes to rest.
+const REST_SPEED: f32 = 0.5;
+/// Slack on the nudge-height rest test, covering the discrete-step overshoot of the impact.
+const NUDGE_SLACK: f32 = 1.5;
+/// Gap left between a bouncing projectile's surface and the wall it hit (m).
+const BOUNCE_NUDGE: f32 = 0.01;
+
+/// Advances `p` by `dt`: gravity first, then the move. A body or world hit within the step ends
+/// it (`pos` is set to the hit point), except that a projectile with `bounce` reflects off world
+/// surfaces and keeps flying (at most `MAX_BOUNCES` per step), reporting `Resting` once it
+/// settles on a floor. The trace skips every body for which `p.ignores(i)` or the caller's
+/// `skip` is true (use `skip` for e.g. dead actors), so callers need not repeat the
+/// owner/targets rules. Remote projectiles never expire.
 pub fn step_projectile(
     map: &Map,
     p: &mut Projectile,
@@ -75,34 +101,60 @@ pub fn step_projectile(
     dt: f32,
 ) -> ProjectileStep {
     p.prev = p.pos;
-    let speed = p.vel.length();
-    if speed > 0.0 && dt > 0.0 {
+    if p.resting {
+        return ProjectileStep::Resting;
+    }
+    p.vel.z -= p.gravity * dt;
+    let mut left = dt;
+    for _ in 0..=MAX_BOUNCES {
+        let speed = p.vel.length();
+        if speed <= 0.0 || left <= 0.0 {
+            break;
+        }
         let ray = Ray {
             origin: p.pos,
             dir: p.vel / speed,
             sector: p.sector,
-            max: speed * dt,
+            max: speed * left,
         };
-        if let Some(hit) = trace(map, &ray, bodies, |i| p.ignores(i) || skip(i), p.radius) {
-            p.pos = hit.point;
-            return match hit.kind {
-                HitKind::Body(i) => ProjectileStep::HitBody(i),
-                _ => ProjectileStep::HitWorld(hit),
-            };
+        let Some(hit) = trace(map, &ray, bodies, |i| p.ignores(i) || skip(i), p.radius) else {
+            p.pos += p.vel * left;
+            match map.find_sector(p.pos.truncate(), Some(p.sector)) {
+                Some(s) => p.sector = s,
+                // `pos` has already advanced but `sector` is stale here.
+                None => return ProjectileStep::Expired,
+            }
+            break;
+        };
+        p.pos = hit.point;
+        if let HitKind::Body(i) = hit.kind {
+            return ProjectileStep::HitBody(i);
         }
-        p.pos += p.vel * dt;
-        match map.find_sector(p.pos.truncate(), Some(p.sector)) {
-            Some(s) => p.sector = s,
-            // `pos` has already advanced but `sector` is stale here.
-            None => return ProjectileStep::Expired,
+        let Some(e) = p.bounce else {
+            return ProjectileStep::HitWorld(hit);
+        };
+        left -= hit.dist / speed;
+        let n = hit.normal;
+        p.vel = (p.vel - 2.0 * p.vel.dot(n) * n) * e;
+        p.pos = hit.point + n * (p.radius + BOUNCE_NUDGE);
+        p.sector = hit.sector;
+        // The nudge lifts the centre `radius + BOUNCE_NUDGE` off the floor, and the next fall from
+        // that height re-injects energy every bounce. Rest once a bounce can rise no higher than
+        // that (with slack for the step size), else the bomb would hop forever.
+        let nudge_speed = e * (2.0 * p.gravity * (p.radius + BOUNCE_NUDGE)).sqrt();
+        if n.z > FLOOR_NORMAL_Z && p.vel.length() < REST_SPEED.max(NUDGE_SLACK * nudge_speed) {
+            p.vel = Vec3::ZERO;
+            p.resting = true;
+            return ProjectileStep::Resting;
         }
     }
-    p.life -= dt;
-    if p.life <= 0.0 {
-        ProjectileStep::Expired
-    } else {
-        ProjectileStep::Flying
+    if !p.remote {
+        p.life -= dt;
+        if p.life <= 0.0 {
+            return ProjectileStep::Expired;
+        }
     }
+    ProjectileStep::Flying
 }
 
 #[cfg(test)]
@@ -126,7 +178,23 @@ mod tests {
             owner: Shooter::Actor(0),
             targets: Targets::Player,
             life: 5.0,
+            gravity: 0.0,
+            bounce: None,
+            remote: false,
+            splash: None,
+            resting: false,
         }
+    }
+
+    fn bomb(map: &Map, pos: Vec3, vel: Vec3) -> Projectile {
+        let mut p = bolt(map, pos, vel);
+        p.owner = Shooter::Player;
+        p.targets = Targets::All;
+        p.radius = 0.1;
+        p.gravity = 12.0;
+        p.bounce = Some(0.45);
+        p.remote = true;
+        p
     }
 
     fn body_at(map: &Map, x: f32, y: f32) -> Body {
@@ -330,5 +398,111 @@ mod tests {
         p.life = 0.05;
         let o = step_projectile(&map, &mut p, &bodies, |_| false, 0.1);
         assert_eq!(o, ProjectileStep::HitBody(0));
+    }
+
+    #[test]
+    fn gravity_arcs_projectile() {
+        let map = combat_room();
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 3.0), Vec3::new(5.0, 0.0, 0.0));
+        p.gravity = 10.0;
+        for _ in 0..30 {
+            assert_eq!(
+                step_projectile(&map, &mut p, &[], |_| false, DT),
+                ProjectileStep::Flying
+            );
+        }
+        // Semi-implicit Euler: vz = -g t exactly, drop slightly over 0.5 g t^2 (~1.25 m).
+        assert!((p.vel.z + 5.0).abs() < 1e-3, "{:?}", p.vel);
+        assert!((p.vel.x - 5.0).abs() < 1e-6);
+        let drop = 3.0 - p.pos.z;
+        assert!(drop > 1.2 && drop < 1.35, "{drop}");
+        assert!((p.pos.x - 3.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn bomb_bounces_and_settles() {
+        let map = combat_room();
+        let mut p = bomb(&map, Vec3::new(1.0, 1.0, 2.0), Vec3::new(1.0, 0.0, 0.0));
+        let mut bounced = false;
+        let mut settled = None;
+        let mut prev_vz = 0.0;
+        for t in 0..1200 {
+            match step_projectile(&map, &mut p, &[], |_| false, DT) {
+                ProjectileStep::Flying => {
+                    if prev_vz < 0.0 && p.vel.z > 0.0 {
+                        bounced = true;
+                        assert!(p.pos.z > 0.1, "nudged off the floor: {:?}", p.pos);
+                    }
+                    prev_vz = p.vel.z;
+                }
+                ProjectileStep::Resting => {
+                    settled = Some(t);
+                    break;
+                }
+                o => panic!("a remote bomb never ends: {o:?}"),
+            }
+        }
+        assert!(bounced);
+        assert!(settled.is_some(), "never settled");
+        assert!(p.resting && p.vel == Vec3::ZERO);
+        let at = p.pos;
+        for _ in 0..10 {
+            assert_eq!(
+                step_projectile(&map, &mut p, &[], |_| false, DT),
+                ProjectileStep::Resting
+            );
+        }
+        assert_eq!(p.pos, at);
+    }
+
+    #[test]
+    fn bounce_reflects_off_wall_with_restitution() {
+        let map = combat_room();
+        // South wall at y=0, normal +y.
+        let mut p = bolt(&map, Vec3::new(1.0, 0.2, 1.5), Vec3::new(2.0, -20.0, 0.0));
+        p.bounce = Some(0.5);
+        let s = step_projectile(&map, &mut p, &[], |_| false, DT);
+        assert_eq!(s, ProjectileStep::Flying);
+        assert!(
+            (p.vel - Vec3::new(1.0, 10.0, 0.0)).length() < 1e-4,
+            "{:?}",
+            p.vel
+        );
+        assert!(p.pos.y > 0.0, "{:?}", p.pos);
+    }
+
+    #[test]
+    fn remote_projectile_never_expires() {
+        let map = combat_room();
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.5), Vec3::new(0.0, 0.0, 0.0));
+        p.life = 0.1;
+        p.remote = true;
+        for _ in 0..60 {
+            assert_eq!(
+                step_projectile(&map, &mut p, &[], |_| false, DT),
+                ProjectileStep::Flying
+            );
+        }
+        assert_eq!(p.life, 0.1);
+    }
+
+    #[test]
+    fn rocket_hits_actor_body() {
+        let map = combat_room();
+        // Bodies: [player, actor 0]. A player-owned rocket aimed at actor 0 passes through
+        // the player's own body and hits the actor's cylinder.
+        let bodies = [body_at(&map, 1.0, 1.0), body_at(&map, 5.0, 1.0)];
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::new(30.0, 0.0, 0.0));
+        p.owner = Shooter::Player;
+        p.targets = Targets::All;
+        let mut out = ProjectileStep::Flying;
+        for _ in 0..30 {
+            out = step_projectile(&map, &mut p, &bodies, |_| false, DT);
+            if out != ProjectileStep::Flying {
+                break;
+            }
+        }
+        assert_eq!(out, ProjectileStep::HitBody(1));
+        assert!((p.pos.x - (5.0 - 0.35 - 0.05)).abs() < 1e-2, "{:?}", p.pos);
     }
 }

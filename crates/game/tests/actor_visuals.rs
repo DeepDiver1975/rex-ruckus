@@ -64,6 +64,11 @@ fn bolt(id: u32) -> Projectile {
         owner: Shooter::Actor(0),
         targets: Targets::Player,
         life: 2.0,
+        gravity: 0.0,
+        bounce: None,
+        remote: false,
+        splash: None,
+        resting: false,
     }
 }
 

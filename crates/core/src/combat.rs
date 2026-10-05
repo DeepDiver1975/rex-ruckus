@@ -276,6 +276,11 @@ impl Combat {
                     owner: Shooter::Actor(i),
                     targets: Targets::Player,
                     life: pd.life,
+                    gravity: pd.gravity,
+                    bounce: pd.bounce,
+                    remote: pd.remote,
+                    splash: pd.splash,
+                    resting: false,
                 });
                 self.next_id = self.next_id.wrapping_add(1);
                 out.push(CombatEvent::ActorFired { actor: i });
@@ -327,7 +332,7 @@ impl Combat {
         projectiles.retain_mut(|p| {
             let skip = |i: usize| i != BODY_PLAYER && !self.actors[i - 1].alive();
             match step_projectile(map, p, &bodies, skip, dt) {
-                ProjectileStep::Flying => return true,
+                ProjectileStep::Flying | ProjectileStep::Resting => return true,
                 ProjectileStep::Expired => {}
                 ProjectileStep::HitWorld(h) => out.push(CombatEvent::Impact {
                     point: h.point,
@@ -761,6 +766,11 @@ mod tests {
             owner: Shooter::Actor(0),
             targets: Targets::Player,
             life: 4.0,
+            gravity: 0.0,
+            bounce: None,
+            remote: false,
+            splash: None,
+            resting: false,
         });
     }
 
