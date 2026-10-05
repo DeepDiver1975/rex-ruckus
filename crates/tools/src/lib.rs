@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn shipped_levels_pass() {
-        for name in ["test_yard.ron", "mechanics_lab.ron"] {
+        for name in ["test_yard.ron", "mechanics_lab.ron", "combat_arena.ron"] {
             let (report, ok) = validate_file(&level(name));
             assert!(ok, "{report}");
             assert!(report.ends_with(": ok\n"), "{report}");
