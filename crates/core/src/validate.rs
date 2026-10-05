@@ -178,6 +178,10 @@ fn check_wiring(map: &Map, r: &mut Report) {
     let has_key = |k: Key| map.items.iter().any(|i| i.kind == ItemKind::Key(k));
     for (s, sec) in map.sectors.iter().enumerate() {
         let Some(def) = sec.mover else { continue };
+        if def.kind == MoverKind::Crack && !sec.walls().any(|w| map.walls[w].next_sector.is_some())
+        {
+            r.error(format!("sector {s}: crack wall has no portal to open"));
+        }
         if let Some(c) = def.channel
             && !map
                 .switches
@@ -247,6 +251,8 @@ fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
         (MoverKind::Door, false) => vec![],
         (MoverKind::Lift { to }, true) => vec![(sec.floor_z, sec.ceil_z), (to, sec.ceil_z)],
         (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
+        // Only a blast opens it, and no level may depend on one.
+        (MoverKind::Crack, _) => vec![],
     }
 }
 
@@ -545,6 +551,31 @@ mod tests {
         );
         assert!(has(&errors(&map), "exit"));
         assert!(has(&warnings(&map), "item 0"));
+    }
+
+    #[test]
+    fn exit_behind_crack_rejected() {
+        let behind = door_rooms("(kind: Crack)", "switches: [(wall: (3, 4), action: Exit)],");
+        assert!(has(&errors(&behind), "exit"), "{:?}", errors(&behind));
+        // A key behind the crack cannot unlock anything either.
+        let keyed = door_rooms(
+            "(kind: Crack)",
+            "switches: [(wall: (3, 4), action: Exit, key: Some(Red))], items: [(kind: Key(Red), pos: (6.5, 2.0))],",
+        );
+        assert!(has(&errors(&keyed), "exit"));
+        // The exit on the near side is fine, however the crack sits.
+        let near = door_rooms("(kind: Crack)", "switches: [(wall: (7, 0), action: Exit)],");
+        assert_eq!(validate(&near), vec![]);
+    }
+
+    #[test]
+    fn crack_needs_a_portal() {
+        let map = raw(
+            "(0.0,0.0),(4.0,0.0),(4.0,4.0),(0.0,4.0)",
+            &format!("(loops: [[0,1,2,3]], {SQ}, mover: Some((kind: Crack)))"),
+            "",
+        );
+        assert!(has(&errors(&map), "crack"), "{:?}", errors(&map));
     }
 
     #[test]

@@ -67,6 +67,7 @@ pub fn render_svg(map: &Map) -> String {
         let (class, fill) = match sec.mover.map(|m| m.kind) {
             Some(MoverKind::Door) => ("sector door", "#e8a33d".to_string()),
             Some(MoverKind::Lift { .. }) => ("sector lift", "#5aa0e0".to_string()),
+            Some(MoverKind::Crack) => ("sector crack", "#b5523b".to_string()),
             None => {
                 let t = if hi > lo {
                     (sec.floor_z - lo) / (hi - lo)

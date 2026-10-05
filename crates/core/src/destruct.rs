@@ -1,10 +1,11 @@
 //! Destructible world state: things shots and blasts break for good. For now that is glass
-//! panes in portals (`Wall::glass`).
+//! panes in portals (`Wall::glass`), crack walls and the secrets found.
 //!
 //! Every change to a wall or sector returns the sectors whose meshes must be rebuilt; the game
 //! feeds them into the same dirty-sector path `Mechanics::tick` uses.
 
-use crate::map::{Map, SectorId, WallId};
+use crate::map::{Map, MoverKind, SectorId, WallId};
+use crate::mechanics::{Mechanics, Motion};
 use crate::trace::{Hit, HitKind};
 
 /// Whether `hit` landed on an intact glass pane itself: a wall hit on a glass portal at a
@@ -23,13 +24,62 @@ pub fn hits_pane(map: &Map, hit: &Hit) -> bool {
     (lo..=hi).contains(&hit.point.z)
 }
 
+/// Metres per second a cracked wall opens at.
+pub const CRACK_SPEED: f32 = 6.0;
+
 /// Runtime destruction state of one level. Lives in `Combat::destruct`.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Destruct {}
+pub struct Destruct {
+    /// Per sector: a crack wall that has been set off.
+    cracks_open: Vec<bool>,
+    /// Per sector: a secret the player has entered.
+    secrets_found: Vec<bool>,
+    secrets_total: u32,
+}
 
 impl Destruct {
-    pub fn new(_map: &Map) -> Destruct {
-        Destruct {}
+    pub fn new(map: &Map) -> Destruct {
+        Destruct {
+            cracks_open: vec![false; map.sectors.len()],
+            secrets_found: vec![false; map.sectors.len()],
+            secrets_total: map.sectors.iter().filter(|s| s.secret).count() as u32,
+        }
+    }
+
+    /// Sets crack wall `s` opening, fast and for good: no auto-return, and nothing closes it
+    /// again. The ceiling then moves through `Mechanics::tick`, which reports the sector as
+    /// changed like any door. False if `s` is no crack or was already set off.
+    pub fn open_crack(&mut self, mech: &mut Mechanics, s: SectorId) -> bool {
+        let Some(m) = mech.mover_in(s) else {
+            return false;
+        };
+        let mv = &mut mech.movers[m];
+        if mv.def.kind != MoverKind::Crack || self.cracks_open.get(s) != Some(&false) {
+            return false;
+        }
+        self.cracks_open[s] = true;
+        mv.def.speed = CRACK_SPEED;
+        mv.def.auto_return = None;
+        mv.motion = Motion::ToEnd;
+        true
+    }
+
+    /// The player is in sector `s`. True the first time that is a secret sector.
+    pub fn enter_sector(&mut self, map: &Map, s: SectorId) -> bool {
+        let secret = map.sectors.get(s).is_some_and(|sec| sec.secret);
+        match self.secrets_found.get_mut(s) {
+            Some(found) if secret && !*found => {
+                *found = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Secrets found so far and in the level.
+    pub fn secrets(&self) -> (u32, u32) {
+        let found = self.secrets_found.iter().filter(|&&f| f).count() as u32;
+        (found, self.secrets_total)
     }
 
     /// Shatters the glass pane in portal `w` (either side). Clears `glass` on both sides and

@@ -55,6 +55,7 @@ pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget) -> &'static str {
         UseTarget::Mover(m) => match mech.movers[m].def.kind {
             MoverKind::Door => "[E] Door",
             MoverKind::Lift { .. } => "[E] Lift",
+            MoverKind::Crack => "",
         },
         UseTarget::Switch(i) => match map.switches[i].action {
             SwitchAction::Exit => "[E] Exit",

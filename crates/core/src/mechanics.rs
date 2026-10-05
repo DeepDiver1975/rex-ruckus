@@ -64,10 +64,10 @@ impl Mechanics {
         for (s, sector) in map.sectors.iter_mut().enumerate() {
             let Some(def) = sector.mover else { continue };
             let (start, end) = match def.kind {
-                MoverKind::Door => (sector.floor_z, sector.ceil_z),
+                MoverKind::Door | MoverKind::Crack => (sector.floor_z, sector.ceil_z),
                 MoverKind::Lift { to } => (sector.floor_z, to),
             };
-            if def.kind == MoverKind::Door {
+            if matches!(def.kind, MoverKind::Door | MoverKind::Crack) {
                 sector.ceil_z = start;
             }
             mover_of[s] = Some(movers.len());
@@ -92,9 +92,13 @@ impl Mechanics {
         self.mover_of.get(s).copied().flatten()
     }
 
-    /// Sends a mover towards its other end, or reverses it mid-travel.
+    /// Sends a mover towards its other end, or reverses it mid-travel. A crack wall ignores
+    /// this: only `Destruct::open_crack` moves it.
     pub fn toggle(&mut self, m: usize) {
         let mv = &mut self.movers[m];
+        if mv.def.kind == MoverKind::Crack {
+            return;
+        }
         mv.motion = match mv.motion {
             Motion::AtStart | Motion::ToStart => Motion::ToEnd,
             Motion::AtEnd { .. } | Motion::ToEnd => Motion::ToStart,
@@ -105,6 +109,7 @@ impl Mechanics {
     pub fn fire(&mut self, ch: Channel) -> usize {
         let hits: Vec<usize> = (0..self.movers.len())
             .filter(|&m| self.movers[m].def.channel == Some(ch))
+            .filter(|&m| self.movers[m].def.kind != MoverKind::Crack)
             .collect();
         for &m in &hits {
             self.toggle(m);
@@ -246,7 +251,7 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
     let saved = bodies.to_vec();
     let (old_floor, old_ceil) = (map.sectors[s].floor_z, map.sectors[s].ceil_z);
     match mv.def.kind {
-        MoverKind::Door => map.sectors[s].ceil_z = z,
+        MoverKind::Door | MoverKind::Crack => map.sectors[s].ceil_z = z,
         MoverKind::Lift { .. } => {
             map.sectors[s].floor_z = z;
             for &i in &touching {

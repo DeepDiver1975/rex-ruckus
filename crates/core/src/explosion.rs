@@ -2,7 +2,7 @@
 
 use crate::collide::Body;
 use crate::defs::SplashDef;
-use crate::map::{Map, SectorId, WallId};
+use crate::map::{Map, MoverKind, SectorId, WallId};
 use crate::projectile::Shooter;
 use crate::trace::{Hit, HitKind, Ray, can_see, trace_world};
 use glam::Vec3;
@@ -120,6 +120,49 @@ pub fn walls_in_reach(map: &Map, blast: &Blast) -> Vec<WallId> {
     out
 }
 
+/// Closed crack walls a blast opens, ascending. A crack is reached when it contains the blast
+/// centre, or when the point of one of its portal walls nearest the centre lies within
+/// `splash.radius` and the world leaves a clear line from the centre to it. A closed crack has
+/// no opening (floor = ceiling), so the portal wall is measured at the crack's floor height
+/// (just above, and not below the neighbour's floor, so the line lands on the wall face).
+/// Cracks that are already opening or open are not reached again.
+pub fn sectors_in_reach(map: &Map, blast: &Blast) -> Vec<SectorId> {
+    let c = blast.center;
+    let mut out = Vec::new();
+    for (s, sec) in map.sectors.iter().enumerate() {
+        if sec.mover.is_none_or(|m| m.kind != MoverKind::Crack) || sec.ceil_z > sec.floor_z {
+            continue;
+        }
+        if s == blast.sector {
+            out.push(s);
+            continue;
+        }
+        let reached = sec.walls().any(|id| {
+            let w = &map.walls[id];
+            let (Some(back), Some(far)) = (w.next_wall, w.next_sector) else {
+                return false;
+            };
+            let edge = w.b - w.a;
+            let len = edge.length();
+            if len <= f32::EPSILON {
+                return false;
+            }
+            let du = PANE_INSET.min(len * 0.5) / len;
+            let u = ((c.truncate() - w.a).dot(edge) / (len * len)).clamp(du, 1.0 - du);
+            let z = sec.floor_z.max(map.sectors[far].floor_z) + CRACK_AIM;
+            let target = (w.a + edge * u).extend(z);
+            target.distance(c) < blast.splash.radius && pane_in_view(map, blast, target, [id, back])
+        });
+        if reached {
+            out.push(s);
+        }
+    }
+    out
+}
+
+/// How far (m) above the floor `sectors_in_reach` aims at a crack's wall.
+const CRACK_AIM: f32 = 0.05;
+
 /// Whether the first thing on the line from the blast centre to `target` (a point on a pane)
 /// is one of the pane's two `sides`.
 fn pane_in_view(map: &Map, blast: &Blast, target: Vec3, sides: [WallId; 2]) -> bool {
@@ -147,6 +190,7 @@ const PANE_INSET: f32 = 0.02;
 mod tests {
     use super::*;
     use crate::fixtures::{door_rooms, pillar_room};
+    use crate::map::Map;
     use crate::mechanics::Mechanics;
     use glam::Vec2;
 
@@ -219,6 +263,54 @@ mod tests {
         let room = pillar_room();
         let b = blast(&room, Vec3::new(1.0, 1.0, 1.0), Shooter::Player);
         assert!(walls_in_reach(&room, &b).is_empty());
+    }
+
+    #[test]
+    fn splash_reaches_crack_sector() {
+        let mut map = door_rooms("(kind: Crack)", "");
+        Mechanics::new(&mut map);
+        // In range from room A (the crack is x in [4,4.5]) and from room B.
+        let b = blast(&map, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        assert_eq!(sectors_in_reach(&map, &b), vec![1]);
+        let b = blast(&map, Vec3::new(6.0, 1.0, 2.5), Shooter::Player);
+        assert_eq!(sectors_in_reach(&map, &b), vec![1]);
+        // Out of range.
+        let mut b = blast(&map, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        b.splash.radius = 1.5;
+        assert!(sectors_in_reach(&map, &b).is_empty());
+        // Ordinary doors are no cracks.
+        let mut doors = door_rooms("(kind: Door)", "");
+        Mechanics::new(&mut doors);
+        let b = blast(&doors, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        assert!(sectors_in_reach(&doors, &b).is_empty());
+        // A crack that is already open is not reached again.
+        let mut open = door_rooms("(kind: Crack)", "");
+        let b = blast(&open, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        assert!(sectors_in_reach(&open, &b).is_empty());
+        open.sectors[1].ceil_z = 0.0;
+        assert_eq!(sectors_in_reach(&open, &b), vec![1]);
+    }
+
+    #[test]
+    fn crack_behind_a_wall_is_out_of_reach() {
+        // Room A (0..4 x 0..4) with a pillar at x in [1,2], y in [1.5,2.5]; crack at x in [4,4.5].
+        let mut map = Map::from_ron(
+            r#"(name: "t", materials: ["m"],
+            vertices: [(0.0,0.0),(4.0,0.0),(4.5,0.0),(4.5,4.0),(4.0,4.0),(0.0,4.0),
+                       (1.0,1.5),(1.0,2.5),(2.0,2.5),(2.0,1.5)],
+            sectors: [
+              (loops: [[0,1,4,5],[6,7,8,9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0),
+              (loops: [[1,2,3,4]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0,
+               mover: Some((kind: Crack))),
+            ],
+            player_start: (pos: (3.0, 3.0), angle_deg: 0.0))"#,
+        )
+        .unwrap();
+        Mechanics::new(&mut map);
+        let behind = blast(&map, Vec3::new(0.5, 2.0, 1.0), Shooter::Player);
+        assert!(sectors_in_reach(&map, &behind).is_empty());
+        let clear = blast(&map, Vec3::new(3.0, 2.0, 1.0), Shooter::Player);
+        assert_eq!(sectors_in_reach(&map, &clear), vec![1]);
     }
 
     #[test]

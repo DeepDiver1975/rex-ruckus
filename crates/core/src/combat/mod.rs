@@ -63,6 +63,10 @@ pub enum CombatEvent {
     },
     /// Reported exactly once, on the hit that empties the player's health.
     PlayerKilled,
+    /// A blast opened crack wall `s`; its mesh changes as the mover animates.
+    CrackOpened(SectorId),
+    /// The player entered a secret sector for the first time.
+    SecretFound,
     /// A shot or projectile hit the world at `point` (in `sector`).
     Impact {
         point: Vec3,
@@ -252,8 +256,9 @@ impl Combat {
     /// 6. corpses snap to their floor.
     ///
     /// Shots, projectiles and blasts that shatter glass change `map` (through `destruct`) and
-    /// report `GlassBroken`. `mech` is where blasts will open cracked walls; glass does not
-    /// need it.
+    /// report `GlassBroken`. `mech` is where blasts open crack walls (`CrackOpened`; the mover
+    /// then animates through `Mechanics::tick`); glass does not need it. The player standing in
+    /// a secret sector for the first time reports `SecretFound`.
     pub fn tick(
         &mut self,
         map: &mut Map,
@@ -262,8 +267,10 @@ impl Combat {
         player: &mut PlayerTarget,
         dt: f32,
     ) -> Vec<CombatEvent> {
-        let _ = mech;
         let mut out = Vec::new();
+        if self.destruct.enter_sector(map, player.body.sector) {
+            out.push(CombatEvent::SecretFound);
+        }
         for a in &mut self.actors {
             a.prev_pos = a.body.pos;
         }
@@ -334,7 +341,7 @@ impl Combat {
 
         self.separate(map, player.body);
         out.extend(self.fly(map, defs, player, dt));
-        self.process_blasts(map, defs, player, dt, &mut out);
+        self.process_blasts(map, mech, defs, player, dt, &mut out);
 
         for a in self.actors.iter_mut().filter(|a| !a.alive()) {
             a.body.pos.z = z_range(map, a.body.pos.truncate(), a.body.radius, a.body.sector).0;
@@ -532,6 +539,8 @@ fn bounce_off_body(map: &Map, p: &mut Projectile, body: &Body) {
 
 #[cfg(test)]
 mod blast_tests;
+#[cfg(test)]
+mod crack_tests;
 #[cfg(test)]
 mod glass_tests;
 #[cfg(test)]

@@ -51,6 +51,9 @@ pub struct RawSector {
     pub face_mat: Option<MaterialId>,
     #[serde(default)]
     pub mover: Option<MoverDef>,
+    /// A secret area: the level counts it once the player first stands in it.
+    #[serde(default)]
+    pub secret: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -111,6 +114,10 @@ pub enum MoverKind {
     Door,
     /// The floor travels between the authored `floor_z` (start) and `to`.
     Lift { to: f32 },
+    /// A sealed wall that only an explosion opens, for good. Authored open like a door (the
+    /// ceiling at its open height) and closed by `Mechanics::new`; the use key and channels
+    /// leave it alone.
+    Crack,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -248,6 +255,7 @@ pub struct Sector {
     pub wall_mat: MaterialId,
     pub face_mat: Option<MaterialId>,
     pub mover: Option<MoverDef>,
+    pub secret: bool,
 }
 
 impl Sector {
@@ -386,6 +394,7 @@ impl Map {
                 wall_mat: rs.wall_mat,
                 face_mat: rs.face_mat,
                 mover: rs.mover,
+                secret: rs.secret,
             });
         }
 

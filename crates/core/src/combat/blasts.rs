@@ -4,8 +4,9 @@
 use super::{BODY_PLAYER, Combat, CombatEvent, PlayerTarget, hurt_player};
 use crate::collide::Body;
 use crate::defs::Defs;
-use crate::explosion::{Blast, solve, walls_in_reach};
+use crate::explosion::{Blast, sectors_in_reach, solve, walls_in_reach};
 use crate::map::Map;
+use crate::mechanics::Mechanics;
 use glam::Vec3;
 
 /// Gap left between a blast centre and the surface it went off against (m).
@@ -35,6 +36,7 @@ impl Combat {
     pub(super) fn process_blasts(
         &mut self,
         map: &mut Map,
+        mech: &mut Mechanics,
         defs: &Defs,
         player: &mut PlayerTarget,
         dt: f32,
@@ -48,7 +50,7 @@ impl Combat {
             .partition(|pb| pb.fuse <= 0.0);
         self.pending_blasts = waiting;
         for pb in due {
-            self.apply_blast(map, defs, player, &pb, out);
+            self.apply_blast(map, mech, defs, player, &pb, out);
         }
     }
 
@@ -60,10 +62,12 @@ impl Combat {
     ///
     /// World effects of a blast hook in here. Glass it reaches (`walls_in_reach`) shatters
     /// after the splash is dealt, so an intact pane still shields what is behind it from this
-    /// blast; the bang then carries through the broken panes.
+    /// blast; the bang then carries through the broken panes. Crack walls it reaches
+    /// (`sectors_in_reach`) start opening and report `CrackOpened`.
     fn apply_blast(
         &mut self,
         map: &mut Map,
+        mech: &mut Mechanics,
         defs: &Defs,
         player: &mut PlayerTarget,
         pb: &PendingBlast,
@@ -92,6 +96,11 @@ impl Combat {
         }
         for w in walls_in_reach(map, blast) {
             self.break_glass(map, w, out);
+        }
+        for s in sectors_in_reach(map, blast) {
+            if self.destruct.open_crack(mech, s) {
+                out.push(CombatEvent::CrackOpened(s));
+            }
         }
         let woken = self.make_noise(map, blast.center, blast.sector, BLAST_NOISE);
         out.extend(woken.into_iter().map(CombatEvent::ActorWoke));
