@@ -267,5 +267,41 @@ mod tests {
             assert!(svg.contains(&format!("<title>{t}</title>")), "{t}");
         }
         assert!(!svg.contains("#888"), "grey fallback is gone");
+
+        // Heading: the first polygon vertex is the nose. 90 deg = north = up (smaller SVG y).
+        let pts = |needle: &str| -> Vec<(f32, f32)> {
+            let tag = svg
+                .lines()
+                .find(|l| l.contains("class=\"actor\"") && l.contains(needle))
+                .unwrap();
+            let p = tag
+                .split("points=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            p.split(' ')
+                .map(|v| {
+                    let (x, y) = v.split_once(',').unwrap();
+                    (x.parse().unwrap(), y.parse().unwrap())
+                })
+                .collect()
+        };
+        let north = pts("fill=\"none\"");
+        assert!(
+            north[0].1 < north[1].1 && north[0].1 < north[2].1,
+            "{north:?}"
+        );
+        assert!(
+            (north[0].0 - (north[1].0 + north[2].0) / 2.0).abs() < 0.2,
+            "{north:?}"
+        );
+        let east = pts("fill=\"#e74c3c\"");
+        assert!(east[0].0 > east[1].0 && east[0].0 > east[2].0, "{east:?}");
+        assert!(
+            (east[0].1 - (east[1].1 + east[2].1) / 2.0).abs() < 0.2,
+            "{east:?}"
+        );
     }
 }

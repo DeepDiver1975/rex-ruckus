@@ -396,6 +396,7 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
 mod tests {
     use super::*;
     use crate::fixtures::{combat_room, door_rooms, lift_shaft, pillar_room, two_rooms};
+    use crate::map::{ActorKind, ActorSpawn};
 
     fn errors(map: &Map) -> Vec<String> {
         validate(map)
@@ -676,5 +677,24 @@ mod tests {
             &format!("actors: [{}],", actor(6.5, 2.0, false)),
         );
         assert!(!has(&warnings(&far), "awake actor 0"));
+    }
+
+    #[test]
+    fn actor_near_pillar_wall_is_an_error() {
+        let mut map = pillar_room();
+        let spawn = |x, y| ActorSpawn {
+            kind: ActorKind::Grunt,
+            pos: Vec2::new(x, y),
+            angle: 0.0,
+            asleep: true,
+        };
+        // Pillar occupies x 4..6, y 4..6: 0.2 m from its west face is inside the 0.35 m radius.
+        map.actors = vec![spawn(3.8, 5.0), spawn(3.0, 5.0)];
+        let errs = errors(&map);
+        assert!(
+            has(&errs, "actor 0 (Grunt) at (3.8, 5.0) is within"),
+            "{errs:?}"
+        );
+        assert!(!has(&errs, "actor 1"), "{errs:?}");
     }
 }
