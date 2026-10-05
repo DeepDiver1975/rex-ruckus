@@ -11,7 +11,16 @@ pub struct MoveInput {
     pub wish: Vec2,
     pub jump: bool,
     pub crouch: bool,
+    /// Vertical thrust in -1..1 (up positive); only read while `jetpack` is set.
+    pub thrust: f32,
+    /// Jetpack on: no gravity, no jumping, crouch does not crouch, `thrust` steers the climb.
+    pub jetpack: bool,
 }
+
+/// Jetpack climb/descent speed at full thrust (m/s).
+pub const JETPACK_SPEED: f32 = 5.0;
+/// How fast vertical velocity eases toward the thrust target (m/s²).
+pub const JETPACK_ACCEL: f32 = 10.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tuning {
@@ -130,7 +139,8 @@ pub fn step_flyer(map: &Map, body: &mut Body, wish: Vec3, speed: f32, hover: f32
 pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt: f32) {
     // Crouch / stand up (only if there is headroom).
     let (_, ceil_here) = z_range(map, body.pos.truncate(), body.radius, body.sector);
-    if input.crouch {
+    // With the jetpack on, crouch means descend, not duck.
+    if input.crouch && !input.jetpack {
         body.height = t.crouch_height;
     } else if ceil_here - body.pos.z >= t.stand_height {
         body.height = t.stand_height;
@@ -173,7 +183,20 @@ pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt
 
     // Vertical.
     let (floor, ceil) = z_range(map, body.pos.truncate(), body.radius, body.sector);
-    if body.on_ground {
+    if input.jetpack {
+        // No gravity and no jumping: ease toward the thrust target. At the floor it hovers.
+        let target = input.thrust.clamp(-1.0, 1.0) * JETPACK_SPEED;
+        let dv = (target - body.vel.z).clamp(-JETPACK_ACCEL * dt, JETPACK_ACCEL * dt);
+        body.vel.z += dv;
+        body.pos.z += body.vel.z * dt;
+        if body.pos.z <= floor {
+            body.pos.z = floor;
+            body.vel.z = body.vel.z.max(0.0);
+            body.on_ground = true;
+        } else {
+            body.on_ground = false;
+        }
+    } else if body.on_ground {
         if input.jump {
             body.vel.z = t.jump_speed;
             body.on_ground = false;
@@ -185,7 +208,7 @@ pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt
             body.on_ground = false;
         }
     }
-    if !body.on_ground {
+    if !input.jetpack && !body.on_ground {
         body.vel.z -= t.gravity * dt;
         body.pos.z += body.vel.z * dt;
         if body.pos.z <= floor {
@@ -338,6 +361,76 @@ mod tests {
             Tuning::default().crouch_height,
             "no room to stand up"
         );
+    }
+
+    fn jet(thrust: f32) -> MoveInput {
+        MoveInput {
+            thrust,
+            jetpack: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn jetpack_hover_holds_height() {
+        let map = pillar_room();
+        let mut b = spawn(&map, 2.0, 2.0);
+        run(&map, &mut b, jet(1.0), 30);
+        assert!(b.pos.z > 0.5 && !b.on_ground, "climbing: {}", b.pos);
+        run(&map, &mut b, jet(0.0), 60);
+        let z = b.pos.z;
+        run(&map, &mut b, jet(0.0), 120);
+        assert_eq!(b.pos.z, z, "hover must not sink");
+        assert_eq!(b.vel.z, 0.0);
+        // Crouch means descend, not duck.
+        run(
+            &map,
+            &mut b,
+            MoveInput {
+                crouch: true,
+                ..jet(-1.0)
+            },
+            10,
+        );
+        assert!(b.pos.z < z && b.height == Tuning::default().stand_height);
+        // Jump is ignored on the ground.
+        run(&map, &mut b, jet(-1.0), 200);
+        assert_eq!((b.pos.z, b.on_ground), (0.0, true));
+        run(
+            &map,
+            &mut b,
+            MoveInput {
+                jump: true,
+                ..jet(0.0)
+            },
+            10,
+        );
+        assert_eq!(b.pos.z, 0.0, "hovers at the floor");
+    }
+
+    #[test]
+    fn jetpack_climbs_and_stops_at_ceiling() {
+        let map = two_rooms(0.0, 3.0);
+        let mut b = spawn(&map, 2.0, 2.0);
+        for i in 0..240 {
+            run(&map, &mut b, jet(1.0), 1);
+            assert!(b.pos.z + b.height <= 3.0 + 1e-4, "tick {i}: {}", b.pos);
+        }
+        assert!((b.pos.z + b.height - 3.0).abs() < 1e-3, "{}", b.pos);
+        assert!(b.vel.z <= 0.0);
+    }
+
+    #[test]
+    fn gravity_resumes_when_fuel_out() {
+        let map = pillar_room();
+        let mut b = spawn(&map, 2.0, 2.0);
+        run(&map, &mut b, jet(1.0), 40);
+        run(&map, &mut b, jet(0.0), 60);
+        let z = b.pos.z;
+        run(&map, &mut b, MoveInput::default(), 1);
+        assert!(b.vel.z < 0.0 && b.pos.z < z, "falls on the very step");
+        run(&map, &mut b, MoveInput::default(), 120);
+        assert_eq!((b.pos.z, b.on_ground), (0.0, true));
     }
 
     #[test]

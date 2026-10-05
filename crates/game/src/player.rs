@@ -205,10 +205,19 @@ fn simulate_player(
         let forward = forward_2d(look.angle);
         let right = Vec2::new(forward.y, -forward.x);
         let wish = forward * input.forward + right * input.strafe;
+        // Jump climbs and crouch descends, but only with the jetpack on. Nothing turns it on
+        // yet: Task 21 wires the toggle, so for now it is always off.
+        let jetpack = false;
         let move_input = MoveInput {
             wish,
             jump: input.jump,
             crouch: input.crouch,
+            thrust: if jetpack {
+                f32::from(input.jump) - f32::from(input.crouch)
+            } else {
+                0.0
+            },
+            jetpack,
         };
         step_player(&map.0, &mut body.0, &move_input, &tuning.0, dt);
     }
