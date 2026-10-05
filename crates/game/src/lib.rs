@@ -27,6 +27,8 @@ pub struct GamePlugin {
     pub level: String,
     /// Replay this demo script instead of reading the keyboard and mouse.
     pub demo: Option<demo::DemoPlugin>,
+    /// Start muted, play music (see `audio::AudioOptions`).
+    pub audio: audio::AudioOptions,
 }
 
 impl Plugin for GamePlugin {
@@ -51,7 +53,7 @@ impl Plugin for GamePlugin {
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
             audio::AudioFxPlugin {
-                options: default(),
+                options: self.audio,
                 scripted: self.demo.is_some(),
             },
         ));
