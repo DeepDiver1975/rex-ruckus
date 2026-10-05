@@ -202,13 +202,24 @@ fn shotgun_pellets_split_between_two_grunts() {
     let impacts: Vec<_> = ev
         .iter()
         .filter_map(|e| match e {
-            CombatEvent::Impact { point, normal, .. } => Some((*point, *normal)),
+            CombatEvent::Impact {
+                point,
+                normal,
+                wall,
+                ..
+            } => Some((*point, *normal, *wall)),
             _ => None,
         })
         .collect();
     assert_eq!(impacts.len(), 1);
     assert!(impacts[0].0.y.abs() < 1e-3, "south wall at y=0");
     assert!((impacts[0].1 - Vec3::Y).length() < 1e-3);
+    let w = impacts[0].2.expect("a wall impact carries its wall");
+    let wall = &map.walls[w];
+    assert!(
+        wall.a.y.abs() < 1e-3 && wall.b.y.abs() < 1e-3,
+        "the south wall itself"
+    );
 }
 
 #[test]
@@ -869,7 +880,7 @@ fn muzzle_behind_a_wall_is_clipped_to_the_actor_side() {
     );
     assert_eq!(v.player_damage, 0);
     assert!(
-        v.impacts.iter().all(|(pt, _, _)| pt.x >= 4.99),
+        v.impacts.iter().all(|h| h.point.x >= 4.99),
         "{:?}",
         v.impacts
     );

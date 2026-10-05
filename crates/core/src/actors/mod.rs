@@ -10,7 +10,7 @@ use crate::health::{DamageOutcome, Health};
 use crate::map::{ActorKind, ActorSpawn, Map, SectorId, WallId};
 use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
 use crate::rng::Rng;
-use crate::trace::{HitKind, Ray, trace};
+use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
 
 pub mod steer;
@@ -382,8 +382,8 @@ pub fn effective_muzzle(map: &Map, a: &Actor) -> (Vec3, SectorId) {
 pub struct Volley {
     /// Damage of the pellets that hit the player body.
     pub player_damage: i32,
-    /// `(point, normal, sector)` of every pellet that hit the world, glass aside.
-    pub impacts: Vec<(Vec3, Vec3, SectorId)>,
+    /// Every pellet that hit the world, glass aside.
+    pub impacts: Vec<Hit>,
     /// Glass walls pellets hit, once each. The volley is traced on the map as it was, so every
     /// pellet stops at a pane; the caller breaks them (`Destruct::break_glass`).
     pub glass: Vec<WallId>,
@@ -433,7 +433,7 @@ pub fn volley(
                     out.glass.push(w);
                 }
             }
-            _ => out.impacts.push((h.point, h.normal, h.sector)),
+            _ => out.impacts.push(h),
         }
     }
     out

@@ -241,6 +241,7 @@ fn rocket_explodes_off_the_wall() {
                 point,
                 normal,
                 sector,
+                ..
             } => Some((*point, *normal, *sector)),
             _ => None,
         })

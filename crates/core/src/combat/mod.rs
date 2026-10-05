@@ -30,7 +30,7 @@ use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_flyer, step_player};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
 use crate::rng::Rng;
-use crate::trace::HitKind;
+use crate::trace::{Hit, HitKind};
 use crate::vitals::Vitals;
 use blasts::sector_of;
 use glam::{Vec2, Vec3};
@@ -75,6 +75,8 @@ pub enum CombatEvent {
         point: Vec3,
         normal: Vec3,
         sector: SectorId,
+        /// The wall hit (`HitKind::Wall`); `None` for a floor or ceiling.
+        wall: Option<WallId>,
     },
     ProjectileGone(u32),
     /// A blast went off (rocket, bomb or barrel).
@@ -91,6 +93,21 @@ pub enum CombatEvent {
         wall: WallId,
         dirty: Vec<SectorId>,
     },
+}
+
+impl CombatEvent {
+    /// The `Impact` of world hit `h`, carrying the wall when it is one.
+    pub fn impact(h: &Hit) -> Self {
+        CombatEvent::Impact {
+            point: h.point,
+            normal: h.normal,
+            sector: h.sector,
+            wall: match h.kind {
+                HitKind::Wall(w) => Some(w),
+                _ => None,
+            },
+        }
+    }
 }
 
 /// The player as combat sees it this tick.
@@ -324,13 +341,7 @@ impl Combat {
                             |j| alive[j],
                             &mut self.rng,
                         );
-                        out.extend(v.impacts.into_iter().map(|(point, normal, sector)| {
-                            CombatEvent::Impact {
-                                point,
-                                normal,
-                                sector,
-                            }
-                        }));
+                        out.extend(v.impacts.iter().map(CombatEvent::impact));
                         for w in v.glass {
                             self.break_glass(map, w, &mut out);
                         }
@@ -459,11 +470,7 @@ impl Combat {
                         HitKind::Wall(w) if hits_pane(map, &h) => {
                             self.break_glass(map, w, &mut out);
                         }
-                        _ => out.push(CombatEvent::Impact {
-                            point: h.point,
-                            normal: h.normal,
-                            sector: h.sector,
-                        }),
+                        _ => out.push(CombatEvent::impact(&h)),
                     }
                     // The blast centre: just off the surface, not inside it.
                     p.pos = h.point + h.normal * BLAST_NUDGE;

@@ -220,6 +220,7 @@ fn restart_clears_decals_and_bombs() {
             point: Vec3::new(1.0, 1.0, 1.0),
             normal: Vec3::X,
             sector: 0,
+            wall: None,
         });
     {
         let mut combat = app.world_mut().resource_mut::<LevelCombat>();

@@ -93,11 +93,7 @@ impl Combat {
             match h.kind {
                 HitKind::Body(i) => dealt[i] += damage,
                 HitKind::Wall(w) if hits_pane(map, &h) => self.break_glass(map, w, &mut out),
-                _ => out.push(CombatEvent::Impact {
-                    point: h.point,
-                    normal: h.normal,
-                    sector: h.sector,
-                }),
+                _ => out.push(CombatEvent::impact(&h)),
             }
         }
         for (i, &n) in dealt.iter().enumerate() {

@@ -139,6 +139,7 @@ fn impact_sparks_expire_and_fx_drains_after_readers() {
             point: Vec3::new(0.0, 2.0, 1.0),
             normal: Vec3::X,
             sector: 0,
+            wall: None,
         },
         CombatEvent::ActorFired { actor: 0 },
     ]);

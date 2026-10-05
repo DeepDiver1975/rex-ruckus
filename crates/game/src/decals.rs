@@ -1,12 +1,13 @@
 //! Bullet-hole and scorch decals. Presentational only: reads `Impact` and `Explosion` events from
 //! the [`FxQueue`], places small textured quads on the surface, and keeps at most [`RING_CAP`]
 //! alive. A decal belongs to the sector it was placed in and is removed when that sector is
-//! re-extruded (a door, lift, glass pane or crack wall that moved or broke would leave it hanging).
+//! re-extruded (a door, lift, glass pane or crack wall that moved or broke would leave it hanging),
+//! or when it sits on a portal wall (a step face or soffit) whose far sector is re-extruded.
 
 use crate::combat::{FxQueue, FxReaders};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
-use crate::level::{CurrentMap, rebuild_dirty_sectors, rebuild_set};
+use crate::level::{CurrentMap, rebuild_dirty_sectors};
 use crate::mechanics::DirtySectors;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
@@ -14,10 +15,10 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use rr_core::combat::CombatEvent;
-use rr_core::map::{Map, SectorId};
+use rr_core::map::{Map, SectorId, WallId};
 use rr_core::rng::Rng;
-use rr_core::trace::{Hit, Ray, trace_world};
-use std::collections::VecDeque;
+use rr_core::trace::{Hit, HitKind, Ray, trace_world};
+use std::collections::{BTreeSet, VecDeque};
 
 /// Most decals alive at once; the oldest goes first.
 pub const RING_CAP: usize = 128;
@@ -29,10 +30,22 @@ pub const SCORCH_SIZE: f32 = 1.5;
 pub const SURFACE_OFFSET: f32 = 0.002;
 const TEX: u32 = 16;
 
-/// A decal and the sector whose rebuild removes it.
+/// A decal, with the sector it was placed in and the wall it sits on (`None` on a floor or
+/// ceiling): see [`purged_by`].
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Decal {
     pub sector: SectorId,
+    pub wall: Option<WallId>,
+}
+
+/// Whether re-extruding the `dirty` sectors removes decal `d`: its own sector is dirty, or it sits
+/// on a portal wall (step face, soffit, door face) whose far sector is dirty. Decals elsewhere in
+/// a dirty sector's neighbours stay put.
+pub fn purged_by(map: &Map, d: &Decal, dirty: &BTreeSet<SectorId>) -> bool {
+    dirty.contains(&d.sector)
+        || d.wall
+            .and_then(|w| map.walls[w].next_sector)
+            .is_some_and(|n| dirty.contains(&n))
 }
 
 /// Live decals, oldest first.
@@ -165,9 +178,7 @@ pub fn scorch_site(map: &Map, point: Vec3, sector: SectorId, radius: f32) -> Opt
         .filter(|h| {
             matches!(
                 h.kind,
-                rr_core::trace::HitKind::Floor(_)
-                    | rr_core::trace::HitKind::Wall(_)
-                    | rr_core::trace::HitKind::Ceiling(_)
+                HitKind::Floor(_) | HitKind::Wall(_) | HitKind::Ceiling(_)
             )
         })
         .min_by(|a, b| a.dist.total_cmp(&b.dist))
@@ -192,20 +203,35 @@ fn spawn_decals(
     mut assets: Local<Option<DecalAssets>>,
     mut rng: Local<Option<Rng>>,
 ) {
-    let mut places: Vec<(Vec3, Vec3, SectorId, f32, bool)> = Vec::new();
+    let mut places: Vec<(Vec3, Vec3, Decal, f32, bool)> = Vec::new();
     for ev in &fx.combat {
         match ev {
             CombatEvent::Impact {
                 point,
                 normal,
                 sector,
-            } => places.push((*point, *normal, *sector, HOLE_SIZE, false)),
+                wall,
+            } => {
+                let d = Decal {
+                    sector: *sector,
+                    wall: *wall,
+                };
+                places.push((*point, *normal, d, HOLE_SIZE, false));
+            }
             CombatEvent::Explosion { point, radius } => {
                 let Some(sector) = map.0.find_sector(point.truncate(), None) else {
                     continue;
                 };
                 if let Some(hit) = scorch_site(&map.0, *point, sector, *radius) {
-                    places.push((hit.point, hit.normal, hit.sector, SCORCH_SIZE, true));
+                    let wall = match hit.kind {
+                        HitKind::Wall(w) => Some(w),
+                        _ => None,
+                    };
+                    let d = Decal {
+                        sector: hit.sector,
+                        wall,
+                    };
+                    places.push((hit.point, hit.normal, d, SCORCH_SIZE, true));
                 }
             }
             _ => {}
@@ -220,7 +246,7 @@ fn spawn_decals(
         scorch: materials.add(decal_material(images.add(decal_image(scorch_pixels())))),
     });
     let rng = rng.get_or_insert_with(|| Rng::new(0xB0_11E7));
-    for (point, normal, sector, size, scorch) in places {
+    for (point, normal, decal, size, scorch) in places {
         let spin = rng.unit() * std::f32::consts::TAU;
         let at = to_bevy(point + normal * SURFACE_OFFSET);
         let e = commands
@@ -233,7 +259,7 @@ fn spawn_decals(
                     scale: Vec3::splat(size),
                 },
                 NotShadowCaster,
-                Decal { sector },
+                decal,
                 LevelEntity,
             ))
             .id();
@@ -243,9 +269,8 @@ fn spawn_decals(
     }
 }
 
-/// Despawns the decals of every sector queued in [`DirtySectors`] and of their neighbours (a
-/// shot at a step face is tagged with the shooter's side). Runs before
-/// `rebuild_dirty_sectors`, which empties the set.
+/// Despawns the decals that re-extruding the sectors queued in [`DirtySectors`] would leave
+/// hanging ([`purged_by`]). Runs before `rebuild_dirty_sectors`, which empties the set.
 fn purge_dirty_decals(
     mut commands: Commands,
     dirty: Res<DirtySectors>,
@@ -256,9 +281,8 @@ fn purge_dirty_decals(
     if dirty.0.is_empty() {
         return;
     }
-    let purge = rebuild_set(&map.0, &dirty.0);
     for (e, d) in &decals {
-        if purge.contains(&d.sector) {
+        if purged_by(&map.0, d, &dirty.0) {
             commands.entity(e).try_despawn();
             ring.0.retain(|&r| r != e);
         }

@@ -305,5 +305,5 @@ fn enemy_volley_into_soffit_does_not_report_glass() {
     );
     assert!(v.glass.is_empty(), "{v:?}");
     assert!(!v.impacts.is_empty());
-    assert!(v.impacts.iter().all(|(p, _, _)| p.z > 3.0), "{v:?}");
+    assert!(v.impacts.iter().all(|h| h.point.z > 3.0), "{v:?}");
 }
