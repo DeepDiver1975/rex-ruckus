@@ -5,6 +5,7 @@ use super::blasts::PendingBlast;
 use super::{Combat, CombatEvent};
 use crate::collide::Body;
 use crate::defs::{Attack, Defs, WeaponId};
+use crate::destruct::hits_pane;
 use crate::explosion::Blast;
 use crate::map::{Map, SectorId};
 use crate::projectile::{Projectile, Shooter, Targets};
@@ -80,7 +81,7 @@ impl Combat {
             };
             match h.kind {
                 HitKind::Body(i) => dealt[i] += damage,
-                HitKind::Wall(w) if map.walls[w].glass => self.break_glass(map, w, &mut out),
+                HitKind::Wall(w) if hits_pane(map, &h) => self.break_glass(map, w, &mut out),
                 _ => out.push(CombatEvent::Impact {
                     point: h.point,
                     normal: h.normal,

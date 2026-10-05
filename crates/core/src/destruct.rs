@@ -5,6 +5,23 @@
 //! feeds them into the same dirty-sector path `Mechanics::tick` uses.
 
 use crate::map::{Map, SectorId, WallId};
+use crate::trace::{Hit, HitKind};
+
+/// Whether `hit` landed on an intact glass pane itself: a wall hit on a glass portal at a
+/// height inside its opening (the higher floor to the lower ceiling of the two sectors). A hit
+/// on the solid sill or soffit around the pane is an ordinary wall hit.
+pub fn hits_pane(map: &Map, hit: &Hit) -> bool {
+    let HitKind::Wall(w) = hit.kind else {
+        return false;
+    };
+    let wall = &map.walls[w];
+    let Some(far) = wall.next_sector.filter(|_| wall.glass) else {
+        return false;
+    };
+    let (near, far) = (&map.sectors[wall.sector], &map.sectors[far]);
+    let (lo, hi) = (near.floor_z.max(far.floor_z), near.ceil_z.min(far.ceil_z));
+    (lo..=hi).contains(&hit.point.z)
+}
 
 /// Runtime destruction state of one level. Lives in `Combat::destruct`.
 #[derive(Debug, Clone, Default, PartialEq)]

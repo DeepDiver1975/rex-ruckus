@@ -222,3 +222,88 @@ fn enemy_hitscan_volley_reports_glass_once() {
     assert!(v.impacts.is_empty(), "{v:?}");
     assert_eq!(v.player_damage, 0);
 }
+
+#[test]
+fn shot_above_pane_does_not_break_it() {
+    let d = defs();
+    let mut map = glass_rooms();
+    let (w, _) = pane(&map);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let p = Player::at(&map, 8.0, 5.0);
+    // The hall is 4 m tall, the booth 3 m: the strip above the pane is solid wall.
+    let dir = (Vec3::new(10.0, 5.0, 3.5) - p.eye()).normalize();
+    let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir]);
+    assert!(glass_broken(&ev).is_empty(), "{ev:?}");
+    let hit = impacts(&ev);
+    assert_eq!(hit.len(), 1, "{ev:?}");
+    assert!((hit[0].x - 10.0).abs() < 1e-3 && (hit[0].z - 3.5).abs() < 1e-3);
+    assert!(map.walls[w].glass, "the pane is intact");
+}
+
+#[test]
+fn rocket_into_sill_does_not_break_pane() {
+    let mut d = defs();
+    // A small splash, so the blast off the sill cannot reach the pane above it either.
+    for wd in &mut d.weapons.weapons {
+        if let crate::defs::Attack::Projectile { proj } = &mut wd.attack
+            && let Some(s) = &mut proj.splash
+        {
+            s.radius = 0.3;
+        }
+    }
+    let mut map = glass_rooms();
+    map.sectors[1].floor_z = 1.0; // a 1 m sill under the pane
+    let (w, _) = pane(&map);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let mut p = Player::at(&map, 8.0, 5.0);
+    let aim = (Vec3::new(10.0, 5.0, 0.4) - p.eye()).normalize();
+    let ev = WeaponEvent::Launch {
+        weapon: WeaponId::Rockets,
+        dir: aim,
+    };
+    c.player_attack(&mut map, &d, p.eye(), p.body.sector, &ev);
+    let mut log = Vec::new();
+    for _ in 0..60 {
+        log.extend(p.tick(&mut c, &mut map, &d));
+        if count(&log, |e| matches!(e, CombatEvent::Explosion { .. })) > 0 {
+            break;
+        }
+    }
+    assert!(glass_broken(&log).is_empty(), "{log:?}");
+    let hit = impacts(&log);
+    assert_eq!(hit.len(), 1, "an ordinary wall hit: {log:?}");
+    assert!(hit[0].z < 1.0, "{hit:?}");
+    assert_eq!(
+        count(&log, |e| matches!(e, CombatEvent::Explosion { .. })),
+        1
+    );
+    assert!(c.projectiles.is_empty(), "the rocket is spent");
+    assert!(map.walls[w].glass, "the pane is intact");
+}
+
+#[test]
+fn enemy_volley_into_soffit_does_not_report_glass() {
+    let d = defs();
+    let mut map = glass_rooms();
+    spawn_kind(&mut map, ActorKind::Enforcer, 8.0, 5.0, 0.0, false);
+    let mut c = Combat::spawn(&map, &d, 7);
+    let a = c.actors[0].clone();
+    let bodies = vec![
+        Body::spawn(&map, Vec2::new(2.0, 1.0), 0.35, 1.8).unwrap(),
+        a.body,
+    ];
+    let dir = (Vec3::new(10.0, 5.0, 3.6) - a.muzzle()).normalize();
+    let v = volley(
+        &map,
+        &a,
+        0,
+        d.enemy(ActorKind::Enforcer),
+        dir,
+        &bodies,
+        |_| true,
+        &mut c.rng,
+    );
+    assert!(v.glass.is_empty(), "{v:?}");
+    assert!(!v.impacts.is_empty());
+    assert!(v.impacts.iter().all(|(p, _, _)| p.z > 3.0), "{v:?}");
+}

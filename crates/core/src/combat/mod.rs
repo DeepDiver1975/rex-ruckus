@@ -21,7 +21,7 @@ use crate::actors::{
 };
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
-use crate::destruct::Destruct;
+use crate::destruct::{Destruct, hits_pane};
 use crate::explosion::Blast;
 use crate::health::DamageOutcome;
 use crate::map::{Map, SectorId, WallId};
@@ -77,9 +77,10 @@ pub enum CombatEvent {
     },
     /// The player set off their live pipe bombs (once per detonation).
     BombsDetonated,
-    /// A shot, projectile, kick or blast shattered the glass pane in portal `wall` (the side
-    /// it was hit from, or either side for a blast). `dirty` lists the sectors to re-mesh.
+    /// A shot, projectile, kick or blast shattered the glass pane in portal `wall`. `dirty`
+    /// lists the sectors to re-mesh.
     GlassBroken {
+        /// The side that was hit (owned by the shooter's sector); for a blast, the lower id.
         wall: WallId,
         dirty: Vec<SectorId>,
     },
@@ -426,7 +427,7 @@ impl Combat {
                 ProjectileStep::HitWorld(h) => {
                     match h.kind {
                         // The projectile is spent on the pane; a rocket still goes off.
-                        HitKind::Wall(w) if map.walls[w].glass => {
+                        HitKind::Wall(w) if hits_pane(map, &h) => {
                             self.break_glass(map, w, &mut out);
                         }
                         _ => out.push(CombatEvent::Impact {

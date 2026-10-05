@@ -372,7 +372,7 @@ pub fn volley(
         match h.kind {
             HitKind::Body(0) => out.player_damage += damage,
             HitKind::Body(_) => {}
-            HitKind::Wall(w) if map.walls[w].glass => {
+            HitKind::Wall(w) if crate::destruct::hits_pane(map, &h) => {
                 if !out.glass.contains(&w) {
                     out.glass.push(w);
                 }
