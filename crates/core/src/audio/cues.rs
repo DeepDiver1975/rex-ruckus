@@ -117,7 +117,7 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
 
 /// Cues for one inventory event, at the listener. Switching a power on is a game-side toggle.
 pub fn inv_cues(ev: &InvEvent, out: &mut Out) {
-    match ev {
+    match *ev {
         InvEvent::JetpackOff => out.push((Cue::JetpackStop, None)),
         InvEvent::NightVisionOff => out.push((Cue::NightVisionOff, None)),
     }
@@ -503,6 +503,22 @@ mod tests {
         for e in all_weapon_events() {
             weapon_cues(&e, &mut out);
         }
+        for w in WeaponId::ALL {
+            weapon_cues(
+                &WeaponEvent::Fire {
+                    weapon: w,
+                    dirs: vec![],
+                },
+                &mut out,
+            );
+            weapon_cues(
+                &WeaponEvent::Launch {
+                    weapon: w,
+                    dir: Vec3::X,
+                },
+                &mut out,
+            );
+        }
         for e in all_mech_events() {
             mech_cues(&e, &map, &mut out);
         }
@@ -521,6 +537,21 @@ mod tests {
         assert!(!out.is_empty());
         for (cue, _) in &out {
             assert!(all.contains(cue), "{cue:?} missing from Cue::all()");
+        }
+        // Reverse: everything in all() is emitted, or raised by the game itself.
+        let emitted: HashSet<Cue> = out.iter().map(|(c, _)| *c).collect();
+        let game_side = [
+            Cue::JetpackStart,
+            Cue::JetpackLoop,
+            Cue::NightVisionOn,
+            Cue::Footstep,
+            Cue::Land,
+        ];
+        for cue in &all {
+            assert!(
+                emitted.contains(cue) || game_side.contains(cue),
+                "{cue:?} in Cue::all() is never emitted"
+            );
         }
     }
 }

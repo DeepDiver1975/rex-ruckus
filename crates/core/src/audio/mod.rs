@@ -102,15 +102,11 @@ pub enum Cue {
 impl Cue {
     /// Every cue, with `WeaponId`, `ActorKind` and `PickupClass` expanded. Exactly the cues the
     /// mapping can emit or the game raises itself, with no duplicates. Left out because they
-    /// never occur: `Fire(Boot)` (the boot is `Kick`), and `ActorWake`/`ActorFire`/`ActorPain`
-    /// for `Barrel` (a static body; `combat_cues` drops those events for it).
+    /// never occur: `ActorWake`/`ActorFire`/`ActorPain` for `Barrel` (a static body;
+    /// `combat_cues` drops those events for it). `Fire(Boot)` stays: the boot swing emits `Fire`.
     pub fn all() -> Vec<Cue> {
         use Cue::*;
-        let mut v: Vec<Cue> = WeaponId::ALL
-            .into_iter()
-            .filter(|&w| w != WeaponId::Boot)
-            .map(Fire)
-            .collect();
+        let mut v: Vec<Cue> = WeaponId::ALL.into_iter().map(Fire).collect();
         v.extend([
             DryFire, Reload, Switch, Kick, Impact, Explosion, GlassBreak, LightBreak, CrackOpen,
         ]);
