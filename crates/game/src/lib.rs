@@ -11,6 +11,7 @@ pub mod paths;
 pub mod player;
 pub mod props;
 pub mod textures;
+pub mod viewmodel;
 
 use bevy::prelude::*;
 use level::{LevelRenderPlugin, load_map};
@@ -34,6 +35,7 @@ impl Plugin for GamePlugin {
             props::PropsPlugin,
             actors::ActorVisualsPlugin,
             hud::HudPlugin,
+            viewmodel::ViewModelPlugin,
         ));
     }
 }
