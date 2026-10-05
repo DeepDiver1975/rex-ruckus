@@ -188,6 +188,13 @@ pub fn restart_level(world: &mut World) {
     if let Some(mut roll) = world.get_resource_mut::<crate::player::ViewRoll>() {
         roll.0 = 0.0;
     }
+    // Camera shake and night vision belong to the dead run too. (Vitals, armour and the carried
+    // inventory live on the player entity, so the loadout in `SpawnLevel` renews them; the
+    // player's input latches are reborn empty with it, so a key pressed while dead cannot fire.)
+    if let Some(mut shake) = world.get_resource_mut::<crate::fx::ScreenShake>() {
+        shake.reset();
+    }
+    crate::inventory::reset_night_vision(world);
     world.insert_resource(UsePrompt::default());
     *world.resource_mut::<PlayState>() = PlayState::Playing;
     world.resource_mut::<StateAge>().0 = 0.0;
