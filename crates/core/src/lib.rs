@@ -14,5 +14,6 @@ pub mod movement;
 pub mod rng;
 pub mod trace;
 pub mod validate;
+pub mod weapons;
 
 pub use glam;

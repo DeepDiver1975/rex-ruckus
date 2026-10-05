@@ -34,6 +34,17 @@ pub enum AmmoKind {
     Shells,
 }
 
+impl AmmoKind {
+    pub const ALL: [AmmoKind; 2] = [AmmoKind::Bullets, AmmoKind::Shells];
+
+    pub fn index(self) -> usize {
+        match self {
+            AmmoKind::Bullets => 0,
+            AmmoKind::Shells => 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub enum Attack {
     Melee {
