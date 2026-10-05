@@ -3,8 +3,20 @@
 A fast, interactive, 90s-style 3D shooter inspired by the Build-engine classics.
 Original code and content; CC0 assets credited in `CREDITS.md`.
 
+![Rex Ruckus demo: chaingun fight in the loading dock, a barrel chain reaction and a rocket through the atrium glass](docs/media/demo.gif)
+
+▶ [Full-quality demo video (MP4)](docs/media/demo.mp4)
+
 Run: `cargo run -p rr-game --release`
 Test: `cargo test --workspace`
+
+## Download (Windows)
+
+Grab `rex-ruckus-<version>-windows-x64-setup.exe` from the
+[latest release](https://github.com/DeepDiver1975/rex-ruckus/releases/latest). It installs the
+game with a Start Menu entry and an uninstaller. Every pull request and push to `main` also
+builds the installer; it is attached to the run of the *Windows installer* workflow as an
+artifact.
 
 ## Building
 
@@ -12,6 +24,15 @@ Requires Rust 1.95+ (edition 2024). On Linux, Bevy also needs the ALSA and udev
 development packages, e.g. on Debian/Ubuntu:
 
     sudo apt install libasound2-dev libudev-dev pkg-config
+
+To build the Windows installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php),
+then:
+
+    cargo build -p rr-game --release
+    iscc /DAppVersion=0.1.0 installer\rex-ruckus.iss
+
+The installer is written to `installer\Output\`. Pushing a `v*` tag publishes it as a GitHub
+release.
 
 ## License
 
@@ -47,3 +68,14 @@ In the SVG, glass panes are dashed cyan, crack walls hatched and secret sectors 
 CI runs the property tests with a small case count. A nightly workflow (`.github/workflows/nightly.yml`, also runnable by hand) reruns them at `PROPTEST_CASES=20000`. Set the variable yourself to go deeper locally:
 
     PROPTEST_CASES=2000 cargo test -p rr-core --release --test movement_props
+
+## Demo playback and recording
+
+`--demo` replays a scripted run instead of reading the keyboard and mouse (a RON list of timed
+input segments; see `assets/demo/arsenal_depot.ron`), and `--record DIR` saves every frame as a
+PNG at a fixed 30 fps:
+
+    cargo run -p rr-game --release -- arsenal_depot.ron --demo assets/demo/arsenal_depot.ron --record /tmp/frames
+
+`scripts/record-demo.sh` does that and encodes `docs/media/demo.mp4` and `docs/media/demo.gif`
+(needs a display and ffmpeg). Rerun it after visible changes to keep the README demo current.
