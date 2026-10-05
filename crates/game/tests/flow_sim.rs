@@ -1,9 +1,13 @@
+use bevy::ecs::system::SystemId;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
+use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::defs::Defs;
 use rr_core::fixtures::{combat_room, door_rooms};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map, Switch, SwitchAction};
 use rr_core::mechanics::Motion;
 use rr_core::weapons::Arsenal;
+use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerHealth, insert_defs,
 };
@@ -13,6 +17,7 @@ use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_
 use rr_game::player::{
     Inventory, Look, PendingInput, PlayerBody, PlayerCamera, PlayerSimPlugin, spawn_camera,
 };
+use rr_game::player::{MouseSensitivity, read_input};
 use rr_game::props::PropsPlugin;
 
 fn sim_app(map: Map) -> App {
@@ -307,4 +312,113 @@ fn restart_leaves_no_stale_entities() {
         assert_eq!(count_all(&mut app), all);
         assert_eq!(cameras(&mut app), 1);
     }
+}
+
+/// The sim plus the real frame-loop input system, with a grabbed cursor and no window.
+struct InputRig {
+    app: App,
+    read: SystemId,
+}
+
+impl InputRig {
+    fn new(map: Map) -> Self {
+        let mut app = sim_app(map);
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<AccumulatedMouseScroll>()
+            .insert_resource(MouseSensitivity(0.0025));
+        app.world_mut().spawn(CursorOptions {
+            grab_mode: CursorGrabMode::Locked,
+            ..default()
+        });
+        // A registered system keeps its `Local` fire latch between runs.
+        let read = app.world_mut().register_system(read_input);
+        InputRig { app, read }
+    }
+
+    /// One frame: read input, run one fixed tick, then age the button edges.
+    fn frame(&mut self) {
+        let w = self.app.world_mut();
+        w.run_system(self.read).unwrap();
+        w.run_schedule(FixedUpdate);
+        w.resource_mut::<ButtonInput<MouseButton>>().clear();
+        w.resource_mut::<ButtonInput<KeyCode>>().clear();
+    }
+
+    fn frames(&mut self, n: usize) {
+        for _ in 0..n {
+            self.frame();
+        }
+    }
+
+    fn mouse(&mut self) -> Mut<'_, ButtonInput<MouseButton>> {
+        self.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+    }
+
+    fn shots(&self) -> usize {
+        self.app
+            .world()
+            .resource::<FxQueue>()
+            .weapon
+            .iter()
+            .filter(|e| matches!(e, WeaponEvent::Fire { .. }))
+            .count()
+    }
+}
+
+/// Restarting with a fire click while the button stays held must not shoot in the new level;
+/// a release and a fresh press fire again.
+fn fire_restart_needs_release(over: impl FnOnce(&mut App)) {
+    let mut rig = InputRig::new(combat_room());
+    rig.frames(2); // released while grabbed: armed
+    over(&mut rig.app);
+    rig.frames(70);
+    rig.mouse().press(MouseButton::Left);
+    rig.frame();
+    assert_eq!(state(&rig.app), PlayState::Playing, "fire restarted");
+    let defs = Defs::builtin();
+    rig.frames(60); // still holding
+    assert_eq!(rig.shots(), 0, "the held restart click never fires");
+    {
+        let mut q = rig.app.world_mut().query::<&PlayerArsenal>();
+        assert_eq!(q.single(rig.app.world()).unwrap().0, Arsenal::new(&defs));
+    }
+    rig.mouse().release(MouseButton::Left);
+    rig.frame();
+    rig.mouse().press(MouseButton::Left);
+    rig.frame();
+    assert_eq!(rig.shots(), 1, "a fresh press fires");
+}
+
+#[test]
+fn fire_restart_from_death_needs_a_release() {
+    fire_restart_needs_release(kill_player);
+}
+
+#[test]
+fn fire_restart_from_complete_needs_a_release() {
+    fire_restart_needs_release(|app| {
+        *app.world_mut().resource_mut::<PlayState>() = PlayState::Complete;
+    });
+}
+
+#[test]
+fn look_is_frozen_while_play_is_over() {
+    let mut rig = InputRig::new(combat_room());
+    kill_player(&mut rig.app);
+    let look = |app: &mut App| {
+        let mut q = app.world_mut().query::<&Look>();
+        let l = q.single(app.world()).unwrap();
+        (l.angle, l.pitch)
+    };
+    let before = look(&mut rig.app);
+    rig.app
+        .world_mut()
+        .resource_mut::<AccumulatedMouseMotion>()
+        .delta = Vec2::new(200.0, 100.0);
+    rig.frames(5);
+    assert_eq!(look(&mut rig.app), before);
 }

@@ -99,6 +99,14 @@ pub fn fire_gate(grabbed: bool, pressed: bool, armed: &mut bool) -> bool {
     grabbed && pressed && *armed
 }
 
+/// While play is over (dead or level complete), a held fire button disarms [`fire_gate`]. The
+/// click that restarts the level then has to be released before the new player can shoot.
+pub fn disarm_while_over(playing: bool, pressed: bool, armed: &mut bool) {
+    if !playing && pressed {
+        *armed = false;
+    }
+}
+
 /// Keycards the player holds.
 #[derive(Component, Default)]
 pub struct Inventory {
@@ -252,21 +260,25 @@ fn grab_cursor(
     }
 }
 
+/// Gathers keyboard and mouse input into the player's [`PendingInput`] and [`Look`] every frame.
 #[allow(clippy::too_many_arguments)]
-fn read_input(
+pub fn read_input(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     sensitivity: Res<MouseSensitivity>,
     cursor: Single<&CursorOptions>,
+    state: Res<PlayState>,
     player: Single<(&mut PendingInput, &mut Look), With<Player>>,
     mut fire_armed: Local<bool>,
 ) {
     let (mut input, mut look) = player.into_inner();
+    let playing = *state == PlayState::Playing;
     // Any active grab counts: on X11 `Locked` may fall back to `Confined`.
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
-    if grabbed {
+    // The view is frozen once play is over (the death camera takes over).
+    if grabbed && playing {
         look.angle -= mouse.delta.x * sensitivity.0;
         look.pitch = (look.pitch - mouse.delta.y * sensitivity.0).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
@@ -279,10 +291,13 @@ fn read_input(
     input.crouch = keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft);
     input.use_pressed |= keys.just_pressed(KeyCode::KeyE);
 
-    let fire = fire_gate(grabbed, buttons.pressed(MouseButton::Left), &mut fire_armed);
+    let held = buttons.pressed(MouseButton::Left);
+    let fire = fire_gate(grabbed, held, &mut fire_armed);
     input.fire = fire;
     // `*fire_armed` rather than `fire`: a press and release within one frame still counts.
+    // While play is over this edge is what `restart_on_press` reads.
     input.fire_pressed |= grabbed && *fire_armed && buttons.just_pressed(MouseButton::Left);
+    disarm_while_over(playing, held, &mut fire_armed);
     if grabbed {
         input.reload |= keys.just_pressed(KeyCode::KeyR);
         input.kick |= keys.just_pressed(KeyCode::KeyF);
@@ -356,6 +371,24 @@ mod tests {
         assert!((one - two).abs() < 1e-5);
         assert!(one < 1.65 && one > 0.95);
         assert!((ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0) - 0.95).abs() < 1e-3);
+    }
+
+    #[test]
+    fn held_fire_disarms_only_while_play_is_over() {
+        let mut armed = true;
+        disarm_while_over(true, true, &mut armed);
+        assert!(armed, "playing: holding fire keeps shooting");
+        disarm_while_over(false, false, &mut armed);
+        assert!(
+            armed,
+            "over but released: still armed, so the restart click registers"
+        );
+        disarm_while_over(false, true, &mut armed);
+        assert!(!armed, "over and held: disarmed");
+        // After the restart the held button does not fire; a release re-arms.
+        assert!(!fire_gate(true, true, &mut armed));
+        assert!(!fire_gate(true, false, &mut armed));
+        assert!(fire_gate(true, true, &mut armed));
     }
 
     #[test]
