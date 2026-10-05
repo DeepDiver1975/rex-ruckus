@@ -8,6 +8,7 @@ pub mod decals;
 pub mod flow;
 pub mod fx;
 pub mod hud;
+pub mod inventory;
 pub mod level;
 pub mod mechanics;
 pub mod paths;
@@ -40,6 +41,7 @@ impl Plugin for GamePlugin {
             fx::FxPlugin,
             decals::DecalsPlugin,
             breakables::BreakablesPlugin,
+            inventory::NightVisionPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
         ));

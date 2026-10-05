@@ -2,7 +2,7 @@
 //! death and level-complete overlays, plus the M2 use prompt and message line.
 //! Spawned once at startup; it is not a `LevelEntity`, so it persists across restarts.
 
-use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerVitals};
+use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, LevelMechanics, UsePrompt};
@@ -11,6 +11,7 @@ use crate::props::key_color;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::WeaponId;
+use rr_core::inventory::{BATTERY_MAX, FUEL_MAX, Inventory as Carried, MEDKIT_MAX};
 use rr_core::map::{Key, Map, MoverKind, SwitchAction};
 use rr_core::mechanics::{Mechanics, UseTarget};
 
@@ -23,6 +24,8 @@ const FLASH_ALPHA: f32 = 0.45;
 const BAR_HEIGHT: f32 = 64.0;
 const KEY_SIZE: f32 = 18.0;
 const MISSING_KEY_ALPHA: f32 = 0.2;
+const ACTIVE: Color = Color::srgb(0.4, 1.0, 0.5);
+const INACTIVE: Color = Color::srgba(1.0, 1.0, 1.0, 0.45);
 
 #[derive(Component)]
 struct PromptText;
@@ -32,9 +35,19 @@ struct MessageText;
 #[derive(Component, Clone, Copy)]
 enum StatusCell {
     Health,
+    Armour,
     Ammo,
     WeaponName,
     Slot(WeaponId),
+    /// The carried-item strip.
+    Item(Item),
+}
+/// One carried item in the inventory strip.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Item {
+    Medkit,
+    Jetpack,
+    NightVision,
 }
 /// A keycard square, dimmed while the key is missing.
 #[derive(Component)]
@@ -71,6 +84,20 @@ pub fn ammo_label(weapon: WeaponId, readout: (Option<u32>, Option<u32>)) -> Stri
         (_, (None, Some(reserve))) => reserve.to_string(),
         (_, (Some(clip), None)) => clip.to_string(),
         (_, (None, None)) => "\u{2014}".to_string(),
+    }
+}
+
+/// Inventory strip text and whether the item is active (highlighted): medkit charge, jetpack
+/// fuel and night-vision battery, each as a percentage.
+fn item_cell(item: Item, c: &Carried) -> (String, bool) {
+    let pct = |v: f32, max: f32| (v / max * 100.0).ceil().clamp(0.0, 100.0) as i32;
+    match item {
+        Item::Medkit => (
+            format!("MED {}%", c.medkit * 100 / MEDKIT_MAX),
+            c.medkit > 0,
+        ),
+        Item::Jetpack => (format!("JET {}%", pct(c.fuel, FUEL_MAX)), c.jetpack_on),
+        Item::NightVision => (format!("NV {}%", pct(c.battery, BATTERY_MAX)), c.nv_on),
     }
 }
 
@@ -218,6 +245,7 @@ fn spawn_hud(mut commands: Commands) {
                 p.spawn((Text::new(text), font(26.0), TextColor(Color::WHITE), kind));
             };
             cell(bar, StatusCell::Health, "HEALTH 100");
+            cell(bar, StatusCell::Armour, "ARMOUR 0");
             cell(bar, StatusCell::Ammo, "AMMO \u{2014}");
             bar.spawn(Node {
                 column_gap: Val::Px(10.0),
@@ -228,6 +256,20 @@ fn spawn_hud(mut commands: Commands) {
                 cell(w, StatusCell::WeaponName, "");
                 for id in WeaponId::ALL {
                     cell(w, StatusCell::Slot(id), &id.slot().to_string());
+                }
+            });
+            bar.spawn(Node {
+                column_gap: Val::Px(10.0),
+                ..default()
+            })
+            .with_children(|strip| {
+                for item in [Item::Medkit, Item::Jetpack, Item::NightVision] {
+                    strip.spawn((
+                        Text::new(""),
+                        font(18.0),
+                        TextColor(INACTIVE),
+                        StatusCell::Item(item),
+                    ));
                 }
             });
             bar.spawn(Node {
@@ -272,6 +314,12 @@ fn set(text: &mut Text, s: &str) {
     }
 }
 
+fn set_color(color: &mut TextColor, c: Color) {
+    if color.0 != c {
+        color.0 = c;
+    }
+}
+
 fn update_prompt(
     prompt: Res<UsePrompt>,
     map: Res<CurrentMap>,
@@ -303,16 +351,22 @@ fn update_message(
 /// Health, ammo, weapon name and slot highlighting. Skips frames without a player.
 fn update_status(
     defs: Res<GameDefs>,
-    player: Query<(&PlayerVitals, &PlayerArsenal), With<Player>>,
+    player: Query<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<Player>>,
     mut cells: Query<(&StatusCell, &mut Text, &mut TextColor)>,
 ) {
-    let Ok((health, arsenal)) = player.single() else {
+    let Ok((health, arsenal, carried)) = player.single() else {
         return;
     };
     let a = &arsenal.0;
     for (cell, mut text, mut color) in &mut cells {
         match *cell {
             StatusCell::Health => set(&mut text, &format!("HEALTH {}", health.0.health.hp.max(0))),
+            StatusCell::Armour => set(&mut text, &format!("ARMOUR {}", health.0.armour.max(0))),
+            StatusCell::Item(item) => {
+                let (label, active) = item_cell(item, &carried.0);
+                set(&mut text, &label);
+                set_color(&mut color, if active { ACTIVE } else { INACTIVE });
+            }
             StatusCell::Ammo => set(
                 &mut text,
                 &format!("AMMO {}", ammo_label(a.current, a.readout(&defs.0))),
@@ -326,9 +380,7 @@ fn update_status(
                 } else {
                     Color::srgba(1.0, 1.0, 1.0, 0.25)
                 };
-                if color.0 != c {
-                    color.0 = c;
-                }
+                set_color(&mut color, c);
             }
         }
     }
@@ -366,8 +418,13 @@ fn update_flash(
     mut flash: ResMut<DamageFlash>,
     mut node: Single<&mut BackgroundColor, With<FlashNode>>,
 ) {
-    node.0 = Color::srgba(0.85, 0.0, 0.0, flash.0 * FLASH_ALPHA);
-    flash.0 = flash_decay(flash.0, time.delta_secs());
+    let c = Color::srgba(0.85, 0.0, 0.0, flash.0 * FLASH_ALPHA);
+    if node.0 != c {
+        node.0 = c;
+    }
+    if flash.0 > 0.0 {
+        flash.0 = flash_decay(flash.0, time.delta_secs());
+    }
 }
 
 fn update_overlay(
@@ -378,11 +435,16 @@ fn update_overlay(
     let (vis, bg) = &mut *node;
     match overlay_text(*state) {
         Some(s) => {
-            **vis = Visibility::Inherited;
-            bg.0 = overlay_tint(*state);
+            vis.set_if_neq(Visibility::Inherited);
+            let tint = overlay_tint(*state);
+            if bg.0 != tint {
+                bg.0 = tint;
+            }
             set(&mut text, s);
         }
-        None => **vis = Visibility::Hidden,
+        None => {
+            vis.set_if_neq(Visibility::Hidden);
+        }
     }
 }
 
@@ -439,5 +501,20 @@ mod tests {
             overlay_text(PlayState::Complete),
             Some("Level complete — press Use or Fire to restart")
         );
+    }
+
+    #[test]
+    fn item_cells_show_percent_and_highlight_active() {
+        let mut c = Carried {
+            medkit: 45,
+            fuel: 80.0,
+            battery: 0.5,
+            ..Default::default()
+        };
+        assert_eq!(item_cell(Item::Medkit, &c), ("MED 45%".into(), true));
+        assert_eq!(item_cell(Item::Jetpack, &c), ("JET 80%".into(), false));
+        assert_eq!(item_cell(Item::NightVision, &c), ("NV 1%".into(), false));
+        c.jetpack_on = true;
+        assert!(item_cell(Item::Jetpack, &c).1);
     }
 }

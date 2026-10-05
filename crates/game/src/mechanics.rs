@@ -116,7 +116,7 @@ impl Plugin for MechanicsSimPlugin {
     }
 }
 
-fn use_key(
+pub fn use_key(
     map: Res<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
     mut prompt: ResMut<UsePrompt>,

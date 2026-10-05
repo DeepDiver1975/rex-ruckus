@@ -1,9 +1,12 @@
 //! Player: core movement in a 60 Hz FixedUpdate, input gathered every frame,
 //! and the camera interpolated between ticks.
 
+use crate::combat::PlayerInventory;
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, PlayState, SpawnLevel};
+use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
+use crate::mechanics::{HudMessage, use_key};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
@@ -98,11 +101,11 @@ pub struct PendingInput {
     pub select: Option<WeaponId>,
     /// Latched mouse-wheel steps: +1 per wheel-up frame (next weapon), -1 per wheel-down.
     pub cycle: i32,
-    /// Latched medkit press (Q); Task 21 wires the effect.
+    /// Latched medkit press (Q), applied by `use_inventory`.
     pub use_medkit: bool,
-    /// Latched jetpack toggle press (J); Task 21 wires the effect.
+    /// Latched jetpack toggle press (J), applied by `use_inventory`.
     pub toggle_jetpack: bool,
-    /// Latched night-vision toggle press (N); Task 21 wires the effect.
+    /// Latched night-vision toggle press (N), applied by `use_inventory`.
     pub toggle_nv: bool,
 }
 
@@ -158,10 +161,12 @@ impl Plugin for PlayerSimPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(60.0))
             .init_resource::<PlayerTuning>()
             .init_resource::<PlayState>()
+            .init_resource::<HudMessage>()
             .add_systems(SpawnLevel, spawn_player)
             .add_systems(
                 FixedUpdate,
-                simulate_player
+                (use_inventory.after(use_key), simulate_player)
+                    .chain()
                     .in_set(PlayerSimSet)
                     .run_if(resource_equals(PlayState::Playing)),
             );
@@ -202,18 +207,23 @@ fn simulate_player(
     map: Res<CurrentMap>,
     tuning: Res<PlayerTuning>,
     time: Res<Time<Fixed>>,
-    mut q: Query<(&mut PlayerBody, &mut PrevFeet, &PendingInput, &Look)>,
+    mut q: Query<(
+        &mut PlayerBody,
+        &mut PrevFeet,
+        &PendingInput,
+        &Look,
+        Option<&PlayerInventory>,
+    )>,
 ) {
     // `timestep()` (not `delta`) so the system also works when FixedUpdate is run by hand in tests.
     let dt = time.timestep().as_secs_f32();
-    for (mut body, mut prev, input, look) in &mut q {
+    for (mut body, mut prev, input, look, carried) in &mut q {
         prev.0 = body.0.pos;
         let forward = forward_2d(look.angle);
         let right = Vec2::new(forward.y, -forward.x);
         let wish = forward * input.forward + right * input.strafe;
-        // Jump climbs and crouch descends, but only with the jetpack on. Nothing turns it on
-        // yet: Task 21 wires the toggle, so for now it is always off.
-        let jetpack = false;
+        // Jump climbs and crouch descends, but only with the jetpack on.
+        let jetpack = carried.is_some_and(|i| i.0.jetpack_on);
         let move_input = MoveInput {
             wish,
             jump: input.jump,
