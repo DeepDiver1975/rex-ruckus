@@ -93,6 +93,7 @@ pub fn step_projectile(
         p.pos += p.vel * dt;
         match map.find_sector(p.pos.truncate(), Some(p.sector)) {
             Some(s) => p.sector = s,
+            // `pos` has already advanced but `sector` is stale here.
             None => return ProjectileStep::Expired,
         }
     }
@@ -274,5 +275,60 @@ mod tests {
             assert!(steps < 10);
         }
         assert_eq!(steps, 3);
+    }
+
+    #[test]
+    fn ignores_truth_table() {
+        use Shooter::{Actor, Player};
+        // (owner, targets, ignored flags for bodies 0, 1, 2)
+        let cases = [
+            (Player, Targets::Player, [true, true, true]),
+            (Player, Targets::Actors, [true, false, false]),
+            (Player, Targets::All, [true, false, false]),
+            (Actor(0), Targets::Player, [false, true, true]),
+            (Actor(0), Targets::Actors, [true, true, false]),
+            (Actor(0), Targets::All, [false, true, false]),
+        ];
+        let map = combat_room();
+        for (owner, targets, want) in cases {
+            let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::X);
+            p.owner = owner;
+            p.targets = targets;
+            let got = [p.ignores(0), p.ignores(1), p.ignores(2)];
+            assert_eq!(got, want, "{owner:?} / {targets:?}");
+        }
+    }
+
+    #[test]
+    fn actors_targeting_bolt_passes_player_in_front() {
+        let map = combat_room();
+        let bodies = [body_at(&map, 3.0, 1.0), body_at(&map, 5.0, 1.0)];
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::new(40.0, 0.0, 0.0));
+        p.owner = Shooter::Actor(7);
+        p.targets = Targets::Actors;
+        let mut out = ProjectileStep::Flying;
+        for _ in 0..30 {
+            out = step_projectile(&map, &mut p, &bodies, |_| false, DT);
+            if out != ProjectileStep::Flying {
+                break;
+            }
+        }
+        assert_eq!(out, ProjectileStep::HitBody(1));
+    }
+
+    #[test]
+    fn hit_wins_over_expiry_in_same_step() {
+        let map = combat_room();
+        // World hit: wall at y=0, 1 m away, step covers 3 m, life runs out this step.
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.5), Vec3::new(0.0, -30.0, 0.0));
+        p.life = 0.05;
+        let o = step_projectile(&map, &mut p, &[], |_| false, 0.1);
+        assert!(matches!(o, ProjectileStep::HitWorld(_)), "{o:?}");
+        // Body hit.
+        let bodies = [body_at(&map, 2.0, 1.0)];
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::new(30.0, 0.0, 0.0));
+        p.life = 0.05;
+        let o = step_projectile(&map, &mut p, &bodies, |_| false, 0.1);
+        assert_eq!(o, ProjectileStep::HitBody(0));
     }
 }
