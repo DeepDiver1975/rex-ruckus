@@ -47,6 +47,8 @@ pub struct Arsenal {
     /// Spare ammo, by `AmmoKind::index()`.
     pub reserve: [u32; 2],
     pub kick_cooldown: f32,
+    /// A manual reload press waiting for the phase to return to `Ready`.
+    pub reload_queued: bool,
 }
 
 /// `pellets` unit vectors spread uniformly (by solid angle) over a cone of half-angle
@@ -78,6 +80,7 @@ impl Arsenal {
             clip: [0; 3],
             reserve: [0; 2],
             kick_cooldown: 0.0,
+            reload_queued: false,
         };
         for k in AmmoKind::ALL {
             a.reserve[k.index()] = defs.ammo(k).start;
@@ -127,6 +130,7 @@ impl Arsenal {
         if !self.owned[to.index()] || to == self.current {
             return;
         }
+        self.reload_queued = false;
         match &mut self.phase {
             WeaponPhase::Switching { to: t, .. } => *t = to,
             phase => {
@@ -164,6 +168,9 @@ impl Arsenal {
             ev.push(WeaponEvent::Kick { dir: aim });
         }
 
+        // Latch the press so it survives Cooldown/Reloading/Switching until `Ready`.
+        self.reload_queued |= input.reload;
+
         // Selection (edge input, applied once, in any phase).
         let wanted = match input.select {
             Some(w) if w != self.base() => Some(w),
@@ -175,13 +182,12 @@ impl Arsenal {
             self.begin_switch(defs, w);
         }
 
-        let mut reload_pending = input.reload;
         let mut left = dt;
         // Bounded: every iteration either consumes time or changes phase towards a timed one.
         for _ in 0..64 {
             match self.phase {
                 WeaponPhase::Ready => {
-                    if !self.ready_step(defs, input, aim, rng, &mut reload_pending, &mut ev) {
+                    if !self.ready_step(defs, input, aim, rng, &mut ev) {
                         break;
                     }
                 }
@@ -215,6 +221,15 @@ impl Arsenal {
                 }
             }
         }
+        // Drop a press that can no longer start a reload (full clip, no reserve, no clip).
+        let d = defs.weapon(self.current);
+        if let (Some(size), Some(kind)) = (d.clip, d.ammo) {
+            if self.clip[self.current.index()] >= size || self.reserve[kind.index()] == 0 {
+                self.reload_queued = false;
+            }
+        } else {
+            self.reload_queued = false;
+        }
         ev
     }
 
@@ -226,16 +241,16 @@ impl Arsenal {
         input: &WeaponInput,
         aim: Vec3,
         rng: &mut Rng,
-        reload_pending: &mut bool,
         ev: &mut Vec<WeaponEvent>,
     ) -> bool {
         let w = self.current;
         let d = defs.weapon(w);
+        let queued = std::mem::take(&mut self.reload_queued);
         let (Some(size), Some(kind)) = (d.clip, d.ammo) else {
             return self.try_fire(defs, input, aim, rng, ev);
         };
         let (c, r) = (self.clip[w.index()], self.reserve[kind.index()]);
-        let manual = std::mem::take(reload_pending) && c < size && r > 0;
+        let manual = queued && c < size && r > 0;
         if (c == 0 && r > 0) || manual {
             self.phase = WeaponPhase::Reloading(d.reload);
             ev.push(WeaponEvent::ReloadStart);
@@ -393,6 +408,7 @@ mod tests {
         let expected = (1.0 / refire).ceil() as usize;
         let ev = run(&mut a, &d, &held(), &mut rng, 1.0);
         assert_eq!(fires(&ev), expected);
+        assert_eq!(expected, 6, "shipped pistol: 0.18 s refire");
         assert_eq!(a.clip[WeaponId::Pistol.index()], 12 - expected as u32);
         // Rate is independent of dt: one big tick fires once, the carry is kept.
         let (d, mut a, mut rng) = setup();
@@ -401,6 +417,41 @@ mod tests {
             n += fires(&a.tick(&d, &held(), Vec3::X, &mut rng, 0.1));
         }
         assert_eq!(n, expected);
+    }
+
+    #[test]
+    fn reload_pressed_during_cooldown_is_honoured() {
+        let (d, mut a, mut rng) = setup();
+        let pistol = WeaponId::Pistol.index();
+        let ev = a.tick(&d, &held(), Vec3::X, &mut rng, DT);
+        assert_eq!(fires(&ev), 1);
+        let press = WeaponInput {
+            reload: true,
+            ..Default::default()
+        };
+        assert!(a.tick(&d, &press, Vec3::X, &mut rng, DT).is_empty());
+        assert!(matches!(a.phase, WeaponPhase::Cooldown(_)));
+        let ev = run(&mut a, &d, &WeaponInput::default(), &mut rng, 0.3);
+        assert_eq!(
+            ev.iter()
+                .filter(|e| **e == WeaponEvent::ReloadStart)
+                .count(),
+            1
+        );
+        run(&mut a, &d, &WeaponInput::default(), &mut rng, 1.5);
+        assert_eq!(a.clip[pistol], 12);
+        // A stale press (full clip) never fires later; a switch also clears it.
+        a.tick(&d, &press, Vec3::X, &mut rng, DT);
+        assert!(!a.reload_queued);
+        a.clip[pistol] = 5;
+        a.phase = WeaponPhase::Cooldown(0.1);
+        a.tick(&d, &press, Vec3::X, &mut rng, DT);
+        let sel = WeaponInput {
+            select: Some(WeaponId::Boot),
+            ..Default::default()
+        };
+        a.tick(&d, &sel, Vec3::X, &mut rng, DT);
+        assert!(!a.reload_queued);
     }
 
     #[test]
@@ -429,21 +480,39 @@ mod tests {
         assert_eq!(ev, vec![WeaponEvent::ReloadStart]);
         let ev = run(&mut a, &d, &WeaponInput::default(), &mut rng, 1.0);
         assert!(ev.is_empty());
-        assert_eq!((a.clip[1], a.reserve[0]), (5, 36));
+        assert_eq!(
+            (
+                a.clip[WeaponId::Pistol.index()],
+                a.reserve[AmmoKind::Bullets.index()]
+            ),
+            (5, 36)
+        );
         let ev = run(&mut a, &d, &WeaponInput::default(), &mut rng, 0.3);
         assert_eq!(ev, vec![WeaponEvent::ReloadDone]);
-        assert_eq!((a.clip[1], a.reserve[0]), (12, 29));
+        assert_eq!(
+            (
+                a.clip[WeaponId::Pistol.index()],
+                a.reserve[AmmoKind::Bullets.index()]
+            ),
+            (12, 29)
+        );
         assert_eq!(a.phase, WeaponPhase::Ready);
         // A reload with a full clip, or with no reserve, does nothing.
         assert!(a.tick(&d, &input, Vec3::X, &mut rng, DT).is_empty());
-        a.clip[1] = 3;
-        a.reserve[0] = 0;
+        a.clip[WeaponId::Pistol.index()] = 3;
+        a.reserve[AmmoKind::Bullets.index()] = 0;
         assert!(a.tick(&d, &input, Vec3::X, &mut rng, DT).is_empty());
         // Partial reload moves only what the reserve has.
-        a.reserve[0] = 4;
+        a.reserve[AmmoKind::Bullets.index()] = 4;
         a.tick(&d, &input, Vec3::X, &mut rng, DT);
         run(&mut a, &d, &WeaponInput::default(), &mut rng, 1.5);
-        assert_eq!((a.clip[1], a.reserve[0]), (7, 0));
+        assert_eq!(
+            (
+                a.clip[WeaponId::Pistol.index()],
+                a.reserve[AmmoKind::Bullets.index()]
+            ),
+            (7, 0)
+        );
     }
 
     #[test]
@@ -453,7 +522,7 @@ mod tests {
         run(&mut a, &d, &WeaponInput::default(), &mut rng, 0.4);
         a.current = WeaponId::Pistol;
         a.phase = WeaponPhase::Ready;
-        a.clip[1] = 5;
+        a.clip[WeaponId::Pistol.index()] = 5;
         let reload = WeaponInput {
             reload: true,
             ..Default::default()
@@ -475,7 +544,13 @@ mod tests {
         let ev = run(&mut a, &d, &WeaponInput::default(), &mut rng, 2.0);
         assert_eq!(ev, vec![WeaponEvent::Switched(WeaponId::Shotgun)]);
         assert_eq!(a.current, WeaponId::Shotgun);
-        assert_eq!((a.clip[1], a.reserve[0]), (5, 36));
+        assert_eq!(
+            (
+                a.clip[WeaponId::Pistol.index()],
+                a.reserve[AmmoKind::Bullets.index()]
+            ),
+            (5, 36)
+        );
     }
 
     #[test]
@@ -506,13 +581,13 @@ mod tests {
         settle(&mut a, &mut rng);
         assert_eq!(a.current, WeaponId::Boot);
         // With shells it is reachable.
-        a.reserve[1] = 5;
+        a.reserve[AmmoKind::Shells.index()] = 5;
         a.tick(&d, &prev, Vec3::X, &mut rng, DT);
         settle(&mut a, &mut rng);
         assert_eq!(a.current, WeaponId::Shotgun);
         // Empty pistol is skipped, the boot never is.
-        a.clip[1] = 0;
-        a.reserve[0] = 0;
+        a.clip[WeaponId::Pistol.index()] = 0;
+        a.reserve[AmmoKind::Bullets.index()] = 0;
         a.tick(&d, &prev, Vec3::X, &mut rng, DT);
         settle(&mut a, &mut rng);
         assert_eq!(a.current, WeaponId::Boot);
@@ -521,8 +596,8 @@ mod tests {
     #[test]
     fn dry_fire_switches_to_boot() {
         let (d, mut a, mut rng) = setup();
-        a.clip[1] = 0;
-        a.reserve[0] = 0;
+        a.clip[WeaponId::Pistol.index()] = 0;
+        a.reserve[AmmoKind::Bullets.index()] = 0;
         let ev = a.tick(&d, &held(), Vec3::X, &mut rng, DT);
         assert_eq!(ev, vec![WeaponEvent::DryFire]);
         assert!(matches!(
@@ -536,10 +611,10 @@ mod tests {
         assert_eq!(ev, vec![WeaponEvent::Switched(WeaponId::Boot)]);
         // With a loaded shotgun owned, that is preferred.
         let (d, mut a, mut rng) = setup();
-        a.clip[1] = 0;
-        a.reserve[0] = 0;
+        a.clip[WeaponId::Pistol.index()] = 0;
+        a.reserve[AmmoKind::Bullets.index()] = 0;
         a.owned[2] = true;
-        a.reserve[1] = 3;
+        a.reserve[AmmoKind::Shells.index()] = 3;
         a.tick(&d, &held(), Vec3::X, &mut rng, DT);
         assert!(matches!(
             a.phase,
@@ -565,8 +640,8 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
-        assert_eq!(a.reserve[1], 9);
-        assert_eq!(a.clip[2], 0);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 9);
+        assert_eq!(a.clip[WeaponId::Shotgun.index()], 0);
         assert!(matches!(a.phase, WeaponPhase::Cooldown(_)));
     }
 
@@ -596,7 +671,7 @@ mod tests {
     #[test]
     fn kick_works_while_reloading() {
         let (d, mut a, mut rng) = setup();
-        a.clip[1] = 5;
+        a.clip[WeaponId::Pistol.index()] = 5;
         let reload = WeaponInput {
             reload: true,
             ..Default::default()
@@ -646,7 +721,7 @@ mod tests {
         let (d, mut a, mut rng) = setup();
         assert!(a.give_weapon(&d, WeaponId::Shotgun));
         assert!(a.owned[2]);
-        assert_eq!(a.reserve[1], 10);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 10);
         let ph = a.phase;
         assert!(matches!(
             ph,
@@ -657,7 +732,7 @@ mod tests {
         ));
         // Picking up another shotgun mid-switch adds ammo but does not restart the switch.
         assert!(a.give_weapon(&d, WeaponId::Shotgun));
-        assert_eq!(a.reserve[1], 20);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 20);
         assert_eq!(a.phase, ph);
         run(&mut a, &d, &WeaponInput::default(), &mut rng, 0.4);
         assert_eq!(a.current, WeaponId::Shotgun);
@@ -669,14 +744,14 @@ mod tests {
         for _ in 0..10 {
             a.give_weapon(&d, WeaponId::Shotgun);
         }
-        assert_eq!(a.reserve[1], 50);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 50);
         assert!(!a.give_weapon(&d, WeaponId::Shotgun));
         assert!(!a.give_ammo(&d, AmmoKind::Shells, 8));
         assert!(a.give_ammo(&d, AmmoKind::Bullets, 12));
-        assert_eq!(a.reserve[0], 48);
-        a.reserve[0] = 195;
+        assert_eq!(a.reserve[AmmoKind::Bullets.index()], 48);
+        a.reserve[AmmoKind::Bullets.index()] = 195;
         assert!(a.give_ammo(&d, AmmoKind::Bullets, 12));
-        assert_eq!(a.reserve[0], 200);
+        assert_eq!(a.reserve[AmmoKind::Bullets.index()], 200);
     }
 
     #[test]
