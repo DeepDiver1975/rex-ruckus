@@ -8,6 +8,7 @@ use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map, Switch, Swit
 use rr_core::mechanics::Motion;
 use rr_core::weapons::Arsenal;
 use rr_core::weapons::WeaponEvent;
+use rr_game::actors::ActorVisualsPlugin;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerHealth, insert_defs,
 };
@@ -35,7 +36,8 @@ fn sim_app(map: Map) -> App {
     app
 }
 
-/// The headless sim plus level meshes, lights, props and the camera (no window, no GPU).
+/// The headless sim plus level meshes, lights, props, actor visuals and the camera (no window,
+/// no GPU).
 fn full_app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
@@ -51,6 +53,7 @@ fn full_app(map: Map) -> App {
         CombatSimPlugin,
         LevelRenderPlugin,
         PropsPlugin,
+        ActorVisualsPlugin,
     ))
     .add_systems(Startup, spawn_camera);
     app.update();
@@ -301,7 +304,7 @@ fn restart_leaves_no_stale_entities() {
     });
     let mut app = full_app(map);
     let (level, all) = (count_level(&mut app), count_all(&mut app));
-    // Player, sector meshes, lights, a key and a switch panel.
+    // Player, sector meshes, lights, a key, a switch panel and a Grunt (with its children).
     assert!(level > 5, "{level} level entities");
     assert_eq!(cameras(&mut app), 1);
     for _ in 0..2 {

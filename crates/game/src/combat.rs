@@ -1,5 +1,6 @@
 //! Weapons, enemies and bolts: core `Arsenal` and `Combat` driven from FixedUpdate. Core events
-//! are collected in [`FxQueue`] for frame-loop systems (sound, sparks, HUD) to drain.
+//! are collected in [`FxQueue`]; frame-loop readers (sparks, HUD, …) run in [`FxReaders`] and
+//! [`clear_fx`] empties the queue after them.
 
 use crate::flow::{PlayState, SpawnLevel};
 use crate::level::CurrentMap;
@@ -44,6 +45,11 @@ pub struct PlayerHealth(pub Health);
 
 #[derive(Component)]
 pub struct PlayerArsenal(pub Arsenal);
+
+/// Every `Update` system that reads [`FxQueue`]. Readers only read; [`clear_fx`] runs after
+/// the set and is the only system that empties the queue.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FxReaders;
 
 /// Combat's per-tick step; `tick_movers` and pickups run after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -113,11 +119,20 @@ impl Plugin for CombatSimPlugin {
                 )
                     .chain()
                     .after(PlayerSimSet),
-            );
+            )
+            .add_systems(Update, clear_fx.after(FxReaders));
     }
 }
 
-fn spawn_combat(
+/// Empties [`FxQueue`] once per frame, after every [`FxReaders`] system has seen this frame's
+/// events. Registered by the sim plugin so the queue cannot grow without a renderer either.
+pub fn clear_fx(mut fx: ResMut<FxQueue>) {
+    fx.combat.clear();
+    fx.weapon.clear();
+}
+
+/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and the player's loadout.
+pub fn spawn_combat(
     mut commands: Commands,
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,

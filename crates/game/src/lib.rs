@@ -1,5 +1,6 @@
 //! Bevy front-end for Rex Ruckus: Meltdown.
 
+pub mod actors;
 pub mod combat;
 pub mod coords;
 pub mod flow;
@@ -31,6 +32,7 @@ impl Plugin for GamePlugin {
             combat::CombatSimPlugin,
             player::PlayerControlPlugin,
             props::PropsPlugin,
+            actors::ActorVisualsPlugin,
             hud::HudPlugin,
         ));
     }
