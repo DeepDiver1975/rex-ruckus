@@ -7,6 +7,7 @@ use rr_core::weapons::{WeaponEvent, WeaponPhase};
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerHealth, insert_defs,
 };
+use rr_game::flow::FlowPlugin;
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
 use rr_game::player::{
     EYE_BELOW_TOP, Inventory, Look, PendingInput, PlayerBody, PlayerSimPlugin, fire_gate,
@@ -17,7 +18,12 @@ fn app(map: Map) -> App {
     app.add_plugins(MinimalPlugins);
     insert_level(&mut app, map);
     insert_defs(&mut app, Defs::builtin());
-    app.add_plugins((PlayerSimPlugin, MechanicsSimPlugin, CombatSimPlugin));
+    app.add_plugins((
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+    ));
     app.update();
     app
 }

@@ -1,6 +1,7 @@
 //! Visible stand-ins until M4's art: glowing wall panels for switches, spinning cubes for keycards.
 
 use crate::coords::to_bevy;
+use crate::flow::{LevelEntity, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::mechanics::LevelMechanics;
 use bevy::prelude::*;
@@ -12,7 +13,7 @@ pub struct SwitchPanel(pub usize);
 #[derive(Component)]
 pub struct ItemProp(pub usize);
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 struct PanelMaterials {
     off: Handle<StandardMaterial>,
     on: Handle<StandardMaterial>,
@@ -38,22 +39,31 @@ pub struct PropsPlugin;
 
 impl Plugin for PropsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_props)
+        app.add_systems(SpawnLevel, spawn_props)
             .add_systems(Update, (update_switch_panels, animate_items));
     }
 }
 
+/// Switch panels and item props (in [`SpawnLevel`]); the panel materials survive restarts.
 fn spawn_props(
     mut commands: Commands,
     map: Res<CurrentMap>,
+    existing: Option<Res<PanelMaterials>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let map = &map.0;
     let panel = meshes.add(Cuboid::new(0.4, 0.6, 0.06));
-    let mats = PanelMaterials {
-        off: materials.add(glow(Color::srgb(0.8, 0.1, 0.1))),
-        on: materials.add(glow(Color::srgb(0.1, 0.8, 0.2))),
+    let mats = match existing {
+        Some(m) => m.clone(),
+        None => {
+            let mats = PanelMaterials {
+                off: materials.add(glow(Color::srgb(0.8, 0.1, 0.1))),
+                on: materials.add(glow(Color::srgb(0.1, 0.8, 0.2))),
+            };
+            commands.insert_resource(mats.clone());
+            mats
+        }
     };
     let exit = materials.add(glow(Color::srgb(1.0, 0.75, 0.0)));
     for (i, sw) in map.switches.iter().enumerate() {
@@ -70,6 +80,7 @@ fn spawn_props(
             MeshMaterial3d(mat),
             Transform::from_translation(to_bevy(at)).looking_to(to_bevy(n.extend(0.0)), Vec3::Y),
             SwitchPanel(i),
+            LevelEntity,
         ));
     }
     let cube = meshes.add(Cuboid::new(0.3, 0.3, 0.3));
@@ -86,9 +97,9 @@ fn spawn_props(
             MeshMaterial3d(materials.add(glow(key_color(k)))),
             Transform::from_translation(to_bevy(item.pos.extend(floor + 0.6))),
             ItemProp(i),
+            LevelEntity,
         ));
     }
-    commands.insert_resource(mats);
 }
 
 fn update_switch_panels(

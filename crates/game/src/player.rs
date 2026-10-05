@@ -2,6 +2,7 @@
 //! and the camera interpolated between ticks.
 
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
+use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::level::CurrentMap;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -124,11 +125,18 @@ impl Plugin for PlayerSimPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(60.0))
             .init_resource::<PlayerTuning>()
-            .add_systems(Startup, spawn_player)
-            .add_systems(FixedUpdate, simulate_player.in_set(PlayerSimSet));
+            .init_resource::<PlayState>()
+            .add_systems(SpawnLevel, spawn_player)
+            .add_systems(
+                FixedUpdate,
+                simulate_player
+                    .in_set(PlayerSimSet)
+                    .run_if(resource_equals(PlayState::Playing)),
+            );
     }
 }
 
+/// Spawns a fresh player at the level start (in [`SpawnLevel`]); combat adds its loadout.
 pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
     let start = map.0.player_start;
     let body = Body::spawn(
@@ -145,6 +153,7 @@ pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<Pl
     });
     commands.spawn((
         Player,
+        LevelEntity,
         PrevFeet(body.pos),
         PlayerBody(body),
         Look {
@@ -197,7 +206,9 @@ impl Plugin for PlayerControlPlugin {
     }
 }
 
-fn spawn_camera(mut commands: Commands) {
+/// The first-person camera. Spawned once at startup and kept across restarts: it is not a
+/// [`LevelEntity`], and `update_camera` follows whichever player exists.
+pub fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {

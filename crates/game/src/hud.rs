@@ -1,7 +1,8 @@
 //! Minimal M2 HUD: use prompt, message line and held keycards. M3 replaces it with the status bar.
 
+use crate::flow::PlayState;
 use crate::level::CurrentMap;
-use crate::mechanics::{HudMessage, LevelComplete, LevelMechanics, UsePrompt};
+use crate::mechanics::{HudMessage, LevelMechanics, UsePrompt};
 use crate::player::Inventory;
 use bevy::prelude::*;
 use rr_core::map::{Key, Map, MoverKind, SwitchAction};
@@ -95,11 +96,11 @@ fn update_prompt(
     prompt: Res<UsePrompt>,
     map: Res<CurrentMap>,
     mech: Res<LevelMechanics>,
-    done: Res<LevelComplete>,
+    state: Res<PlayState>,
     mut text: Single<&mut Text, With<PromptText>>,
 ) {
     let label = match prompt.0 {
-        Some(t) if !done.0 => prompt_label(&map.0, &mech.0, t),
+        Some(t) if *state == PlayState::Playing => prompt_label(&map.0, &mech.0, t),
         _ => "",
     };
     set(&mut text, label);
@@ -108,11 +109,11 @@ fn update_prompt(
 fn update_message(
     time: Res<Time>,
     mut msg: ResMut<HudMessage>,
-    done: Res<LevelComplete>,
+    state: Res<PlayState>,
     mut text: Single<&mut Text, With<MessageText>>,
 ) {
     msg.remaining = (msg.remaining - time.delta_secs()).max(0.0);
-    let s = if done.0 {
+    let s = if *state == PlayState::Complete {
         "LEVEL COMPLETE"
     } else if msg.remaining > 0.0 {
         msg.text.as_str()

@@ -1,6 +1,7 @@
 //! Weapons, enemies and bolts: core `Arsenal` and `Combat` driven from FixedUpdate. Core events
 //! are collected in [`FxQueue`] for frame-loop systems (sound, sparks, HUD) to drain.
 
+use crate::flow::{PlayState, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::paths::assets_dir;
 use crate::player::{
@@ -100,10 +101,16 @@ pub struct CombatSimPlugin;
 impl Plugin for CombatSimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FxQueue>()
-            .add_systems(Startup, spawn_combat.after(spawn_player))
+            .init_resource::<PlayState>()
+            .add_systems(SpawnLevel, spawn_combat.after(spawn_player))
             .add_systems(
                 FixedUpdate,
-                (player_weapons, combat_tick.in_set(CombatSet))
+                (
+                    player_weapons.run_if(resource_equals(PlayState::Playing)),
+                    combat_tick
+                        .in_set(CombatSet)
+                        .run_if(resource_equals(PlayState::Playing)),
+                )
                     .chain()
                     .after(PlayerSimSet),
             );

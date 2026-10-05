@@ -2,6 +2,7 @@
 
 pub mod combat;
 pub mod coords;
+pub mod flow;
 pub mod hud;
 pub mod level;
 pub mod mechanics;
@@ -23,6 +24,7 @@ impl Plugin for GamePlugin {
         mechanics::insert_level(app, load_map(&self.level));
         combat::insert_defs(app, combat::load_defs());
         app.add_plugins((
+            flow::FlowPlugin,
             LevelRenderPlugin,
             player::PlayerSimPlugin,
             mechanics::MechanicsSimPlugin,

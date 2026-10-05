@@ -1,6 +1,7 @@
 //! Doors, lifts, switches and keycards: core `Mechanics` driven from FixedUpdate.
 
 use crate::combat::{CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerHealth};
+use crate::flow::{LevelSource, PlayState};
 use crate::level::CurrentMap;
 use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
 use bevy::prelude::*;
@@ -37,14 +38,19 @@ impl HudMessage {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct LevelComplete(pub bool);
-
-/// Inserts the map and its mechanics; this puts the level into its start pose (doors closed).
-pub fn insert_level(app: &mut App, mut map: Map) {
+/// The live map and its mechanics for an authored map, in the start pose (doors closed).
+pub fn fresh_level(mut map: Map) -> (CurrentMap, LevelMechanics) {
     let mech = Mechanics::new(&mut map);
-    app.insert_resource(CurrentMap(map))
-        .insert_resource(LevelMechanics(mech));
+    (CurrentMap(map), LevelMechanics(mech))
+}
+
+/// Inserts the map and its mechanics in their start pose, and keeps the authored map in
+/// [`LevelSource`] for restarts.
+pub fn insert_level(app: &mut App, map: Map) {
+    let (live, mech) = fresh_level(map.clone());
+    app.insert_resource(LevelSource(map))
+        .insert_resource(live)
+        .insert_resource(mech);
 }
 
 /// Simulation only: safe to run headless. Needs `insert_level`, `PlayerSimPlugin` and
@@ -56,12 +62,19 @@ impl Plugin for MechanicsSimPlugin {
         app.init_resource::<DirtySectors>()
             .init_resource::<UsePrompt>()
             .init_resource::<HudMessage>()
-            .init_resource::<LevelComplete>()
+            .init_resource::<PlayState>()
             .add_systems(
                 FixedUpdate,
                 (
-                    use_key.before(PlayerSimSet),
-                    (tick_movers, pickup_items)
+                    use_key
+                        .before(PlayerSimSet)
+                        .run_if(resource_equals(PlayState::Playing)),
+                    // Gated one by one (not as a group) so a state change earlier in the tick
+                    // stops every later system of the same tick.
+                    (
+                        tick_movers.run_if(resource_equals(PlayState::Playing)),
+                        pickup_items.run_if(resource_equals(PlayState::Playing)),
+                    )
                         .chain()
                         .after(PlayerSimSet)
                         .after(CombatSet),
@@ -75,7 +88,7 @@ fn use_key(
     mut mech: ResMut<LevelMechanics>,
     mut prompt: ResMut<UsePrompt>,
     mut msg: ResMut<HudMessage>,
-    mut done: ResMut<LevelComplete>,
+    mut state: ResMut<PlayState>,
     mut q: Query<(&PlayerBody, &Look, &Inventory, &mut PendingInput), With<Player>>,
 ) {
     for (body, look, inv, mut input) in &mut q {
@@ -89,7 +102,7 @@ fn use_key(
             UseOutcome::Activated => {}
             UseOutcome::NeedKey(k) => msg.show(format!("You need the {} keycard", k.name())),
             UseOutcome::Exit => {
-                done.0 = true;
+                *state = PlayState::Complete;
                 msg.show("Level complete!");
             }
         }
@@ -122,7 +135,7 @@ fn tick_movers(
 
 /// Walking over items: `apply_pickup` decides, and a refused item stays in the world.
 /// The dead pick nothing up.
-fn pickup_items(
+pub fn pickup_items(
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
     mut mech: ResMut<LevelMechanics>,
