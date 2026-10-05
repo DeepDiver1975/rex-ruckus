@@ -5,9 +5,9 @@
 //! once, and [`restart_level`] despawns every [`LevelEntity`], resets the level resources and
 //! runs it again. The camera and the HUD are spawned outside it and persist across restarts.
 
-use crate::combat::{CombatSet, FxQueue, PlayerHealth};
+use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerHealth};
 use crate::mechanics::{DirtySectors, HudMessage, UsePrompt, fresh_level, pickup_items};
-use crate::player::{PendingInput, Player, PlayerSimSet};
+use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use rr_core::map::Map;
@@ -67,6 +67,13 @@ impl Plugin for FlowPlugin {
             .add_systems(Startup, run_spawn_level)
             .add_systems(
                 FixedUpdate,
+                freeze_interpolation
+                    .run_if(not(resource_equals(PlayState::Playing)))
+                    .before(PlayerSimSet)
+                    .before(restart_on_press),
+            )
+            .add_systems(
+                FixedUpdate,
                 (
                     check_player_death
                         .run_if(resource_equals(PlayState::Playing))
@@ -89,6 +96,35 @@ fn run_spawn_level(world: &mut World) {
 fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerHealth, With<Player>>) {
     if q.iter().any(|h| !h.0.alive()) {
         *state = PlayState::Dead;
+    }
+}
+
+/// While play is frozen, collapses every render-interpolation endpoint onto the current
+/// position. `Time<Fixed>` keeps accumulating overstep with the sim gated off, so a stale
+/// previous position would make the frame loop redraw the last tick's step over and over
+/// (visible shake on the death camera, chasing Grunts and bolts). Runs at the start of the
+/// tick, so frames up to the first frozen tick still interpolate the final step normally.
+fn freeze_interpolation(
+    combat: Option<ResMut<LevelCombat>>,
+    mut players: Query<(&PlayerBody, &mut PrevFeet)>,
+) {
+    for (body, mut prev) in &mut players {
+        if prev.0 != body.0.pos {
+            prev.0 = body.0.pos;
+        }
+    }
+    let Some(mut combat) = combat else { return };
+    let c = &combat.0;
+    let stale = c.actors.iter().any(|a| a.prev_pos != a.body.pos)
+        || c.projectiles.iter().any(|p| p.prev != p.pos);
+    if !stale {
+        return;
+    }
+    for a in &mut combat.0.actors {
+        a.prev_pos = a.body.pos;
+    }
+    for p in &mut combat.0.projectiles {
+        p.prev = p.pos;
     }
 }
 

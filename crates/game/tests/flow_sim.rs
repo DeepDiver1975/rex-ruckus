@@ -6,6 +6,7 @@ use rr_core::defs::Defs;
 use rr_core::fixtures::{combat_room, door_rooms};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map, Switch, SwitchAction};
 use rr_core::mechanics::Motion;
+use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_core::weapons::Arsenal;
 use rr_core::weapons::WeaponEvent;
 use rr_game::actors::ActorVisualsPlugin;
@@ -16,7 +17,8 @@ use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, StateAge, restart_reques
 use rr_game::level::{CurrentMap, LevelRenderPlugin};
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
 use rr_game::player::{
-    Inventory, Look, PendingInput, PlayerBody, PlayerCamera, PlayerSimPlugin, spawn_camera,
+    Inventory, Look, PendingInput, PlayerBody, PlayerCamera, PlayerSimPlugin, PrevFeet,
+    spawn_camera,
 };
 use rr_game::player::{MouseSensitivity, read_input};
 use rr_game::props::PropsPlugin;
@@ -424,4 +426,58 @@ fn look_is_frozen_while_play_is_over() {
         .delta = Vec2::new(200.0, 100.0);
     rig.frames(5);
     assert_eq!(look(&mut rig.app), before);
+}
+
+/// While play is frozen the interpolation endpoints collapse onto the current positions, so
+/// render frames between frozen ticks do not keep replaying the last tick's step (shake).
+#[test]
+fn frozen_play_collapses_interpolation_endpoints() {
+    let mut app = sim_app(arena());
+    // Walk east while the grunt (past its reaction time) chases.
+    input(&mut app).forward = 1.0;
+    ticks(&mut app, 60);
+    let moving = |app: &mut App| {
+        let mut q = app.world_mut().query::<(&PlayerBody, &PrevFeet)>();
+        let (b, p) = q.single(app.world()).unwrap();
+        b.0.pos != p.0
+    };
+    assert!(moving(&mut app), "player is mid-motion");
+    {
+        let c = &app.world().resource::<LevelCombat>().0;
+        assert!(
+            c.actors.iter().any(|a| a.prev_pos != a.body.pos),
+            "grunt is mid-motion"
+        );
+    }
+    kill_player(&mut app);
+    // A bolt in flight.
+    {
+        let mut c = app.world_mut().resource_mut::<LevelCombat>();
+        c.0.projectiles.push(Projectile {
+            id: 99,
+            pos: Vec3::new(3.0, 1.5, 1.0),
+            prev: Vec3::new(3.25, 1.5, 1.0),
+            vel: Vec3::new(-15.0, 0.0, 0.0),
+            sector: 0,
+            radius: 0.12,
+            damage: 8,
+            owner: Shooter::Actor(0),
+            targets: Targets::Player,
+            life: 2.0,
+        });
+    }
+    ticks(&mut app, 1);
+    {
+        let mut q = app.world_mut().query::<(&PlayerBody, &PrevFeet)>();
+        let (b, p) = q.single(app.world()).unwrap();
+        assert_eq!(p.0, b.0.pos, "PrevFeet collapsed onto the body");
+    }
+    let c = &app.world().resource::<LevelCombat>().0;
+    for (i, a) in c.actors.iter().enumerate() {
+        assert_eq!(a.prev_pos, a.body.pos, "actor {i} prev_pos collapsed");
+    }
+    assert!(!c.projectiles.is_empty());
+    for p in &c.projectiles {
+        assert_eq!(p.prev, p.pos, "projectile {} prev collapsed", p.id);
+    }
 }
