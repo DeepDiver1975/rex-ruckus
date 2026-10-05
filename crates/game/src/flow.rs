@@ -6,7 +6,9 @@
 //! runs it again. The camera and the HUD are spawned outside it and persist across restarts.
 
 use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerVitals};
-use crate::mechanics::{DirtySectors, HudMessage, UsePrompt, fresh_level, pickup_items};
+use crate::mechanics::{
+    DirtySectors, HudMessage, HudSubtitle, UsePrompt, fresh_level, pickup_items,
+};
 use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
@@ -173,6 +175,7 @@ pub fn restart_level(world: &mut World) {
     world.insert_resource(DirtySectors::default());
     world.insert_resource(FxQueue::default());
     world.insert_resource(HudMessage::default());
+    world.insert_resource(HudSubtitle::default());
     // The decal entities went with the level; forget them in the ring too.
     if let Some(mut ring) = world.get_resource_mut::<crate::decals::DecalRing>() {
         ring.reset();

@@ -1,11 +1,12 @@
 //! The hero's quips: this frame's events become [`QuipTrigger`]s, the core [`QuipDirector`]
-//! picks a line (or none), and the line plays as a non-spatial voice with a HUD subtitle.
+//! picks a line (or none), and the line plays as a non-spatial voice with a [`HudSubtitle`]
+//! (its own HUD line, so a quip never hides a message such as the key a door needs).
 
 use super::AudioVolumes;
 use crate::combat::{FxQueue, LevelCombat, PlayerArsenal, PlayerVitals};
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
-use crate::mechanics::HudMessage;
+use crate::mechanics::HudSubtitle;
 use crate::paths::assets_dir;
 use crate::player::Player;
 use bevy::audio::Volume;
@@ -93,7 +94,7 @@ pub fn play_quips(
     combat: Option<Res<LevelCombat>>,
     volumes: Res<AudioVolumes>,
     mut state: ResMut<QuipState>,
-    mut msg: ResMut<HudMessage>,
+    mut subtitle: ResMut<HudSubtitle>,
     player: Query<(&PlayerVitals, &PlayerArsenal), With<Player>>,
 ) {
     let state = &mut *state;
@@ -161,5 +162,5 @@ pub fn play_quips(
         LevelEntity,
     ));
     state.voice = Some(voice.id());
-    msg.show(quip.text.clone());
+    subtitle.show(quip.text.clone());
 }

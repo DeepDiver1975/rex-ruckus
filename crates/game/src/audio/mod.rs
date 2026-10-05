@@ -321,7 +321,12 @@ fn volume_keys(
     ] {
         if keys.just_pressed(key) {
             volumes.step_master(delta);
-            msg.show(format!("Volume {}%", (volumes.master * 100.0).round()));
+            let pct = (volumes.master * 100.0).round();
+            msg.show(if volumes.muted {
+                format!("Volume {pct}% (muted)")
+            } else {
+                format!("Volume {pct}%")
+            });
         }
     }
 }

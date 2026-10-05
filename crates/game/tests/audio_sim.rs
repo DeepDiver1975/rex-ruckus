@@ -8,17 +8,19 @@ use rr_core::audio::{COOLDOWN, Cue, QuipOn, QuipTable};
 use rr_core::combat::CombatEvent;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::fixtures::door_rooms;
-use rr_core::map::{Map, MoverKind};
+use rr_core::map::{ItemKind, Key, Map, MoverKind};
 use rr_core::mechanics::MechEvent;
 use rr_core::weapons::WeaponEvent;
 use rr_game::audio::{
     AudioFxPlugin, AudioOptions, AudioVolumes, GameCues, JetpackHum, MoverLoop, MusicTrack,
     QuipState, QuipVoice, SfxVoice, SoundBank,
 };
+use rr_game::combat::PlayerArsenal;
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
 use rr_game::flow::FlowPlugin;
-use rr_game::mechanics::{HudMessage, MechanicsSimPlugin, insert_level};
+use rr_game::mechanics::{HudMessage, HudSubtitle, MechanicsSimPlugin, insert_level};
 use rr_game::paths::assets_dir;
+use rr_game::player::PendingInput;
 use rr_game::player::PlayerSimPlugin;
 
 /// The door level with one Grunt in room B.
@@ -256,7 +258,11 @@ fn lines(on: QuipOn) -> Vec<String> {
         .collect()
 }
 
-fn hud_text(app: &App) -> String {
+fn subtitle(app: &App) -> String {
+    app.world().resource::<HudSubtitle>().text.clone()
+}
+
+fn message(app: &App) -> String {
     app.world().resource::<HudMessage>().text.clone()
 }
 
@@ -282,7 +288,7 @@ fn kill_burst(app: &mut App) {
 fn the_level_opens_with_a_start_quip() {
     let mut app = app();
     assert_eq!(quip_voice(&mut app).len(), 1);
-    assert!(lines(QuipOn::LevelStart).contains(&hud_text(&app)));
+    assert!(lines(QuipOn::LevelStart).contains(&subtitle(&app)));
 }
 
 #[test]
@@ -294,14 +300,14 @@ fn three_kills_at_once_make_a_multi_kill_quip() {
     let voice = quip_voice(&mut app);
     // The new quip cut the opening line.
     assert_eq!(voice.len(), 1);
-    let text = hud_text(&app);
+    let text = subtitle(&app);
     assert!(lines(QuipOn::MultiKill).contains(&text), "{text:?}");
 
     // A second burst inside the cooldown says nothing.
     kill_burst(&mut app);
     app.update();
     assert_eq!(quip_voice(&mut app), voice);
-    assert_eq!(hud_text(&app), text);
+    assert_eq!(subtitle(&app), text);
 }
 
 #[test]
@@ -310,12 +316,12 @@ fn a_restart_respawns_with_a_quip_right_away() {
     skip_cooldown(&mut app);
     kill_burst(&mut app);
     app.update();
-    assert!(lines(QuipOn::MultiKill).contains(&hud_text(&app)));
+    assert!(lines(QuipOn::MultiKill).contains(&subtitle(&app)));
     // Well inside the cooldown of the last quip: the restart still gets its line.
     rr_game::flow::restart_level(app.world_mut());
     app.update();
     assert_eq!(quip_voice(&mut app).len(), 1);
-    let text = hud_text(&app);
+    let text = subtitle(&app);
     assert!(lines(QuipOn::Respawn).contains(&text), "{text:?}");
 }
 
@@ -365,7 +371,7 @@ fn a_muted_start_is_silent_until_m_is_pressed() {
     app.insert_resource(keys);
     app.update();
     assert!(!app.world().resource::<AudioVolumes>().muted);
-    assert_eq!(hud_text(&app), "Sound on");
+    assert_eq!(message(&app), "Sound on");
     assert_eq!(
         app.world().resource::<GlobalVolume>().volume.to_linear(),
         1.0
@@ -376,7 +382,95 @@ fn a_muted_start_is_silent_until_m_is_pressed() {
     keys.clear();
     keys.press(KeyCode::BracketLeft);
     app.update();
-    assert_eq!(hud_text(&app), "Volume 90%");
+    assert_eq!(message(&app), "Volume 90%");
     let v = app.world().resource::<GlobalVolume>().volume.to_linear();
     assert!((v - 0.9).abs() < 1e-6, "{v}");
+}
+
+#[test]
+fn volume_steps_while_muted_say_so() {
+    let audio = AudioFxPlugin {
+        options: AudioOptions {
+            muted: true,
+            music: true,
+        },
+        ..default()
+    };
+    let mut app = app_with(door_level(), audio);
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::BracketLeft);
+    app.insert_resource(keys);
+    app.update();
+    assert_eq!(message(&app), "Volume 90% (muted)");
+    assert_eq!(
+        app.world().resource::<GlobalVolume>().volume.to_linear(),
+        0.0
+    );
+}
+
+fn own(app: &mut App, w: WeaponId) {
+    let mut q = app.world_mut().query::<&mut PlayerArsenal>();
+    q.single_mut(app.world_mut()).unwrap().0.owned[w.index()] = true;
+}
+
+fn shotgun_taken() -> MechEvent {
+    MechEvent::ItemTaken {
+        item: 0,
+        kind: ItemKind::Shotgun,
+    }
+}
+
+#[test]
+fn a_new_weapon_is_quipped_but_not_its_ammo() {
+    let mut app = app();
+    skip_cooldown(&mut app);
+    // The pickup that gives the shotgun: its owned flag turns on.
+    own(&mut app, WeaponId::Shotgun);
+    fx(&mut app).mech.push(shotgun_taken());
+    app.update();
+    let voice = quip_voice(&mut app);
+    let text = subtitle(&app);
+    assert!(lines(QuipOn::NewWeapon).contains(&text), "{text:?}");
+
+    // Another shotgun once owned only gives shells: no quip, even past the cooldown.
+    skip_cooldown(&mut app);
+    fx(&mut app).mech.push(shotgun_taken());
+    app.update();
+    assert_eq!(quip_voice(&mut app), voice);
+    assert_eq!(subtitle(&app), text);
+}
+
+fn pending(app: &mut App) -> Mut<'_, PendingInput> {
+    let mut q = app.world_mut().query::<&mut PendingInput>();
+    q.single_mut(app.world_mut()).unwrap()
+}
+
+fn ticks(app: &mut App, n: usize) {
+    for _ in 0..n {
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+}
+
+#[test]
+fn a_need_key_quip_leaves_the_key_message_readable() {
+    let map = door_rooms("(kind: Door, lock: Some(Red))", "");
+    let mut app = app_with(map, AudioFxPlugin::default());
+    // Walk east up to the locked door (start (2,2) faces east) and press use.
+    pending(&mut app).forward = 1.0;
+    ticks(&mut app, 40);
+    pending(&mut app).forward = 0.0;
+    ticks(&mut app, 30);
+    pending(&mut app).use_pressed = true;
+    app.world_mut().run_schedule(FixedUpdate);
+    assert!(
+        fx(&mut app)
+            .mech
+            .iter()
+            .any(|e| matches!(e, MechEvent::NeedKey(Key::Red)))
+    );
+    skip_cooldown(&mut app);
+    app.update();
+    assert_eq!(message(&app), "You need the red keycard");
+    let text = subtitle(&app);
+    assert!(lines(QuipOn::NeedKey).contains(&text), "{text:?}");
 }

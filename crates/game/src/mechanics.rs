@@ -41,6 +41,20 @@ impl HudMessage {
     }
 }
 
+/// The hero's spoken line, on a subtitle line of its own so it never hides a [`HudMessage`].
+#[derive(Resource, Default)]
+pub struct HudSubtitle {
+    pub text: String,
+    pub remaining: f32,
+}
+
+impl HudSubtitle {
+    pub fn show(&mut self, text: impl Into<String>) {
+        self.text = text.into();
+        self.remaining = MESSAGE_SECS;
+    }
+}
+
 /// The live map and its mechanics for an authored map, in the start pose (doors closed).
 pub fn fresh_level(mut map: Map) -> (CurrentMap, LevelMechanics) {
     let mech = Mechanics::new(&mut map);
@@ -95,6 +109,7 @@ impl Plugin for MechanicsSimPlugin {
         app.init_resource::<DirtySectors>()
             .init_resource::<UsePrompt>()
             .init_resource::<HudMessage>()
+            .init_resource::<HudSubtitle>()
             .init_resource::<PlayState>()
             .add_systems(
                 FixedUpdate,
