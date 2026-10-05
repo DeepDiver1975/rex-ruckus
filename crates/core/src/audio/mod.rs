@@ -1,12 +1,16 @@
 //! Sound cues: every audible gameplay event as a typed `Cue` with an optional world position.
 //! The pure event-to-cue mapping lives in `cues`; the game looks each cue up in its sound bank.
 
+mod bank;
 mod cues;
 mod footsteps;
+mod powers;
 mod quips;
 
+pub use bank::{SoundBankDef, SoundDef, gain};
 pub use cues::{combat_cues, inv_cues, mech_cues, weapon_cues};
 pub use footsteps::Footsteps;
+pub use powers::PowerWatch;
 pub use quips::{
     COOLDOWN, KILL_CHANCE, LOW_HEALTH, LowHealthWatch, MULTI_KILL_WINDOW, Quip, QuipDirector,
     QuipError, QuipOn, QuipTable, QuipTrigger, REARM_HEALTH,
