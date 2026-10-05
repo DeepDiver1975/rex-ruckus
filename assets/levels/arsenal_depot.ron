@@ -124,7 +124,8 @@
         (kind: Barrel, pos: (8.8, 17.0)),
         (kind: Barrel, pos: (11.6, 17.0)),
         (kind: Enforcer, pos: (6.0, 20.5), angle_deg: 270.0),
-        // Booth behind the glass: the Enforcer is awake and shoots through the panes.
+        // Booth behind the glass: the Enforcer is awake; the panes block sight and shots, so it
+        // opens fire the moment one breaks.
         (kind: Enforcer, pos: (22.0, 20.5), angle_deg: 270.0, asleep: false),
         (kind: Slasher, pos: (25.5, 20.5), angle_deg: 270.0),
         // Hangar: three Drones.

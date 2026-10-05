@@ -42,6 +42,9 @@ pub const BODY_PLAYER: usize = 0;
 /// A portal carries sound only while its live opening is taller than this (metres).
 const NOISE_GAP: f32 = 0.1;
 
+/// What a combat tick did, for the game's presentation. `ActorKilled`, `ActorWoke`,
+/// `PlayerKilled`, `CrackOpened`, `BombsDetonated` and `ProjectileGone` have no game reader yet:
+/// core tests consume them and they are reserved as audio hooks for M4b.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CombatEvent {
     /// A non-ignored hit on actor `actor`; `amount` is the total damage dealt this attack.

@@ -1,4 +1,4 @@
-//! Generic projectiles (Grunt laser bolts now, rockets later). Stepped by the combat
+//! Generic projectiles: enemy bolts, rockets and bouncing remote pipe bombs. Stepped by the combat
 //! orchestrator, which owns ids and event emission.
 
 use crate::collide::Body;

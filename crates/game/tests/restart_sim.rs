@@ -253,6 +253,11 @@ fn restart_clears_decals_and_bombs() {
 
     assert_eq!(count::<With<Decal>>(&mut app), 0);
     assert_eq!(app.world().resource::<DecalRing>().len(), 0);
+    assert_eq!(
+        app.world().resource::<ScreenShake>().trauma,
+        0.0,
+        "shake calmed"
+    );
     let combat = &app.world().resource::<LevelCombat>().0;
     assert!(combat.projectiles.is_empty() && combat.pending_blasts.is_empty());
     let arsenal = &mut app.world_mut().query::<&PlayerArsenal>();

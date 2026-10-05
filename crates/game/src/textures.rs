@@ -51,7 +51,7 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
                 shade([105, 105, 100], n * 2)
             }
         }
-        // Placeholder pane: pale blue with diagonal glints (translucency comes later).
+        // Pane: pale blue with diagonal glints; the level material blends it translucent.
         "glass" => shade([170, 205, 220], if (x + y) % 11 == 0 { 35 } else { n / 2 }),
         "sky" => shade([40, 60, 120], (SIZE - y) as i32 * 2 + n / 4),
         "metal" => {
