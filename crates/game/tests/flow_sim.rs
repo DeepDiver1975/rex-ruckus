@@ -351,6 +351,18 @@ impl InputRig {
         w.resource_mut::<ButtonInput<KeyCode>>().clear();
     }
 
+    /// A frame that reads input but runs no fixed tick (high refresh rate), then ages the edges.
+    fn read_only(&mut self) {
+        let w = self.app.world_mut();
+        w.run_system(self.read).unwrap();
+        w.resource_mut::<ButtonInput<MouseButton>>().clear();
+        w.resource_mut::<ButtonInput<KeyCode>>().clear();
+    }
+
+    fn tick(&mut self) {
+        self.app.world_mut().run_schedule(FixedUpdate);
+    }
+
     fn frames(&mut self, n: usize) {
         for _ in 0..n {
             self.frame();
@@ -372,6 +384,38 @@ impl InputRig {
             .filter(|e| matches!(e, WeaponEvent::Fire { .. }))
             .count()
     }
+}
+
+/// A left click pressed and released before a single `read_input` frame (a tap entirely between
+/// ticks) is latched by `read_input` and fires exactly once.
+#[test]
+fn tap_within_one_read_frame_fires_once() {
+    let mut rig = InputRig::new(combat_room());
+    rig.frames(2); // released while grabbed: armed
+    assert_eq!(rig.shots(), 0);
+    rig.mouse().press(MouseButton::Left);
+    rig.mouse().release(MouseButton::Left);
+    rig.read_only();
+    rig.tick();
+    assert_eq!(rig.shots(), 1, "the tap fired");
+    rig.frames(60);
+    assert_eq!(rig.shots(), 1, "exactly once");
+}
+
+/// Press on one read frame, release on the next, then the tick: the latch survives the
+/// release frame and the tap fires exactly once.
+#[test]
+fn tap_across_two_read_frames_fires_once() {
+    let mut rig = InputRig::new(combat_room());
+    rig.frames(2);
+    rig.mouse().press(MouseButton::Left);
+    rig.read_only();
+    rig.mouse().release(MouseButton::Left);
+    rig.read_only();
+    rig.tick();
+    assert_eq!(rig.shots(), 1, "the tap fired");
+    rig.frames(60);
+    assert_eq!(rig.shots(), 1, "exactly once");
 }
 
 /// Restarting with a fire click while the button stays held must not shoot in the new level;
