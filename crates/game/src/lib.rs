@@ -1,6 +1,7 @@
 //! Bevy front-end for Rex Ruckus: Meltdown.
 
 pub mod actors;
+pub mod audio;
 pub mod breakables;
 pub mod combat;
 pub mod coords;
@@ -49,6 +50,7 @@ impl Plugin for GamePlugin {
             inventory::NightVisionPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
+            audio::AudioFxPlugin,
         ));
         if let Some(demo) = &self.demo {
             app.add_plugins(demo::DemoPlugin {
