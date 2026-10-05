@@ -12,6 +12,7 @@ pub mod map;
 pub mod mechanics;
 pub mod movement;
 pub mod rng;
+pub mod trace;
 pub mod validate;
 
 pub use glam;

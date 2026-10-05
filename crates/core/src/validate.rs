@@ -336,7 +336,7 @@ fn check_reachability(map: &Map, r: &mut Report) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{door_rooms, lift_shaft, pillar_room, two_rooms};
+    use crate::fixtures::{combat_room, door_rooms, lift_shaft, pillar_room, two_rooms};
 
     fn errors(map: &Map) -> Vec<String> {
         validate(map)
@@ -370,6 +370,7 @@ mod tests {
             two_rooms(0.4, 3.0),
             pillar_room(),
             door_rooms("(kind: Door)", ""),
+            combat_room(),
         ] {
             assert_eq!(errors(&map), Vec::<String>::new(), "{}", map.name);
             assert!(has(&warnings(&map), "no exit"), "{}", map.name);

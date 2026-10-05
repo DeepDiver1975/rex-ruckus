@@ -1,8 +1,9 @@
 //! What the use key points at (Build's `neartag`).
 
 use crate::collide::Body;
-use crate::map::{Map, Wall};
+use crate::map::Map;
 use crate::mechanics::{Mechanics, UseTarget};
+use crate::trace::wall_t;
 use glam::Vec2;
 
 pub const USE_RANGE: f32 = 1.6;
@@ -21,8 +22,9 @@ pub fn use_target(map: &Map, mech: &Mechanics, body: &Body, heading: f32) -> Opt
         .iter()
         .enumerate()
         .filter_map(|(id, w)| {
-            ray_hit(origin, dir, w)
-                .filter(|&t| t <= USE_RANGE)
+            wall_t(origin, dir, w)
+                .filter(|&(t, u)| (0.0..=USE_RANGE).contains(&t) && (0.0..=1.0).contains(&u))
+                .map(|(t, _)| t)
                 .map(|t| (t, id))
         })
         .collect();
@@ -49,23 +51,6 @@ pub fn use_target(map: &Map, mech: &Mechanics, body: &Body, heading: f32) -> Opt
     mech.mover_in(body.sector)
         .filter(|&m| manual(m))
         .map(UseTarget::Mover)
-}
-
-/// Distance along the ray from `o` (unit direction `d`) to wall `w`, counting only hits on the
-/// wall's front side (the side facing into its own sector).
-fn ray_hit(o: Vec2, d: Vec2, w: &Wall) -> Option<f32> {
-    if d.dot(w.inward_normal()) >= 0.0 {
-        return None;
-    }
-    let e = w.b - w.a;
-    let denom = d.perp_dot(e);
-    if denom.abs() < 1e-9 {
-        return None;
-    }
-    let ao = w.a - o;
-    let t = ao.perp_dot(e) / denom;
-    let u = ao.perp_dot(d) / denom;
-    (t >= 0.0 && (0.0..=1.0).contains(&u)).then_some(t)
 }
 
 #[cfg(test)]
