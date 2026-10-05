@@ -357,7 +357,7 @@ pub fn read_input(
     }
 }
 
-fn update_camera(
+pub(crate) fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
     map: Res<CurrentMap>,

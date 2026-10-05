@@ -9,20 +9,27 @@ use rr_core::fixtures::combat_room;
 use rr_core::map::{ActorKind, ActorSpawn};
 use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_game::actors::{
-    ActorVisualsPlugin, BoltVisual, BombVisual, GruntVisual, RocketVisual, Spark,
+    ActorVisual, ActorVisualsPlugin, BarrelVisual, BoltVisual, BombVisual, DroneVisual,
+    EnforcerVisual, GruntVisual, RocketVisual, SlasherVisual, Spark,
 };
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
 use rr_game::flow::{FlowPlugin, PlayState};
+use rr_game::fx::{ExplosionFx, ExplosionLight, FxPlugin, ScreenShake};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
+use rr_game::player::PlayerCamera;
 use rr_game::player::PlayerSimPlugin;
 use std::time::Duration;
 
 fn app() -> App {
+    app_with(&[ActorKind::Grunt, ActorKind::Grunt])
+}
+
+fn app_with(kinds: &[ActorKind]) -> App {
     let mut map = combat_room();
-    for x in [6.0, 7.0] {
+    for (i, kind) in kinds.iter().enumerate() {
         map.actors.push(ActorSpawn {
-            kind: ActorKind::Grunt,
-            pos: Vec2::new(x, 1.5),
+            kind: *kind,
+            pos: Vec2::new(5.0 + i as f32, 1.5),
             angle: std::f32::consts::PI,
             asleep: true,
         });
@@ -42,6 +49,7 @@ fn app() -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         ActorVisualsPlugin,
+        FxPlugin,
     ));
     app.update();
     // Freeze the sim: only the frame-loop visuals run from here on.
@@ -290,4 +298,73 @@ fn bomb_visual_follows_projectile() {
     set(&mut app, vec![]);
     app.update();
     assert_eq!(count::<BombVisual>(&mut app), 0);
+}
+
+#[test]
+fn each_kind_spawns_rig() {
+    let mut app = app_with(&[
+        ActorKind::Grunt,
+        ActorKind::Enforcer,
+        ActorKind::Slasher,
+        ActorKind::Drone,
+        ActorKind::Barrel,
+    ]);
+    assert_eq!(count::<GruntVisual>(&mut app), 1);
+    assert_eq!(count::<EnforcerVisual>(&mut app), 1);
+    assert_eq!(count::<SlasherVisual>(&mut app), 1);
+    assert_eq!(count::<DroneVisual>(&mut app), 1);
+    assert_eq!(count::<BarrelVisual>(&mut app), 1);
+    assert_eq!(count::<ActorVisual>(&mut app), 5, "one root per actor");
+}
+
+#[test]
+fn explosion_spawns_fx_and_shake() {
+    let mut app = app();
+    app.world_mut().spawn((Camera3d::default(), PlayerCamera));
+    assert_eq!(app.world().resource::<ScreenShake>().trauma, 0.0);
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .combat
+        .push(CombatEvent::Explosion {
+            point: Vec3::new(3.0, 1.5, 1.0),
+            radius: 4.0,
+        });
+    app.update();
+    assert_eq!(count::<ExplosionFx>(&mut app), 1);
+    assert_eq!(count::<ExplosionLight>(&mut app), 1);
+    let trauma = app.world().resource::<ScreenShake>().trauma;
+    assert!(trauma > 0.5 && trauma <= 1.0, "player is close: {trauma}");
+    // The camera offset lands in the next frame's RunFixedMainLoop, before Update.
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&Transform, With<PlayerCamera>>();
+    let t = *q.single(app.world()).unwrap();
+    assert_ne!(t.translation, Vec3::ZERO, "the camera is nudged");
+    // The light dies after 0.2 s, the sphere after 0.35 s; trauma decays.
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(count::<ExplosionLight>(&mut app), 0);
+    assert_eq!(count::<ExplosionFx>(&mut app), 1);
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(count::<ExplosionFx>(&mut app), 0);
+    assert!(app.world().resource::<ScreenShake>().trauma < trauma);
+}
+
+#[test]
+fn far_explosion_adds_no_shake() {
+    let mut app = app();
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .combat
+        .push(CombatEvent::Explosion {
+            point: Vec3::new(15.0, 1.5, 1.0),
+            radius: 2.0,
+        });
+    app.update();
+    assert_eq!(app.world().resource::<ScreenShake>().trauma, 0.0);
+    assert_eq!(count::<ExplosionFx>(&mut app), 1);
 }

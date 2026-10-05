@@ -4,6 +4,7 @@ pub mod actors;
 pub mod combat;
 pub mod coords;
 pub mod flow;
+pub mod fx;
 pub mod hud;
 pub mod level;
 pub mod mechanics;
@@ -34,6 +35,7 @@ impl Plugin for GamePlugin {
             player::PlayerControlPlugin,
             props::PropsPlugin,
             actors::ActorVisualsPlugin,
+            fx::FxPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
         ));
