@@ -583,7 +583,8 @@ fn sync_projectiles(
                         LevelEntity,
                     ))
                     .id();
-                // The cone's tip points +Y (forward); flip it so the wide end burns behind.
+                // The cone's tip points +Y (forward); the flip turns the tip backwards, so the wide base
+                // meets the rocket body and the glow tapers to a point trailing behind it.
                 commands.spawn((
                     Mesh3d(a.rocket_tail.clone()),
                     MeshMaterial3d(a.tail_mat.clone()),

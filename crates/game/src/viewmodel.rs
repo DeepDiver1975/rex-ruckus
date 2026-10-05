@@ -644,13 +644,16 @@ fn pose_weapons(
 fn pose_extras(
     state: Res<ViewState>,
     player: Single<&PlayerArsenal, With<Player>>,
-    mut parts: Query<(
-        &mut Transform,
-        &mut Visibility,
-        Option<&BarrelCluster>,
-        Option<&HeldBomb>,
-        Option<&Detonator>,
-    )>,
+    mut parts: Query<
+        (
+            &mut Transform,
+            &mut Visibility,
+            Option<&BarrelCluster>,
+            Option<&HeldBomb>,
+            Option<&Detonator>,
+        ),
+        Or<(With<BarrelCluster>, With<HeldBomb>, With<Detonator>)>,
+    >,
 ) {
     let a = &player.0;
     // Out of bombs but some still live: the hand is empty and only the detonator shows.
