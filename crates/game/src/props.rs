@@ -45,6 +45,16 @@ pub fn item_style(kind: ItemKind) -> (Color, Vec3) {
         ItemKind::ShotgunShells => (Color::srgb(0.9, 0.49, 0.13), Vec3::new(0.3, 0.16, 0.16)),
         ItemKind::Shotgun => (Color::srgb(0.55, 0.35, 0.17), Vec3::new(0.8, 0.1, 0.12)),
         ItemKind::HealthSmall => (Color::srgb(0.95, 0.95, 0.95), Vec3::new(0.3, 0.3, 0.3)),
+        // Placeholder boxes until real item models land.
+        ItemKind::Chaingun => (Color::srgb(0.45, 0.45, 0.5), Vec3::new(0.9, 0.12, 0.14)),
+        ItemKind::RocketLauncher => (Color::srgb(0.35, 0.5, 0.3), Vec3::new(0.9, 0.16, 0.16)),
+        ItemKind::Rockets => (Color::srgb(0.7, 0.3, 0.25), Vec3::new(0.35, 0.15, 0.15)),
+        ItemKind::PipeBombs => (Color::srgb(0.3, 0.3, 0.3), Vec3::new(0.3, 0.2, 0.2)),
+        ItemKind::Armour => (Color::srgb(0.25, 0.45, 0.95), Vec3::new(0.35, 0.35, 0.2)),
+        ItemKind::Medkit => (Color::srgb(0.9, 0.2, 0.2), Vec3::new(0.35, 0.25, 0.25)),
+        ItemKind::Atom => (Color::srgb(0.3, 0.95, 0.5), Vec3::new(0.3, 0.3, 0.3)),
+        ItemKind::Jetpack => (Color::srgb(0.9, 0.6, 0.15), Vec3::new(0.3, 0.2, 0.4)),
+        ItemKind::NightVision => (Color::srgb(0.2, 0.9, 0.3), Vec3::new(0.25, 0.15, 0.15)),
     }
 }
 

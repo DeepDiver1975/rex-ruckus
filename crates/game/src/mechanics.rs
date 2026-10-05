@@ -1,6 +1,8 @@
 //! Doors, lifts, switches and keycards: core `Mechanics` driven from FixedUpdate.
 
-use crate::combat::{CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals};
+use crate::combat::{
+    CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+};
 use crate::flow::{LevelSource, PlayState};
 use crate::level::CurrentMap;
 use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
@@ -145,16 +147,18 @@ pub fn pickup_items(
         &mut Inventory,
         &mut PlayerVitals,
         &mut PlayerArsenal,
+        &mut PlayerInventory,
     )>,
 ) {
-    for (body, mut inv, mut health, mut arsenal) in &mut q {
+    for (body, mut inv, mut health, mut arsenal, mut carried) in &mut q {
         if !health.0.health.alive() {
             continue;
         }
         let mut loadout = Loadout {
-            health: &mut health.0.health,
+            vitals: &mut health.0,
             arsenal: &mut arsenal.0,
             keys: &mut inv.keys,
+            inventory: &mut carried.0,
         };
         mech.0.pickup(&map.0, &body.0, |kind| {
             apply_pickup(&defs.0, kind, &mut loadout)

@@ -13,6 +13,7 @@ use bevy::prelude::*;
 use rr_core::collide::Body;
 use rr_core::combat::{Combat, CombatEvent, PlayerTarget, level_seed};
 use rr_core::defs::Defs;
+use rr_core::inventory::Inventory as CoreInventory;
 use rr_core::map::Map;
 use rr_core::rng::Rng;
 use rr_core::vitals::Vitals;
@@ -47,6 +48,10 @@ pub struct PlayerVitals(pub Vitals);
 
 #[derive(Component)]
 pub struct PlayerArsenal(pub Arsenal);
+
+/// The player's carried medkit charge, jetpack fuel and night-vision battery (empty at spawn).
+#[derive(Component, Default)]
+pub struct PlayerInventory(pub CoreInventory);
 
 /// Every `Update` system that reads [`FxQueue`]. Readers only read; [`clear_fx`] runs after
 /// the set and is the only system that empties the queue.
@@ -83,10 +88,11 @@ pub fn level_combat(map: &Map, defs: &Defs) -> (LevelCombat, PlayRng) {
 }
 
 /// A fresh player loadout: full health, no armour and the starting weapons.
-pub fn player_loadout(defs: &Defs) -> (PlayerVitals, PlayerArsenal) {
+pub fn player_loadout(defs: &Defs) -> (PlayerVitals, PlayerArsenal, PlayerInventory) {
     (
         PlayerVitals(Vitals::new()),
         PlayerArsenal(Arsenal::new(defs)),
+        PlayerInventory::default(),
     )
 }
 

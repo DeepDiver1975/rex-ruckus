@@ -166,6 +166,16 @@ pub enum ItemKind {
     ShotgunShells,
     Shotgun,
     HealthSmall,
+    Chaingun,
+    RocketLauncher,
+    Rockets,
+    PipeBombs,
+    Armour,
+    Medkit,
+    /// Atomic health: +50 up to 200.
+    Atom,
+    Jetpack,
+    NightVision,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
