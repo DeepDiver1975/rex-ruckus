@@ -1,3 +1,5 @@
+mod common;
+
 use proptest::prelude::*;
 use rr_core::collide::{Body, z_range};
 use rr_core::fixtures::lift_shaft;
@@ -74,7 +76,7 @@ fn play(mut map: Map, start: Vec2, segs: &[Segment]) -> Result<(), TestCaseError
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(common::cases(64)))]
 
     #[test]
     fn random_play_in_test_yard(segs in segments()) {
