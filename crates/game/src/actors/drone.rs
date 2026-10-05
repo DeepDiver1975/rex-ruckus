@@ -6,7 +6,6 @@ use super::{
 };
 use crate::combat::{GameDefs, LevelCombat};
 use crate::coords::{core_angle_to_yaw, to_bevy};
-use crate::level::CurrentMap;
 use bevy::prelude::*;
 use rr_core::actors::AiState;
 use std::f32::consts::FRAC_PI_2;
@@ -102,8 +101,8 @@ pub(super) fn spawn(commands: &mut Commands, root: Entity, index: usize, a: &Ass
     ));
 }
 
-/// How far a dying drone has dropped, 0 (hovering) to 1 (on the floor).
-fn drop_progress(state: AiState, death_time: f32) -> f32 {
+/// How far a dying drone has rolled onto its side, 0 (upright) to 1 (wreck).
+fn wreck_progress(state: AiState, death_time: f32) -> f32 {
     match state {
         AiState::Dying { t } => death_pitch(t, death_time) / FRAC_PI_2,
         AiState::Dead => 1.0,
@@ -111,15 +110,14 @@ fn drop_progress(state: AiState, death_time: f32) -> f32 {
     }
 }
 
-/// Places every Drone between its last two ticks, bobbing; a dying one drops to the floor
-/// and lies tilted.
+/// Places every Drone between its last two ticks, bobbing; a dying one rolls onto its side
+/// while core's gravity brings it down.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn pose_drones(
     fixed: Res<Time<Fixed>>,
     time: Res<Time>,
     combat: Res<LevelCombat>,
     defs: Res<GameDefs>,
-    map: Res<CurrentMap>,
     mut roots: Query<(&ActorVisual, &DroneRig, &HitFlash, &mut Transform)>,
     mut parts: Query<&mut Transform, Without<ActorVisual>>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
@@ -130,11 +128,10 @@ pub(super) fn pose_drones(
             continue;
         };
         let def = defs.0.enemy(actor.kind);
-        let done = drop_progress(actor.state, def.death_time);
+        let done = wreck_progress(actor.state, def.death_time);
         let feet = actor.prev_pos.lerp(actor.body.pos, alpha);
-        let floor = map.0.sectors[actor.body.sector].floor_z;
-        let drop = (feet.z - floor).max(0.0) * done;
-        t.translation = to_bevy(feet) - Vec3::Y * drop;
+        // Core already drops a dead flyer to the floor, so `feet` falls by itself.
+        t.translation = to_bevy(feet);
         t.rotation = Quat::from_rotation_y(core_angle_to_yaw(actor.angle))
             * Quat::from_rotation_z(WRECK_ROLL * done);
         if let Ok(mut h) = parts.get_mut(rig.hull) {
@@ -167,13 +164,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_dying_drone_drops_monotonically_to_the_floor() {
-        assert_eq!(drop_progress(AiState::Chase, 0.6), 0.0);
-        assert_eq!(drop_progress(AiState::Dead, 0.6), 1.0);
+    fn a_dying_drone_rolls_monotonically() {
+        assert_eq!(wreck_progress(AiState::Chase, 0.6), 0.0);
+        assert_eq!(wreck_progress(AiState::Dead, 0.6), 1.0);
         let mut last = -1.0;
         for i in 0..=10 {
             let t = 0.6 * (1.0 - i as f32 / 10.0);
-            let d = drop_progress(AiState::Dying { t }, 0.6);
+            let d = wreck_progress(AiState::Dying { t }, 0.6);
             assert!(d >= last && (0.0..=1.0).contains(&d));
             last = d;
         }

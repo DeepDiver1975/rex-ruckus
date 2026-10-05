@@ -368,3 +368,22 @@ fn far_explosion_adds_no_shake() {
     assert_eq!(app.world().resource::<ScreenShake>().trauma, 0.0);
     assert_eq!(count::<ExplosionFx>(&mut app), 1);
 }
+
+/// Core drops dead flyers itself; the visual must follow that z, not add a drop of its own.
+#[test]
+fn dying_drone_visual_follows_core_z() {
+    let mut app = app_with(&[ActorKind::Drone]);
+    {
+        let mut c = app.world_mut().resource_mut::<LevelCombat>();
+        let a = &mut c.0.actors[0];
+        a.state = AiState::Dead;
+        a.prev_pos.z = 0.4;
+        a.body.pos.z = 0.4;
+    }
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&Transform, With<DroneVisual>>();
+    let y = q.single(app.world()).unwrap().translation.y;
+    assert!((y - 0.4).abs() < 1e-5, "visual y {y} equals core z");
+}
