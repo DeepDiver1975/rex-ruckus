@@ -1,0 +1,45 @@
+// Demo tour of arsenal_depot.ron, replayed by `rex-ruckus --demo` (see scripts/record-demo.sh).
+// Segments run back to back; headings are core degrees (0 = east, 90 = north, CCW).
+(
+    invulnerable: true,
+    segments: [
+        // Loading dock: grab the chaingun and mow down the two Grunts.
+        (secs: 1.0),
+        (secs: 0.5, turn_deg: -80.0),
+        (secs: 0.7, forward: 0.6),
+        (secs: 0.5, turn_deg: 80.0),
+        (secs: 0.3, select: Some(Chaingun)),
+        (secs: 1.5, fire: true),
+        (secs: 0.5, turn_deg: 55.0),
+        (secs: 1.5, fire: true),
+        // North door into the rocket range.
+        (secs: 0.3, turn_deg: -20.4),
+        (secs: 1.25, forward: 0.6),
+        (secs: 0.5, turn_deg: -34.6),
+        (secs: 0.2, use_key: true),
+        (secs: 1.0),
+        // Through the open door: one burst into the nearest barrel sets off the whole line.
+        (secs: 0.3, pitch_deg: Some(-5.0)),
+        (secs: 0.6, fire: true),
+        (secs: 1.5),
+        // Rocket launcher by the door.
+        (secs: 0.3, pitch_deg: Some(0.0)),
+        (secs: 0.6, forward: 0.6),
+        (secs: 0.5, turn_deg: 90.0),
+        (secs: 0.5, forward: 0.6),
+        // Across the range to the atrium door.
+        (secs: 0.7, turn_deg: -166.2),
+        (secs: 2.2, forward: 0.6),
+        (secs: 0.3, turn_deg: -13.8),
+        (secs: 0.2, use_key: true),
+        (secs: 1.0),
+        (secs: 0.8, forward: 0.6),
+        // A rocket through the booth glass.
+        (secs: 0.5, turn_deg: 35.5, select: Some(Rockets)),
+        (secs: 0.4, fire: true),
+        // And one more for whatever comes out.
+        (secs: 1.2),
+        (secs: 0.4, fire: true),
+        (secs: 2.0),
+    ],
+)

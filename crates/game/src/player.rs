@@ -240,21 +240,27 @@ fn simulate_player(
 }
 
 /// Keyboard/mouse, cursor grab and the first-person camera. Needs a window.
-pub struct PlayerControlPlugin;
+#[derive(Default)]
+pub struct PlayerControlPlugin {
+    /// Input comes from a demo script (`demo::DemoPlugin`): skip keyboard, mouse and cursor grab.
+    pub scripted: bool,
+}
 
 impl Plugin for PlayerControlPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MouseSensitivity(0.0025))
             .init_resource::<ViewRoll>()
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, grab_cursor)
             .add_systems(
                 RunFixedMainLoop,
-                (
-                    read_input.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
-                    update_camera.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
-                ),
+                update_camera.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
             );
+        if !self.scripted {
+            app.add_systems(Update, grab_cursor).add_systems(
+                RunFixedMainLoop,
+                read_input.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+            );
+        }
     }
 }
 

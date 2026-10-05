@@ -5,6 +5,7 @@ pub mod breakables;
 pub mod combat;
 pub mod coords;
 pub mod decals;
+pub mod demo;
 pub mod flow;
 pub mod fx;
 pub mod hud;
@@ -23,6 +24,8 @@ use level::{LevelRenderPlugin, load_map};
 pub struct GamePlugin {
     /// Level file name inside `assets/levels/`.
     pub level: String,
+    /// Replay this demo script instead of reading the keyboard and mouse.
+    pub demo: Option<demo::DemoPlugin>,
 }
 
 impl Plugin for GamePlugin {
@@ -35,7 +38,9 @@ impl Plugin for GamePlugin {
             player::PlayerSimPlugin,
             mechanics::MechanicsSimPlugin,
             combat::CombatSimPlugin,
-            player::PlayerControlPlugin,
+            player::PlayerControlPlugin {
+                scripted: self.demo.is_some(),
+            },
             props::PropsPlugin,
             actors::ActorVisualsPlugin,
             fx::FxPlugin,
@@ -45,5 +50,11 @@ impl Plugin for GamePlugin {
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
         ));
+        if let Some(demo) = &self.demo {
+            app.add_plugins(demo::DemoPlugin {
+                script: demo.script.clone(),
+                record: demo.record.clone(),
+            });
+        }
     }
 }

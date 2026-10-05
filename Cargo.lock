@@ -4703,7 +4703,9 @@ name = "rr-game"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "ron",
  "rr-core",
+ "serde",
 ]
 
 [[package]]
