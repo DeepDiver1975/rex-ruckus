@@ -106,7 +106,7 @@ pub fn step_projectile(
     }
     p.vel.z -= p.gravity * dt;
     let mut left = dt;
-    for _ in 0..=MAX_BOUNCES {
+    for _ in 0..MAX_BOUNCES {
         let speed = p.vel.length();
         if speed <= 0.0 || left <= 0.0 {
             break;
@@ -136,8 +136,16 @@ pub fn step_projectile(
         left -= hit.dist / speed;
         let n = hit.normal;
         p.vel = (p.vel - 2.0 * p.vel.dot(n) * n) * e;
-        p.pos = hit.point + n * (p.radius + BOUNCE_NUDGE);
-        p.sector = hit.sector;
+        // The nudge can cross a portal edge (step face, soffit); re-resolve the sector from the
+        // nudged point, and if it is outside the map keep the hit point.
+        let nudged = hit.point + n * (p.radius + BOUNCE_NUDGE);
+        match map.find_sector(nudged.truncate(), Some(hit.sector)) {
+            Some(s) => {
+                p.pos = nudged;
+                p.sector = s;
+            }
+            None => p.sector = hit.sector,
+        }
         // The nudge lifts the centre `radius + BOUNCE_NUDGE` off the floor, and the next fall from
         // that height re-injects energy every bounce. Rest once a bounce can rise no higher than
         // that (with slack for the step size), else the bomb would hop forever.
@@ -469,6 +477,30 @@ mod tests {
             p.vel
         );
         assert!(p.pos.y > 0.0, "{:?}", p.pos);
+    }
+
+    #[test]
+    fn bounce_off_step_face_keeps_sector_consistent() {
+        // Sector 1 (x 4..8) has floor 1.0: its west face at x=4 is a step the bomb hits from
+        // sector 0 at z=0.5, and a grazing shot may nudge across the edge.
+        let map = crate::fixtures::two_rooms(1.0, 3.0);
+        for (vy, z) in [(0.0, 0.5), (30.0, 0.5), (-30.0, 0.9), (5.0, 0.2)] {
+            let mut p = bomb(&map, Vec3::new(3.0, 2.0, z), Vec3::new(20.0, vy, 0.0));
+            p.gravity = 0.0;
+            for _ in 0..120 {
+                let o = step_projectile(&map, &mut p, &[], |_| false, DT);
+                assert!(
+                    matches!(o, ProjectileStep::Flying | ProjectileStep::Resting),
+                    "{o:?}"
+                );
+                assert!(
+                    map.sector_contains(p.sector, p.pos.truncate()),
+                    "sector {} does not contain {:?}",
+                    p.sector,
+                    p.pos
+                );
+            }
+        }
     }
 
     #[test]
