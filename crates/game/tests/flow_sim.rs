@@ -11,7 +11,7 @@ use rr_core::weapons::Arsenal;
 use rr_core::weapons::WeaponEvent;
 use rr_game::actors::ActorVisualsPlugin;
 use rr_game::combat::{
-    CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerHealth, insert_defs,
+    CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
 use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, StateAge, restart_requested};
 use rr_game::level::{CurrentMap, LevelRenderPlugin};
@@ -73,8 +73,8 @@ fn input(app: &mut App) -> Mut<'_, PendingInput> {
     q.single_mut(app.world_mut()).unwrap()
 }
 
-fn health(app: &mut App) -> Mut<'_, PlayerHealth> {
-    let mut q = app.world_mut().query::<&mut PlayerHealth>();
+fn health(app: &mut App) -> Mut<'_, PlayerVitals> {
+    let mut q = app.world_mut().query::<&mut PlayerVitals>();
     q.single_mut(app.world_mut()).unwrap()
 }
 
@@ -263,14 +263,14 @@ fn restart_resets_world_state() {
 
     let mut q = app
         .world_mut()
-        .query::<(&Inventory, &PlayerArsenal, &PlayerHealth, &PlayerBody)>();
+        .query::<(&Inventory, &PlayerArsenal, &PlayerVitals, &PlayerBody)>();
     let (inv, arsenal, hp, b) = q.single(app.world()).unwrap();
     assert!(
         Key::ALL.iter().all(|&k| !inv.keys.contains(k)),
         "inventory empty"
     );
     assert_eq!(arsenal.0, Arsenal::new(&defs), "starting arsenal");
-    assert_eq!(hp.0.hp, 100);
+    assert_eq!(hp.0.health.hp, 100);
     assert_eq!(b.0.pos.truncate(), Vec2::new(1.5, 1.5), "back at the start");
 }
 

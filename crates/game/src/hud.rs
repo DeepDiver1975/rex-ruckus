@@ -2,7 +2,7 @@
 //! death and level-complete overlays, plus the M2 use prompt and message line.
 //! Spawned once at startup; it is not a `LevelEntity`, so it persists across restarts.
 
-use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerHealth};
+use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerVitals};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, LevelMechanics, UsePrompt};
@@ -302,7 +302,7 @@ fn update_message(
 /// Health, ammo, weapon name and slot highlighting. Skips frames without a player.
 fn update_status(
     defs: Res<GameDefs>,
-    player: Query<(&PlayerHealth, &PlayerArsenal), With<Player>>,
+    player: Query<(&PlayerVitals, &PlayerArsenal), With<Player>>,
     mut cells: Query<(&StatusCell, &mut Text, &mut TextColor)>,
 ) {
     let Ok((health, arsenal)) = player.single() else {
@@ -311,7 +311,7 @@ fn update_status(
     let a = &arsenal.0;
     for (cell, mut text, mut color) in &mut cells {
         match *cell {
-            StatusCell::Health => set(&mut text, &format!("HEALTH {}", health.0.hp.max(0))),
+            StatusCell::Health => set(&mut text, &format!("HEALTH {}", health.0.health.hp.max(0))),
             StatusCell::Ammo => set(
                 &mut text,
                 &format!("AMMO {}", ammo_label(a.current, a.readout(&defs.0))),

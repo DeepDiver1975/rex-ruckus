@@ -5,7 +5,7 @@
 //! once, and [`restart_level`] despawns every [`LevelEntity`], resets the level resources and
 //! runs it again. The camera and the HUD are spawned outside it and persist across restarts.
 
-use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerHealth};
+use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerVitals};
 use crate::mechanics::{DirtySectors, HudMessage, UsePrompt, fresh_level, pickup_items};
 use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
@@ -93,8 +93,8 @@ fn run_spawn_level(world: &mut World) {
     world.run_schedule(SpawnLevel);
 }
 
-fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerHealth, With<Player>>) {
-    if q.iter().any(|h| !h.0.alive()) {
+fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerVitals, With<Player>>) {
+    if q.iter().any(|v| !v.0.health.alive()) {
         *state = PlayState::Dead;
     }
 }

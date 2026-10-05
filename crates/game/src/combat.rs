@@ -12,9 +12,9 @@ use bevy::prelude::*;
 use rr_core::collide::Body;
 use rr_core::combat::{Combat, CombatEvent, PlayerTarget, level_seed};
 use rr_core::defs::Defs;
-use rr_core::health::{Health, PLAYER_MAX_HEALTH};
 use rr_core::map::Map;
 use rr_core::rng::Rng;
+use rr_core::vitals::Vitals;
 use rr_core::weapons::{Arsenal, WeaponEvent, WeaponInput};
 
 /// Mixed into the level seed so the player's weapon spread does not share a stream with combat.
@@ -40,8 +40,9 @@ pub struct FxQueue {
 #[derive(Resource)]
 pub struct PlayRng(pub Rng);
 
+/// The player's health and armour.
 #[derive(Component)]
-pub struct PlayerHealth(pub Health);
+pub struct PlayerVitals(pub Vitals);
 
 #[derive(Component)]
 pub struct PlayerArsenal(pub Arsenal);
@@ -80,10 +81,10 @@ pub fn level_combat(map: &Map, defs: &Defs) -> (LevelCombat, PlayRng) {
     )
 }
 
-/// A fresh player loadout: full health and the starting weapons.
-pub fn player_loadout(defs: &Defs) -> (PlayerHealth, PlayerArsenal) {
+/// A fresh player loadout: full health, no armour and the starting weapons.
+pub fn player_loadout(defs: &Defs) -> (PlayerVitals, PlayerArsenal) {
     (
-        PlayerHealth(Health::new(PLAYER_MAX_HEALTH)),
+        PlayerVitals(Vitals::new()),
         PlayerArsenal(Arsenal::new(defs)),
     )
 }
@@ -158,7 +159,7 @@ fn player_weapons(
         (
             &PlayerBody,
             &Look,
-            &PlayerHealth,
+            &PlayerVitals,
             &mut PlayerArsenal,
             &mut PendingInput,
         ),
@@ -166,7 +167,7 @@ fn player_weapons(
     >,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (body, look, health, mut arsenal, mut input) in &mut q {
+    for (body, look, vitals, mut arsenal, mut input) in &mut q {
         // Consume the latches every tick so presses never pile up.
         let input = WeaponInput {
             // A tap between ticks fires at least once even though the button is up again.
@@ -177,14 +178,22 @@ fn player_weapons(
             select: input.select.take(),
             cycle: std::mem::take(&mut input.cycle),
         };
-        if !health.0.alive() {
+        if !vitals.0.health.alive() {
             continue;
         }
         let aim = aim_dir(look.angle, look.pitch);
+        // Bombs still in the world keep the launcher armed for detonation.
+        arsenal.0.live_bombs = combat.0.live_bombs();
         let events = arsenal.0.tick(&defs.0, &input, aim, &mut rng.0, dt);
         let eye = eye_of(&body.0);
         for ev in &events {
-            if matches!(ev, WeaponEvent::Fire { .. } | WeaponEvent::Kick { .. }) {
+            if matches!(
+                ev,
+                WeaponEvent::Fire { .. }
+                    | WeaponEvent::Kick { .. }
+                    | WeaponEvent::Launch { .. }
+                    | WeaponEvent::Detonate
+            ) {
                 let out = combat
                     .0
                     .player_attack(&map.0, &defs.0, eye, body.0.sector, ev);
@@ -201,14 +210,14 @@ fn combat_tick(
     defs: Res<GameDefs>,
     mut combat: ResMut<LevelCombat>,
     mut fx: ResMut<FxQueue>,
-    mut q: Query<(&mut PlayerBody, &mut PlayerHealth), With<Player>>,
+    mut q: Query<(&mut PlayerBody, &mut PlayerVitals), With<Player>>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (mut body, mut health) in &mut q {
+    for (mut body, mut vitals) in &mut q {
         let eye = eye_of(&body.0);
         let mut target = PlayerTarget {
             body: &mut body.0,
-            health: &mut health.0,
+            vitals: &mut vitals.0,
             eye,
         };
         let out = combat.0.tick(&map.0, &defs.0, &mut target, dt);

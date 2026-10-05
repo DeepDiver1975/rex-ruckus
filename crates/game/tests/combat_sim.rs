@@ -5,7 +5,7 @@ use rr_core::map::{ActorKind, ActorSpawn, Map};
 use rr_core::mechanics::Motion;
 use rr_core::weapons::{WeaponEvent, WeaponPhase};
 use rr_game::combat::{
-    CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerHealth, insert_defs,
+    CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
 use rr_game::flow::FlowPlugin;
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
@@ -44,8 +44,8 @@ fn arsenal(app: &mut App) -> Mut<'_, PlayerArsenal> {
     q.single_mut(app.world_mut()).unwrap()
 }
 
-fn health(app: &mut App) -> Mut<'_, PlayerHealth> {
-    let mut q = app.world_mut().query::<&mut PlayerHealth>();
+fn health(app: &mut App) -> Mut<'_, PlayerVitals> {
+    let mut q = app.world_mut().query::<&mut PlayerVitals>();
     q.single_mut(app.world_mut()).unwrap()
 }
 
@@ -84,7 +84,7 @@ fn grab_click_never_fires() {
 #[test]
 fn player_starts_with_full_health_and_the_pistol() {
     let mut app = app(combat_room());
-    assert_eq!(health(&mut app).0.hp, 100);
+    assert_eq!(health(&mut app).0.health.hp, 100);
     assert_eq!(arsenal(&mut app).0.current, WeaponId::Pistol);
 }
 
@@ -334,5 +334,47 @@ fn health_pack_heals_a_hurt_player() {
     health(&mut app).0.damage(30);
     walk_past_item(&mut app);
     assert!(app.world().resource::<LevelMechanics>().0.taken[0]);
-    assert_eq!(health(&mut app).0.hp, 80);
+    assert_eq!(health(&mut app).0.health.hp, 80);
+}
+
+#[test]
+fn pipe_bombs_throw_and_detonate_in_game() {
+    use rr_core::combat::CombatEvent;
+    use rr_core::defs::AmmoKind;
+    let mut app = app(combat_room());
+    {
+        let mut a = arsenal(&mut app);
+        a.0.owned[WeaponId::PipeBombs.index()] = true;
+        a.0.reserve[AmmoKind::Bombs.index()] = 1;
+        a.0.current = WeaponId::PipeBombs;
+    }
+    input(&mut app).fire_pressed = true;
+    ticks(&mut app, 1);
+    let combat = &app.world().resource::<LevelCombat>().0;
+    assert_eq!(combat.projectiles.len(), 1, "the bomb is in the world");
+    assert_eq!(combat.live_bombs(), 1);
+    // The last bomb is out: the launcher stays up so it can be set off.
+    ticks(&mut app, 90);
+    assert_eq!(arsenal(&mut app).0.live_bombs, 1);
+    assert_eq!(arsenal(&mut app).0.current, WeaponId::PipeBombs);
+    take_fx(&mut app);
+    input(&mut app).fire_pressed = true;
+    ticks(&mut app, 1);
+    let fx = take_fx(&mut app);
+    assert!(fx.weapon.contains(&WeaponEvent::Detonate));
+    assert!(fx.combat.contains(&CombatEvent::BombsDetonated));
+    assert_eq!(
+        fx.combat
+            .iter()
+            .filter(|e| matches!(e, CombatEvent::Explosion { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        app.world()
+            .resource::<LevelCombat>()
+            .0
+            .projectiles
+            .is_empty()
+    );
 }

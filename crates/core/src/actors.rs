@@ -326,8 +326,8 @@ pub fn effective_muzzle(map: &Map, a: &Actor) -> (Vec3, SectorId) {
 pub struct Volley {
     /// Damage of the pellets that hit the player body.
     pub player_damage: i32,
-    /// `(point, normal)` of every pellet that hit the world.
-    pub impacts: Vec<(Vec3, Vec3)>,
+    /// `(point, normal, sector)` of every pellet that hit the world.
+    pub impacts: Vec<(Vec3, Vec3, SectorId)>,
 }
 
 /// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
@@ -369,7 +369,7 @@ pub fn volley(
         match h.kind {
             HitKind::Body(0) => out.player_damage += damage,
             HitKind::Body(_) => {}
-            _ => out.impacts.push((h.point, h.normal)),
+            _ => out.impacts.push((h.point, h.normal, h.sector)),
         }
     }
     out

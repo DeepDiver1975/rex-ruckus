@@ -486,7 +486,7 @@ fn sync_bolts(
 /// One short-lived spark per `Impact`. An [`FxReaders`] system.
 fn spawn_sparks(mut commands: Commands, fx: Res<FxQueue>, a: Res<ActorAssets>) {
     for ev in &fx.combat {
-        if let CombatEvent::Impact { point, normal } = ev {
+        if let CombatEvent::Impact { point, normal, .. } = ev {
             commands.spawn((
                 Mesh3d(a.spark.clone()),
                 MeshMaterial3d(a.spark_mat.clone()),
