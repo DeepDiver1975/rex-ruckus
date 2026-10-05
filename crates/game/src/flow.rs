@@ -172,6 +172,10 @@ pub fn restart_level(world: &mut World) {
     world.insert_resource(DirtySectors::default());
     world.insert_resource(FxQueue::default());
     world.insert_resource(HudMessage::default());
+    // The decal entities went with the level; forget them in the ring too.
+    if let Some(mut ring) = world.get_resource_mut::<crate::decals::DecalRing>() {
+        ring.reset();
+    }
     // Reset in place: the flash exists only with the HUD, and resources are entities.
     if let Some(mut flash) = world.get_resource_mut::<crate::hud::DamageFlash>() {
         flash.0 = 0.0;

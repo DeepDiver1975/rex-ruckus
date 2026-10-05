@@ -4,6 +4,7 @@ pub mod actors;
 pub mod breakables;
 pub mod combat;
 pub mod coords;
+pub mod decals;
 pub mod flow;
 pub mod fx;
 pub mod hud;
@@ -37,6 +38,7 @@ impl Plugin for GamePlugin {
             props::PropsPlugin,
             actors::ActorVisualsPlugin,
             fx::FxPlugin,
+            decals::DecalsPlugin,
             breakables::BreakablesPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
