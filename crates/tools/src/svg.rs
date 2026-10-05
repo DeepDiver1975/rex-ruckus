@@ -13,6 +13,10 @@ pub const KEY_COLORS: [&str; 3] = ["#e74c3c", "#3498db", "#f1c40f"];
 pub const AMMO_COLOR: &str = "#f4d03f";
 pub const SHELLS_COLOR: &str = "#e67e22";
 pub const SHOTGUN_COLOR: &str = "#8b5a2b";
+/// Glass panes: dashed cyan lines.
+pub const GLASS_COLOR: &str = "#00e5ff";
+/// Secret sectors: a star at the centre.
+pub const SECRET_COLOR: &str = "#ffd700";
 
 fn key_color(k: Key) -> &'static str {
     KEY_COLORS[k as usize]
@@ -24,6 +28,18 @@ fn esc(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// SVG `points` of a five-pointed star centred on `c` (pixels), outer radius `r`.
+fn star(c: Vec2, r: f32) -> String {
+    (0..10)
+        .map(|i| {
+            let a = std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / 5.0;
+            let k = if i % 2 == 0 { r } else { r * 0.4 };
+            format!("{:.1},{:.1}", c.x + k * a.cos(), c.y - k * a.sin())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn render_svg(map: &Map) -> String {
@@ -47,6 +63,9 @@ pub fn render_svg(map: &Map) -> String {
     let mut o = String::new();
     writeln!(o, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{:.0}" height="{:.0}" font-family="monospace" font-size="10">"#, size.x, size.y).unwrap();
     writeln!(o, r##"<rect width="100%" height="100%" fill="#1d1f24"/><text x="6" y="14" fill="#ddd">{}</text>"##, esc(&map.name)).unwrap();
+    // Crack walls are hatched: diagonal soot lines over brick red.
+    o.push_str(r##"<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#b5523b"/><line x1="0" y1="0" x2="0" y2="6" stroke="#2b1a14" stroke-width="3"/></pattern></defs>"##);
+    o.push('\n');
 
     for (s, sec) in map.sectors.iter().enumerate() {
         let mut d = String::new();
@@ -67,7 +86,7 @@ pub fn render_svg(map: &Map) -> String {
         let (class, fill) = match sec.mover.map(|m| m.kind) {
             Some(MoverKind::Door) => ("sector door", "#e8a33d".to_string()),
             Some(MoverKind::Lift { .. }) => ("sector lift", "#5aa0e0".to_string()),
-            Some(MoverKind::Crack) => ("sector crack", "#b5523b".to_string()),
+            Some(MoverKind::Crack) => ("sector crack", "url(#hatch)".to_string()),
             None => {
                 let t = if hi > lo {
                     (sec.floor_z - lo) / (hi - lo)
@@ -96,6 +115,14 @@ pub fn render_svg(map: &Map) -> String {
             c.x, c.y
         )
         .unwrap();
+        if sec.secret {
+            writeln!(
+                o,
+                r##"<polygon class="secret" points="{}" fill="{SECRET_COLOR}" stroke="#000"><title>secret</title></polygon>"##,
+                star(c + Vec2::new(0.0, 12.0), 8.0)
+            )
+            .unwrap();
+        }
     }
 
     for (id, w) in map.walls.iter().enumerate() {
@@ -103,7 +130,9 @@ pub fn render_svg(map: &Map) -> String {
         let style = match (w.next_sector, w.next_wall) {
             (None, _) => r##"stroke="#000" stroke-width="3""##.to_string(),
             (Some(_), Some(n)) if w.glass && id < n => {
-                r##"stroke="#2a9fd6" stroke-width="2""##.to_string()
+                format!(
+                    r#"class="glass" stroke="{GLASS_COLOR}" stroke-width="3" stroke-dasharray="6 3""#
+                )
             }
             (Some(t), Some(n)) if id < n => {
                 let ledge = (map.sectors[t].floor_z - map.sectors[w.sector].floor_z).abs() > step;
@@ -223,6 +252,55 @@ mod tests {
         assert_eq!(svg.matches("class=\"start\"").count(), 1);
         assert!(svg.contains("class=\"sector door\""));
         assert!(svg.contains(KEY_COLORS[0]), "red lock/key colour present");
+    }
+
+    /// A hall (sector 0), a crack wall (sector 1) and a secret room (sector 2) behind it, and a
+    /// glass booth (sector 3) on the hall's north side.
+    fn destructibles() -> Map {
+        Map::from_ron(
+            r#"(
+            name: "d", materials: ["m"],
+            vertices: [(0.0, 0.0), (6.0, 0.0), (6.0, 2.0), (6.0, 4.0), (6.0, 6.0), (0.0, 6.0),
+                       (6.5, 2.0), (6.5, 4.0), (6.5, 0.0), (10.0, 0.0), (10.0, 6.0), (6.5, 6.0),
+                       (4.0, 6.0), (2.0, 6.0), (4.0, 9.0), (2.0, 9.0)],
+            sectors: [
+                (loops: [[0, 1, 2, 3, 4, 12, 13, 5]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0),
+                (loops: [[2, 6, 7, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0,
+                 mover: Some((kind: Crack))),
+                (loops: [[8, 9, 10, 11, 7, 6]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0,
+                 secret: true),
+                (loops: [[13, 12, 14, 15]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0),
+            ],
+            glass: [(12, 13)],
+            player_start: (pos: (1.0, 1.0), angle_deg: 0.0),
+        )"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn marks_glass_cracks_and_secrets() {
+        let svg = render_svg(&destructibles());
+        let glass: Vec<&str> = svg
+            .lines()
+            .filter(|l| l.contains("class=\"glass\""))
+            .collect();
+        assert_eq!(glass.len(), 1, "one line per pane: {svg}");
+        assert!(
+            glass[0].contains(GLASS_COLOR) && glass[0].contains("stroke-dasharray"),
+            "{}",
+            glass[0]
+        );
+        let crack = svg
+            .lines()
+            .find(|l| l.contains("class=\"sector crack\""))
+            .expect("crack sector drawn");
+        assert!(crack.contains("fill=\"url(#hatch)\""), "{crack}");
+        assert!(svg.contains("<pattern id=\"hatch\""), "{svg}");
+        assert_eq!(svg.matches("class=\"secret\"").count(), 1, "{svg}");
+        // The plain map has none of them.
+        let plain = render_svg(&two_rooms(0.0, 3.0));
+        assert!(!plain.contains("class=\"glass\"") && !plain.contains("class=\"secret\""));
     }
 
     #[test]

@@ -67,7 +67,11 @@ fn check(app: &mut App, map: &Map, name: &str, tick: usize) {
 #[test]
 fn every_shipped_level_survives_scripted_play() {
     let levels = levels();
-    assert!(levels.len() >= 3, "found only {} levels", levels.len());
+    assert!(levels.len() >= 4, "found only {} levels", levels.len());
+    assert!(
+        levels.iter().any(|(name, _)| name == "arsenal_depot.ron"),
+        "the M4a showcase level is in the scripted play"
+    );
     for (name, map) in levels {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
