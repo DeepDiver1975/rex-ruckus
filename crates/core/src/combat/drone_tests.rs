@@ -209,3 +209,27 @@ fn killed_drone_falls_to_the_floor() {
     assert!(fell, "it dropped over several ticks, not in one snap");
     assert_eq!(c.actors[0].body.pos.z, 0.0);
 }
+
+/// `next_hop` routes the Drone from room `from` to the other, and the body gets there.
+fn flies_through(map: &Map, from: usize, x: f32, dir: Vec3) {
+    let d = drone_def();
+    let fly = Pass::Fly { height: d.height };
+    assert_eq!(next_hop(map, from, 1 - from, fly), Some(1 - from));
+    let mut b = Body::spawn(map, Vec2::new(x, 2.0), d.radius, d.height).unwrap();
+    for _ in 0..240 {
+        step_flyer(map, &mut b, dir, d.speed, 2.5, DT);
+    }
+    assert_eq!(b.sector, 1 - from, "stuck at {}", b.pos);
+}
+
+#[test]
+fn drone_enters_low_ceiling_neighbour_same_floor() {
+    // Opening 0.8 (0.6 body): the neighbour's ceiling is only 0.8 above the shared floor.
+    flies_through(&two_rooms(0.0, 0.8), 0, 2.0, Vec3::X);
+}
+
+#[test]
+fn drone_enters_low_neighbour_below_a_high_floor() {
+    // Starts over floor 2.3; the neighbour's ceiling is 3.0: opening 0.7.
+    flies_through(&two_rooms(2.3, 5.0), 1, 6.0, Vec3::NEG_X);
+}

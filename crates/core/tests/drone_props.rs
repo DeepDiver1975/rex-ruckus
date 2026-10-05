@@ -52,7 +52,7 @@ proptest! {
         let defs = Defs::builtin();
         let mut combat = Combat::spawn(&map, &defs, level_seed(&map.name) ^ seed);
         prop_assume!(combat.actors.len() == 1);
-        let mut mech = Mechanics::new(&mut map.clone());
+        let mut mech = Mechanics::new(&mut map);
         for (fx, fy) in players {
             let p = point(&map, fx, fy);
             let Some(mut body) = Body::spawn(&map, p, 0.35, 1.8) else { continue };

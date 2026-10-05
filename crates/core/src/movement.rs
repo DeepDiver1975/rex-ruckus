@@ -98,10 +98,11 @@ pub fn step_flyer(map: &Map, body: &mut Body, wish: Vec3, speed: f32, hover: f32
     let was_fitting = fits(body);
     let (start, start_sector, z) = (body.pos, body.sector, body.pos.z);
 
-    // Clip with the feet at the lowest cruising height and an unlimited step, so that only the
-    // openings decide what blocks the body.
+    // Clip with the feet on the floor and an unlimited step: `clip_move` then only blocks what
+    // is too low for the body anywhere, and the check below applies the same opening rule as
+    // `Pass::Fly` (lowest ceiling minus highest floor).
     let (floor, _) = z_range(map, body.pos.truncate(), body.radius, body.sector);
-    body.pos.z = floor + FLYER_MIN_CLEARANCE;
+    body.pos.z = floor;
     let delta = wish.truncate().clamp_length_max(1.0) * speed * dt;
     clip_move(map, body, delta, f32::MAX);
     body.pos.z = z;
