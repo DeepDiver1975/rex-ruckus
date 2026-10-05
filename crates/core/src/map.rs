@@ -69,6 +69,9 @@ pub struct RawLight {
     /// Luminous power in lumens.
     pub intensity: f32,
     pub range: f32,
+    /// A shot or blast can break the fixture, putting the light out for good.
+    #[serde(default)]
+    pub breakable: bool,
 }
 
 /// Keycard colours. Locked doors and keyed switches name one.

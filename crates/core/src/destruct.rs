@@ -6,7 +6,8 @@
 
 use crate::map::{Map, MoverKind, SectorId, WallId};
 use crate::mechanics::{Mechanics, Motion};
-use crate::trace::{Hit, HitKind};
+use crate::trace::{Hit, HitKind, can_see, ray_sphere};
+use glam::Vec3;
 
 /// Whether `hit` landed on an intact glass pane itself: a wall hit on a glass portal at a
 /// height inside its opening (the higher floor to the lower ceiling of the two sectors). A hit
@@ -27,9 +28,14 @@ pub fn hits_pane(map: &Map, hit: &Hit) -> bool {
 /// Metres per second a cracked wall opens at.
 pub const CRACK_SPEED: f32 = 6.0;
 
+/// Radius (m) of a breakable light's fixture, centred on the light.
+pub const FIXTURE_RADIUS: f32 = 0.2;
+
 /// Runtime destruction state of one level. Lives in `Combat::destruct`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Destruct {
+    /// Per light (index in `Map::lights`): the fixture has been broken.
+    lights: Vec<bool>,
     /// Per sector: a crack wall that has been set off.
     cracks_open: Vec<bool>,
     /// Per sector: a secret the player has entered.
@@ -40,6 +46,7 @@ pub struct Destruct {
 impl Destruct {
     pub fn new(map: &Map) -> Destruct {
         Destruct {
+            lights: vec![false; map.lights.len()],
             cracks_open: vec![false; map.sectors.len()],
             secrets_found: vec![false; map.sectors.len()],
             secrets_total: map.sectors.iter().filter(|s| s.secret).count() as u32,
@@ -80,6 +87,65 @@ impl Destruct {
     pub fn secrets(&self) -> (u32, u32) {
         let found = self.secrets_found.iter().filter(|&&f| f).count() as u32;
         (found, self.secrets_total)
+    }
+
+    /// Breaks light `i`'s fixture for good. False if the light does not exist, is not
+    /// breakable or is already broken.
+    pub fn break_light(&mut self, map: &Map, i: usize) -> bool {
+        match (map.lights.get(i), self.lights.get_mut(i)) {
+            (Some(l), Some(broken)) if l.breakable && !*broken => {
+                *broken = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether light `i` has been broken.
+    pub fn light_broken(&self, i: usize) -> bool {
+        self.lights.get(i).copied().unwrap_or(false)
+    }
+
+    /// The nearest intact breakable fixture the ray `origin + t·dir` (`dir` unit length) meets
+    /// before distance `max`, with its distance.
+    pub fn fixture_hit(
+        &self,
+        map: &Map,
+        origin: Vec3,
+        dir: Vec3,
+        max: f32,
+    ) -> Option<(usize, f32)> {
+        map.lights
+            .iter()
+            .enumerate()
+            .filter(|&(i, l)| l.breakable && !self.light_broken(i))
+            .filter_map(|(i, l)| {
+                let c = Vec3::new(l.pos.0, l.pos.1, l.pos.2);
+                ray_sphere(origin, dir, c, FIXTURE_RADIUS).map(|t| (i, t))
+            })
+            .filter(|&(_, t)| t < max)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
+    /// Intact breakable lights a blast at `center` (in `sector`) reaches: the fixture centre
+    /// within `radius` and in the world's line of sight from the centre. Ascending.
+    pub fn lights_in_reach(
+        &self,
+        map: &Map,
+        center: Vec3,
+        sector: SectorId,
+        radius: f32,
+    ) -> Vec<usize> {
+        map.lights
+            .iter()
+            .enumerate()
+            .filter(|&(i, l)| l.breakable && !self.light_broken(i))
+            .filter(|(_, l)| {
+                let c = Vec3::new(l.pos.0, l.pos.1, l.pos.2);
+                c.distance(center) <= radius && can_see(map, center, sector, c)
+            })
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Shatters the glass pane in portal `w` (either side). Clears `glass` on both sides and

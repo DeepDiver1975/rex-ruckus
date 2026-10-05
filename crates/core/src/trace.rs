@@ -123,6 +123,20 @@ pub fn trace_world(map: &Map, ray: &Ray) -> Option<Hit> {
     None
 }
 
+/// Distance along the ray `origin + t·dir` (`dir` unit length) to the nearest point of the
+/// sphere at `center`: the smaller non-negative root. An origin inside the sphere gives the far
+/// side; a sphere wholly behind the origin, a miss, or non-finite input gives `None`.
+pub fn ray_sphere(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f32> {
+    let oc = origin - center;
+    let b = oc.dot(dir);
+    let disc = b * b - (oc.length_squared() - radius * radius);
+    if disc.is_nan() || disc < 0.0 {
+        return None;
+    }
+    let root = disc.sqrt();
+    [-b - root, -b + root].into_iter().find(|&t| t >= 0.0)
+}
+
 /// Where the ray `origin + t·dir` (`t ≥ 0`) first enters `body`'s vertical cylinder, widened by
 /// `pad` on every side (radius + pad, z from `pos.z − pad` to `pos.z + height + pad`), so a
 /// projectile of radius `pad` can be swept as a point. The ray parameter is in units of `dir`'s
@@ -664,5 +678,25 @@ mod tests {
             );
             assert!((h.point - (o + d.normalize() * h.dist)).length() < EPS);
         }
+    }
+
+    #[test]
+    fn ray_sphere_hits_misses_and_inside() {
+        let c = Vec3::new(5.0, 0.0, 0.0);
+        let hit = ray_sphere(Vec3::ZERO, Vec3::X, c, 1.0).unwrap();
+        assert!((hit - 4.0).abs() < 1e-5);
+        // Tangent-ish miss, and a sphere behind the origin.
+        assert_eq!(ray_sphere(Vec3::new(0.0, 1.5, 0.0), Vec3::X, c, 1.0), None);
+        assert_eq!(ray_sphere(Vec3::ZERO, -Vec3::X, c, 1.0), None);
+        // Inside: the far side.
+        let far = ray_sphere(c, Vec3::X, c, 1.0).unwrap();
+        assert!((far - 1.0).abs() < 1e-5);
+        // Off-centre hit.
+        let t = ray_sphere(Vec3::new(0.0, 0.6, 0.0), Vec3::X, c, 1.0).unwrap();
+        assert!((t - (5.0 - 0.8)).abs() < 1e-5);
+        assert_eq!(
+            ray_sphere(Vec3::ZERO, Vec3::X, Vec3::splat(f32::NAN), 1.0),
+            None
+        );
     }
 }

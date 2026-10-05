@@ -65,6 +65,8 @@ pub enum CombatEvent {
     PlayerKilled,
     /// A blast opened crack wall `s`; its mesh changes as the mover animates.
     CrackOpened(SectorId),
+    /// The fixture of light `i` (index in `Map::lights`) broke; the light is out for good.
+    LightBroken(usize),
     /// The player entered a secret sector for the first time.
     SecretFound,
     /// A shot or projectile hit the world at `point` (in `sector`).
@@ -543,5 +545,7 @@ mod blast_tests;
 mod crack_tests;
 #[cfg(test)]
 mod glass_tests;
+#[cfg(test)]
+mod light_tests;
 #[cfg(test)]
 mod tests;

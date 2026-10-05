@@ -22,6 +22,8 @@ impl Combat {
     ///   and applied once each, in ascending actor index. Each pellet that hits the world
     ///   reports an `Impact`, except one that hits intact glass: it shatters the pane
     ///   (`GlassBroken`) and stops there. Later pellets of the same shot already find it gone.
+    ///   A pellet reaching an intact breakable light fixture before anything else breaks it
+    ///   (`LightBroken`) and stops there.
     /// - `Launch` spawns the weapon's projectile at the eye (`Targets::All`; the player, its
     ///   owner, is never hit by it). Thrown projectiles (with gravity) get a slight upward lob.
     /// - `Detonate` turns every live player remote bomb into a blast (see [`Combat::detonate`]).
@@ -76,7 +78,16 @@ impl Combat {
                 sector,
                 max: range,
             };
-            let Some(h) = trace(map, &ray, &bodies, |i| !self.actors[i].alive(), 0.0) else {
+            let hit = trace(map, &ray, &bodies, |i| !self.actors[i].alive(), 0.0);
+            // An intact fixture nearer than whatever the pellet hits takes it instead.
+            let reach = hit.map_or(range, |h| h.dist);
+            if let Some((light, _)) = self.destruct.fixture_hit(map, ray.origin, ray.dir, reach) {
+                if self.destruct.break_light(map, light) {
+                    out.push(CombatEvent::LightBroken(light));
+                }
+                continue;
+            }
+            let Some(h) = hit else {
                 continue;
             };
             match h.kind {

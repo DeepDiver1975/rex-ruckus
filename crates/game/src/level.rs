@@ -131,6 +131,10 @@ pub fn rebuild_dirty_sectors(
     }
 }
 
+/// Marks the point light of `Map::lights[.0]`, so a broken fixture's light can be found.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LevelLight(pub usize);
+
 /// Sector meshes and lights (in [`SpawnLevel`]). The materials are generated on the first spawn
 /// and reused by restarts of the same level.
 fn spawn_level(
@@ -167,7 +171,7 @@ fn spawn_level(
         spawn_sector(&mut commands, &mut meshes, map, &mats, s);
     }
 
-    for l in &map.lights {
+    for (i, l) in map.lights.iter().enumerate() {
         commands.spawn((
             PointLight {
                 color: Color::srgb(l.color.0, l.color.1, l.color.2),
@@ -177,6 +181,7 @@ fn spawn_level(
                 ..default()
             },
             Transform::from_translation(to_bevy(Vec3::new(l.pos.0, l.pos.1, l.pos.2))),
+            LevelLight(i),
             LevelEntity,
         ));
     }

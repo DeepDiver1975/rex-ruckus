@@ -63,7 +63,7 @@ impl Combat {
     /// World effects of a blast hook in here. Glass it reaches (`walls_in_reach`) shatters
     /// after the splash is dealt, so an intact pane still shields what is behind it from this
     /// blast; the bang then carries through the broken panes. Crack walls it reaches
-    /// (`sectors_in_reach`) start opening and report `CrackOpened`.
+    /// (`sectors_in_reach`) start opening and report `CrackOpened`. Breakable lights whose fixture it sees within its radius break (`LightBroken`).
     fn apply_blast(
         &mut self,
         map: &mut Map,
@@ -100,6 +100,15 @@ impl Combat {
         for s in sectors_in_reach(map, blast) {
             if self.destruct.open_crack(mech, s) {
                 out.push(CombatEvent::CrackOpened(s));
+            }
+        }
+        let reach = blast.splash.radius;
+        for i in self
+            .destruct
+            .lights_in_reach(map, blast.center, blast.sector, reach)
+        {
+            if self.destruct.break_light(map, i) {
+                out.push(CombatEvent::LightBroken(i));
             }
         }
         let woken = self.make_noise(map, blast.center, blast.sector, BLAST_NOISE);
