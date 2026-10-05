@@ -41,11 +41,11 @@ pub enum WeaponEvent {
 pub struct Arsenal {
     pub current: WeaponId,
     pub phase: WeaponPhase,
-    pub owned: [bool; 3],
+    pub owned: [bool; WeaponId::ALL.len()],
     /// Loaded rounds, by `WeaponId::index()`; only meaningful for weapons with a clip.
-    pub clip: [u32; 3],
+    pub clip: [u32; WeaponId::ALL.len()],
     /// Spare ammo, by `AmmoKind::index()`.
-    pub reserve: [u32; 2],
+    pub reserve: [u32; AmmoKind::ALL.len()],
     pub kick_cooldown: f32,
     /// A manual reload press waiting for the phase to return to `Ready`.
     pub reload_queued: bool,
@@ -76,9 +76,9 @@ impl Arsenal {
         let mut a = Arsenal {
             current: WeaponId::Boot,
             phase: WeaponPhase::Ready,
-            owned: [false; 3],
-            clip: [0; 3],
-            reserve: [0; 2],
+            owned: [false; WeaponId::ALL.len()],
+            clip: [0; WeaponId::ALL.len()],
+            reserve: [0; AmmoKind::ALL.len()],
             kick_cooldown: 0.0,
             reload_queued: false,
         };
@@ -108,11 +108,15 @@ impl Arsenal {
         }
     }
 
-    /// Best owned weapon with ammo: shotgun, then pistol, then boot (the fallback).
+    /// Best owned weapon with ammo by `priority` (ties go to the lower slot); priority 0 is
+    /// never auto-picked. The boot is the fallback.
     fn best_armed(&self, defs: &Defs) -> WeaponId {
-        [WeaponId::Shotgun, WeaponId::Pistol, WeaponId::Boot]
+        WeaponId::ALL
             .into_iter()
-            .find(|&w| self.owned[w.index()] && self.has_ammo(defs, w))
+            .filter(|&w| {
+                defs.weapon(w).priority > 0 && self.owned[w.index()] && self.has_ammo(defs, w)
+            })
+            .max_by_key(|&w| (defs.weapon(w).priority, std::cmp::Reverse(w.index())))
             .unwrap_or(WeaponId::Boot)
     }
 
@@ -392,9 +396,9 @@ mod tests {
     fn new_arsenal_matches_shipped_defs() {
         let d = fixtures::defs();
         let a = Arsenal::new(&d);
-        assert_eq!(a.owned, [true, true, false]);
+        assert_eq!(a.owned, [true, true, false, false, false, false]);
         assert_eq!(a.clip[WeaponId::Pistol.index()], 12);
-        assert_eq!(a.reserve, [36, 0]);
+        assert_eq!(a.reserve, [36, 0, 0, 0]);
         assert_eq!(a.current, WeaponId::Pistol);
         assert_eq!(a.phase, WeaponPhase::Ready);
         assert_eq!(a.readout(&d), (Some(12), Some(36)));
@@ -766,5 +770,66 @@ mod tests {
             assert!(a.tick(&d, &sel, Vec3::X, &mut rng, DT).is_empty());
             assert_eq!(a, before);
         }
+    }
+
+    #[test]
+    fn best_armed_uses_priority() {
+        let (mut d, mut a, _) = setup();
+        a.give_weapon(&d, WeaponId::Shotgun);
+        a.give_weapon(&d, WeaponId::Chaingun);
+        a.give_weapon(&d, WeaponId::Rockets);
+        a.give_weapon(&d, WeaponId::PipeBombs);
+        a.reserve[AmmoKind::Rockets.index()] = 5;
+        a.reserve[AmmoKind::Bombs.index()] = 3;
+        // Chaingun (4) outranks shotgun (3); the priority-0 splash weapons are never picked.
+        assert_eq!(a.best_armed(&d), WeaponId::Chaingun);
+        // Priorities come from data.
+        for def in &mut d.weapons.weapons {
+            if def.id == WeaponId::Pistol {
+                def.priority = 9;
+            }
+        }
+        assert_eq!(a.best_armed(&d), WeaponId::Pistol);
+        // Ties go to the lower slot.
+        for def in &mut d.weapons.weapons {
+            if def.id == WeaponId::Shotgun {
+                def.priority = 9;
+            }
+        }
+        assert_eq!(a.best_armed(&d), WeaponId::Pistol);
+        // Only splash weapons armed: fall back to the boot.
+        let mut only = Arsenal::new(&d);
+        only.owned = [false; WeaponId::ALL.len()];
+        only.owned[WeaponId::Rockets.index()] = true;
+        only.reserve[AmmoKind::Rockets.index()] = 5;
+        assert_eq!(only.best_armed(&d), WeaponId::Boot);
+    }
+
+    #[test]
+    fn cycle_covers_six_slots() {
+        let (d, mut a, _) = setup();
+        for w in WeaponId::ALL {
+            a.owned[w.index()] = true;
+        }
+        for k in AmmoKind::ALL {
+            a.reserve[k.index()] = 5;
+        }
+        assert_eq!(WeaponId::ALL.len(), 6);
+        let mut seen = vec![a.current];
+        for _ in 0..5 {
+            let next = a.cycle_target(&d, 1).expect("next weapon");
+            a.current = next;
+            seen.push(next);
+        }
+        seen.sort_by_key(|w| w.index());
+        assert_eq!(seen, WeaponId::ALL.to_vec());
+        assert_eq!(
+            a.cycle_target(&d, 1),
+            Some(WeaponId::ALL[(a.current.index() + 1) % 6])
+        );
+        assert_eq!(
+            a.cycle_target(&d, -1),
+            Some(WeaponId::ALL[(a.current.index() + 5) % 6])
+        );
     }
 }

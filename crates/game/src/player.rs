@@ -324,6 +324,9 @@ pub fn read_input(
             (KeyCode::Digit1, WeaponId::Boot),
             (KeyCode::Digit2, WeaponId::Pistol),
             (KeyCode::Digit3, WeaponId::Shotgun),
+            (KeyCode::Digit4, WeaponId::Chaingun),
+            (KeyCode::Digit5, WeaponId::Rockets),
+            (KeyCode::Digit6, WeaponId::PipeBombs),
         ] {
             if keys.just_pressed(key) {
                 input.select = Some(w);

@@ -203,7 +203,10 @@ const LEG: &[Part] = &[
 const fn muzzle(w: WeaponId) -> Option<Vec3> {
     match w {
         WeaponId::Pistol => Some(Vec3::new(0.0, 0.0, -0.09)),
-        WeaponId::Shotgun => Some(Vec3::new(0.0, 0.01, -0.12)),
+        WeaponId::Shotgun | WeaponId::Chaingun | WeaponId::Rockets => {
+            Some(Vec3::new(0.0, 0.01, -0.12))
+        }
+        WeaponId::PipeBombs => None,
         WeaponId::Boot => None,
     }
 }
@@ -213,7 +216,9 @@ pub fn weapon_parts(w: WeaponId) -> &'static [Part] {
     match w {
         WeaponId::Boot => BOOT,
         WeaponId::Pistol => PISTOL,
-        WeaponId::Shotgun => SHOTGUN,
+        // Placeholder models until the dedicated ones land.
+        WeaponId::Shotgun | WeaponId::Chaingun | WeaponId::Rockets => SHOTGUN,
+        WeaponId::PipeBombs => PISTOL,
     }
 }
 

@@ -9,22 +9,32 @@ pub enum WeaponId {
     Boot,
     Pistol,
     Shotgun,
+    Chaingun,
+    Rockets,
+    PipeBombs,
 }
 
 impl WeaponId {
-    pub const ALL: [WeaponId; 3] = [WeaponId::Boot, WeaponId::Pistol, WeaponId::Shotgun];
+    /// Every weapon, in slot order. `index()` is the position in this list.
+    pub const ALL: [WeaponId; 6] = [
+        WeaponId::Boot,
+        WeaponId::Pistol,
+        WeaponId::Shotgun,
+        WeaponId::Chaingun,
+        WeaponId::Rockets,
+        WeaponId::PipeBombs,
+    ];
 
-    /// Number-key slot, 1..=3.
+    /// Number-key slot, 1..=ALL.len().
     pub fn slot(self) -> u8 {
         self.index() as u8 + 1
     }
 
     pub fn index(self) -> usize {
-        match self {
-            WeaponId::Boot => 0,
-            WeaponId::Pistol => 1,
-            WeaponId::Shotgun => 2,
-        }
+        WeaponId::ALL
+            .iter()
+            .position(|&w| w == self)
+            .expect("WeaponId::ALL lists every weapon")
     }
 }
 
@@ -32,16 +42,23 @@ impl WeaponId {
 pub enum AmmoKind {
     Bullets,
     Shells,
+    Rockets,
+    Bombs,
 }
 
 impl AmmoKind {
-    pub const ALL: [AmmoKind; 2] = [AmmoKind::Bullets, AmmoKind::Shells];
+    pub const ALL: [AmmoKind; 4] = [
+        AmmoKind::Bullets,
+        AmmoKind::Shells,
+        AmmoKind::Rockets,
+        AmmoKind::Bombs,
+    ];
 
     pub fn index(self) -> usize {
-        match self {
-            AmmoKind::Bullets => 0,
-            AmmoKind::Shells => 1,
-        }
+        AmmoKind::ALL
+            .iter()
+            .position(|&k| k == self)
+            .expect("AmmoKind::ALL lists every ammo kind")
     }
 }
 
@@ -73,6 +90,9 @@ pub struct WeaponDef {
     pub noise: f32,
     /// Ammo granted when the weapon itself is picked up.
     pub pickup_ammo: u32,
+    /// Auto-switch rank for `best_armed`: higher wins, ties go to the lower slot. Priority 0
+    /// is never auto-selected (splash weapons, and the boot, which is the fallback).
+    pub priority: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -149,6 +169,14 @@ pub enum DefsError {
     Missing(String),
     #[error("invalid definition {what}: {reason}")]
     Invalid { what: String, reason: &'static str },
+    #[error("duplicate weapon definition: {0:?}")]
+    DuplicateWeapon(WeaponId),
+    #[error("duplicate ammo definition: {0:?}")]
+    DuplicateAmmo(AmmoKind),
+    #[error("duplicate enemy definition: {0:?}")]
+    DuplicateEnemy(ActorKind),
+    #[error("{what} grants {pickup} but the ammo max is {max}")]
+    PickupOverMax { what: String, pickup: u32, max: u32 },
 }
 
 fn invalid(what: impl Into<String>, reason: &'static str) -> DefsError {
@@ -221,6 +249,21 @@ impl Defs {
 
     fn validate(&self) -> Result<(), DefsError> {
         let w = &self.weapons;
+        for (i, a) in w.ammo.iter().enumerate() {
+            if w.ammo[..i].iter().any(|o| o.kind == a.kind) {
+                return Err(DefsError::DuplicateAmmo(a.kind));
+            }
+        }
+        for (i, d) in w.weapons.iter().enumerate() {
+            if w.weapons[..i].iter().any(|o| o.id == d.id) {
+                return Err(DefsError::DuplicateWeapon(d.id));
+            }
+        }
+        for (i, e) in self.enemies.iter().enumerate() {
+            if self.enemies[..i].iter().any(|o| o.kind == e.kind) {
+                return Err(DefsError::DuplicateEnemy(e.kind));
+            }
+        }
         for a in &w.ammo {
             let what = format!("ammo {:?}", a.kind);
             if a.max == 0 {
@@ -232,6 +275,13 @@ impl Defs {
             if a.pickup == 0 {
                 return Err(invalid(what, "pickup must be positive"));
             }
+            if a.pickup > a.max {
+                return Err(DefsError::PickupOverMax {
+                    what,
+                    pickup: a.pickup,
+                    max: a.max,
+                });
+            }
         }
         for id in WeaponId::ALL {
             if !w.weapons.iter().any(|d| d.id == id) {
@@ -240,9 +290,6 @@ impl Defs {
         }
         for d in &w.weapons {
             let what = format!("weapon {:?}", d.id);
-            if w.weapons.iter().filter(|o| o.id == d.id).count() > 1 {
-                return Err(invalid(what, "duplicate weapon"));
-            }
             check_attack(&what, &d.attack)?;
             if !pos(d.refire) {
                 return Err(invalid(what, "refire must be positive"));
@@ -259,6 +306,13 @@ impl Defs {
                     .iter()
                     .find(|a| a.kind == kind)
                     .ok_or_else(|| DefsError::Missing(format!("ammo {kind:?} for {what}")))?;
+                if d.pickup_ammo > ammo.max {
+                    return Err(DefsError::PickupOverMax {
+                        what,
+                        pickup: d.pickup_ammo,
+                        max: ammo.max,
+                    });
+                }
                 if let Some(clip) = d.clip {
                     if clip == 0 {
                         return Err(invalid(what, "clip must be positive"));
@@ -271,7 +325,7 @@ impl Defs {
                 return Err(invalid(what, "clip without ammo"));
             }
         }
-        for k in [AmmoKind::Bullets, AmmoKind::Shells] {
+        for k in AmmoKind::ALL {
             if !w.ammo.iter().any(|a| a.kind == k) {
                 return Err(DefsError::Missing(format!("ammo {k:?}")));
             }
@@ -362,8 +416,9 @@ mod tests {
             assert_eq!(WeaponId::ALL[w.index()], w);
             assert_eq!(w.slot(), w.index() as u8 + 1);
         }
-        for k in [AmmoKind::Bullets, AmmoKind::Shells] {
+        for k in AmmoKind::ALL {
             assert_eq!(d.ammo(k).kind, k);
+            assert_eq!(AmmoKind::ALL[k.index()], k);
         }
         assert_eq!(d.enemy(ActorKind::Grunt).health, 30);
         assert_eq!(d.weapon(WeaponId::Shotgun).clip, None);
@@ -402,6 +457,55 @@ mod tests {
         assert!(matches!(
             Defs::from_ron("garbage", E),
             Err(DefsError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn duplicate_kind_rejected() {
+        let ammo = "(kind: Bullets, max: 200, start: 48, pickup: 12),";
+        let dup_ammo = W.replacen(ammo, &format!("{ammo}\n        {ammo}"), 1);
+        assert_eq!(
+            Defs::from_ron(&dup_ammo, E),
+            Err(DefsError::DuplicateAmmo(AmmoKind::Bullets))
+        );
+        let boot = "id: Boot, name: \"Boot\",";
+        let at = W.find(boot).expect("boot entry") - "(\n            ".len();
+        let end = at + W[at..].find("\n        ),").expect("end") + "\n        ),".len();
+        let entry = &W[at..end];
+        let mut dup_weapon = W.to_string();
+        dup_weapon.insert_str(end, &format!("\n        {entry}"));
+        assert_eq!(
+            Defs::from_ron(&dup_weapon, E),
+            Err(DefsError::DuplicateWeapon(WeaponId::Boot))
+        );
+        let mut d = Defs::builtin();
+        d.enemies.push(d.enemies[0].clone());
+        assert_eq!(
+            d.validate(),
+            Err(DefsError::DuplicateEnemy(d.enemies[0].kind))
+        );
+    }
+
+    #[test]
+    fn pickup_ammo_over_max_rejected() {
+        // Shotgun grants 10 shells; the shell max is 50.
+        let low = W.replacen("kind: Shells, max: 50", "kind: Shells, max: 9", 1);
+        assert!(matches!(
+            Defs::from_ron(&low, E),
+            Err(DefsError::PickupOverMax {
+                pickup: 10,
+                max: 9,
+                ..
+            })
+        ));
+        let big = W.replacen("pickup_ammo: 10", "pickup_ammo: 51", 1);
+        assert!(matches!(
+            Defs::from_ron(&big, E),
+            Err(DefsError::PickupOverMax {
+                pickup: 51,
+                max: 50,
+                ..
+            })
         ));
     }
 
