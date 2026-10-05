@@ -2,14 +2,15 @@
 //! decide, and each admitted cue spawns an `AudioPlayer` entity.
 
 use super::{
-    GameCues, JetpackHum, MAX_LIVE_VOICES, MoverLoop, SfxRng, SfxVoice, SoundBank, spatial_scale,
-    voice_volume,
+    AudioVolumes, GameCues, JetpackHum, MAX_LIVE_VOICES, MoverLoop, SfxRng, SfxVoice, SoundBank,
+    spatial_scale, voice_volume,
 };
 use crate::combat::{FxQueue, LevelCombat, eye_of};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
 use crate::player::{Player, PlayerBody};
+use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rr_core::audio::{Cue, CuePos, combat_cues, gain, mech_cues, weapon_cues};
@@ -41,6 +42,8 @@ struct Mixer<'a, 'w, 's> {
     rng: &'a mut SfxRng,
     /// The listener (player eye), core coordinates.
     ear: Vec3,
+    /// The SFX level of the mix.
+    sfx: Volume,
     per_cue: HashMap<Cue, usize>,
     total: usize,
 }
@@ -48,7 +51,9 @@ struct Mixer<'a, 'w, 's> {
 impl Mixer<'_, '_, '_> {
     /// Plays `cue` at `pos` (`None`: at the listener) if the caps allow and, for a one-shot,
     /// if it is audible at all. Loops start regardless of distance (the player may walk up to
-    /// them; `loop_gain` follows) and belong to the level run.
+    /// them; `loop_gain` follows) and belong to the level run. Loops are exempt from the
+    /// per-cue cap (they are one per sector or one jetpack anyway, and distant hums must not
+    /// starve near ones) but count towards [`MAX_LIVE_VOICES`].
     fn play(&mut self, cue: Cue, pos: CuePos) -> Option<Entity> {
         let def = self.bank.def(cue);
         let at = pos.unwrap_or(self.ear);
@@ -57,7 +62,7 @@ impl Mixer<'_, '_, '_> {
             return None;
         }
         let n = self.per_cue.entry(cue).or_default();
-        if *n >= def.max_voices as usize || self.total >= MAX_LIVE_VOICES {
+        if (!def.looped && *n >= def.max_voices as usize) || self.total >= MAX_LIVE_VOICES {
             return None;
         }
         *n += 1;
@@ -72,7 +77,7 @@ impl Mixer<'_, '_, '_> {
             PlaybackSettings::DESPAWN
         };
         let settings = mode
-            .with_volume(voice_volume(def, dist))
+            .with_volume(voice_volume(def, dist) * self.sfx)
             .with_speed(speed)
             .with_spatial(def.spatial)
             .with_spatial_scale(spatial_scale(def));
@@ -101,6 +106,7 @@ pub fn play_cues(
     bank: Res<SoundBank>,
     mut rng: ResMut<SfxRng>,
     mut src: CueSources,
+    volumes: Res<AudioVolumes>,
     live: LiveSounds,
     player: Query<&PlayerBody, With<Player>>,
 ) {
@@ -117,6 +123,7 @@ pub fn play_cues(
         bank: &bank,
         rng: &mut rng,
         ear: eye_of(&body.0),
+        sfx: Volume::Linear(volumes.sfx),
         total: live.voices.iter().len(),
         per_cue,
     };

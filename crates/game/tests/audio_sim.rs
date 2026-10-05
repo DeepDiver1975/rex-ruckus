@@ -1,23 +1,39 @@
 //! Sound effects without an audio device: the voices are plain `AudioPlayer` entities, so the
 //! tests assert on what `play_cues` spawns and despawns. Bevy's `AudioPlugin` is not added.
+//! Quips, music and the volume keys likewise: their entities and resources are checked directly.
 
+use bevy::audio::GlobalVolume;
 use bevy::prelude::*;
-use rr_core::audio::Cue;
+use rr_core::audio::{COOLDOWN, Cue, QuipOn, QuipTable};
 use rr_core::combat::CombatEvent;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::fixtures::door_rooms;
-use rr_core::map::MoverKind;
+use rr_core::map::{Map, MoverKind};
 use rr_core::mechanics::MechEvent;
 use rr_core::weapons::WeaponEvent;
-use rr_game::audio::{AudioFxPlugin, GameCues, JetpackHum, MoverLoop, SfxVoice, SoundBank};
+use rr_game::audio::{
+    AudioFxPlugin, AudioOptions, AudioVolumes, GameCues, JetpackHum, MoverLoop, MusicTrack,
+    QuipState, QuipVoice, SfxVoice, SoundBank,
+};
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
 use rr_game::flow::FlowPlugin;
-use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
+use rr_game::mechanics::{HudMessage, MechanicsSimPlugin, insert_level};
 use rr_game::paths::assets_dir;
 use rr_game::player::PlayerSimPlugin;
 
 /// The door level with one Grunt in room B.
 fn app() -> App {
+    app_with(door_level(), AudioFxPlugin::default())
+}
+
+fn door_level() -> Map {
+    door_rooms(
+        "(kind: Door)",
+        "actors: [(kind: Grunt, pos: (7.0, 2.0), angle_deg: 180.0)],",
+    )
+}
+
+fn app_with(map: Map, audio: AudioFxPlugin) -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
@@ -27,20 +43,14 @@ fn app() -> App {
         },
     ))
     .init_asset::<AudioSource>();
-    insert_level(
-        &mut app,
-        door_rooms(
-            "(kind: Door)",
-            "actors: [(kind: Grunt, pos: (7.0, 2.0), angle_deg: 180.0)],",
-        ),
-    );
+    insert_level(&mut app, map);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,
         PlayerSimPlugin,
         MechanicsSimPlugin,
         CombatSimPlugin,
-        AudioFxPlugin,
+        audio,
     ));
     app.update();
     assert!(app.world().contains_resource::<SoundBank>());
@@ -96,7 +106,7 @@ fn a_burst_is_capped_at_max_voices() {
         .def(Cue::Fire(WeaponId::Chaingun))
         .max_voices;
     let n = voices(&mut app, Cue::Fire(WeaponId::Chaingun));
-    assert!(n >= 1 && n <= cap as usize, "{n} voices, cap {cap}");
+    assert_eq!(n, cap as usize);
     // Still playing next frame (no audio device to end them): the cap holds across frames.
     fx(&mut app).weapon.push(fire(WeaponId::Chaingun));
     app.update();
@@ -212,4 +222,161 @@ fn a_restart_silences_the_loops() {
     rr_game::flow::restart_level(app.world_mut());
     assert_eq!(count::<MoverLoop>(&mut app), 0);
     assert_eq!(count::<JetpackHum>(&mut app), 0);
+}
+
+#[test]
+fn a_distant_mover_still_hums_with_its_cue_slots_used_up() {
+    let mut app = app();
+    let cap = app
+        .world()
+        .resource::<SoundBank>()
+        .def(Cue::DoorStart)
+        .max_voices;
+    // Hums of other doors far away hold every DoorStart slot.
+    for _ in 0..cap {
+        app.world_mut().spawn(SfxVoice(Cue::DoorStart));
+    }
+    fx(&mut app).mech.push(MechEvent::MoverStarted {
+        sector: 1,
+        kind: MoverKind::Door,
+    });
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1);
+}
+
+/// The quip lines filed under `on`, from the shipped table.
+fn lines(on: QuipOn) -> Vec<String> {
+    let src = std::fs::read_to_string(assets_dir().join("quips/quips.ron")).unwrap();
+    QuipTable::parse(&src)
+        .unwrap()
+        .quips
+        .into_iter()
+        .filter(|q| q.on == on)
+        .map(|q| q.text)
+        .collect()
+}
+
+fn hud_text(app: &App) -> String {
+    app.world().resource::<HudMessage>().text.clone()
+}
+
+fn quip_voice(app: &mut App) -> Vec<Entity> {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<Entity, (With<QuipVoice>, With<AudioPlayer>)>();
+    q.iter(app.world()).collect()
+}
+
+/// Lets the quip cooldown run out without simulating eight seconds.
+fn skip_cooldown(app: &mut App) {
+    app.world_mut().resource_mut::<QuipState>().clock += COOLDOWN + 1.0;
+}
+
+fn kill_burst(app: &mut App) {
+    for _ in 0..3 {
+        fx(app).combat.push(CombatEvent::ActorKilled(0));
+    }
+}
+
+#[test]
+fn the_level_opens_with_a_start_quip() {
+    let mut app = app();
+    assert_eq!(quip_voice(&mut app).len(), 1);
+    assert!(lines(QuipOn::LevelStart).contains(&hud_text(&app)));
+}
+
+#[test]
+fn three_kills_at_once_make_a_multi_kill_quip() {
+    let mut app = app();
+    skip_cooldown(&mut app);
+    kill_burst(&mut app);
+    app.update();
+    let voice = quip_voice(&mut app);
+    // The new quip cut the opening line.
+    assert_eq!(voice.len(), 1);
+    let text = hud_text(&app);
+    assert!(lines(QuipOn::MultiKill).contains(&text), "{text:?}");
+
+    // A second burst inside the cooldown says nothing.
+    kill_burst(&mut app);
+    app.update();
+    assert_eq!(quip_voice(&mut app), voice);
+    assert_eq!(hud_text(&app), text);
+}
+
+#[test]
+fn a_restart_respawns_with_a_quip_right_away() {
+    let mut app = app();
+    skip_cooldown(&mut app);
+    kill_burst(&mut app);
+    app.update();
+    assert!(lines(QuipOn::MultiKill).contains(&hud_text(&app)));
+    // Well inside the cooldown of the last quip: the restart still gets its line.
+    rr_game::flow::restart_level(app.world_mut());
+    app.update();
+    assert_eq!(quip_voice(&mut app).len(), 1);
+    let text = hud_text(&app);
+    assert!(lines(QuipOn::Respawn).contains(&text), "{text:?}");
+}
+
+#[test]
+fn level_music_plays_once_and_restarts_with_the_level() {
+    let mut map = door_level();
+    map.music = Some("x".into());
+    let mut app = app_with(map, AudioFxPlugin::default());
+    assert_eq!(count::<MusicTrack>(&mut app), 1);
+    rr_game::flow::restart_level(app.world_mut());
+    app.update();
+    assert_eq!(count::<MusicTrack>(&mut app), 1);
+}
+
+#[test]
+fn no_music_when_the_options_skip_it() {
+    let mut map = door_level();
+    map.music = Some("x".into());
+    let audio = AudioFxPlugin {
+        options: AudioOptions {
+            muted: true,
+            music: false,
+        },
+        ..default()
+    };
+    let mut app = app_with(map, audio);
+    assert_eq!(count::<MusicTrack>(&mut app), 0);
+}
+
+#[test]
+fn a_muted_start_is_silent_until_m_is_pressed() {
+    let audio = AudioFxPlugin {
+        options: AudioOptions {
+            muted: true,
+            music: true,
+        },
+        ..default()
+    };
+    let mut app = app_with(door_level(), audio);
+    assert_eq!(
+        app.world().resource::<GlobalVolume>().volume.to_linear(),
+        0.0
+    );
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::KeyM);
+    app.insert_resource(keys);
+    app.update();
+    assert!(!app.world().resource::<AudioVolumes>().muted);
+    assert_eq!(hud_text(&app), "Sound on");
+    assert_eq!(
+        app.world().resource::<GlobalVolume>().volume.to_linear(),
+        1.0
+    );
+
+    // `[` turns the master down a notch.
+    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+    keys.clear();
+    keys.press(KeyCode::BracketLeft);
+    app.update();
+    assert_eq!(hud_text(&app), "Volume 90%");
+    let v = app.world().resource::<GlobalVolume>().volume.to_linear();
+    assert!((v - 0.9).abs() < 1e-6, "{v}");
 }

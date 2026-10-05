@@ -50,7 +50,10 @@ impl Plugin for GamePlugin {
             inventory::NightVisionPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
-            audio::AudioFxPlugin,
+            audio::AudioFxPlugin {
+                options: default(),
+                scripted: self.demo.is_some(),
+            },
         ));
         if let Some(demo) = &self.demo {
             app.add_plugins(demo::DemoPlugin {

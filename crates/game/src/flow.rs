@@ -89,7 +89,8 @@ impl Plugin for FlowPlugin {
     }
 }
 
-fn run_spawn_level(world: &mut World) {
+/// Runs [`SpawnLevel`] once at startup; Startup systems that a spawn needs run before it.
+pub fn run_spawn_level(world: &mut World) {
     world.run_schedule(SpawnLevel);
 }
 
