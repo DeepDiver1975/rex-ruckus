@@ -4720,7 +4720,10 @@ name = "rr-tools"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hound",
+ "ron",
  "rr-core",
+ "serde",
 ]
 
 [[package]]

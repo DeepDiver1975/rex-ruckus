@@ -1,10 +1,13 @@
 use clap::{Parser, Subcommand};
-use rr_tools::{svg::render_svg, validate_file};
+use rr_tools::{svg::render_svg, synth::synth_file, validate_file};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "rr-tools", about = "Level tools for Rex Ruckus: Meltdown")]
+#[command(
+    name = "rr-tools",
+    about = "Level and sound tools for Rex Ruckus: Meltdown"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -23,6 +26,13 @@ enum Cmd {
         /// Output file (default: stdout).
         #[arg(short, long)]
         out: Option<PathBuf>,
+    },
+    /// Render a sound-effect recipe file to one WAV per recipe.
+    Synth {
+        recipes: PathBuf,
+        /// Output directory.
+        #[arg(short, long)]
+        out: PathBuf,
     },
 }
 
@@ -64,5 +74,17 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Cmd::Synth { recipes, out } => match synth_file(&recipes, &out) {
+            Ok(lines) => {
+                for line in lines {
+                    println!("{line}");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }

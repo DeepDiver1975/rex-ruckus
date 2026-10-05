@@ -1,6 +1,7 @@
-//! Level tooling for Rex Ruckus: Meltdown.
+//! Level and sound tooling for Rex Ruckus: Meltdown.
 
 pub mod svg;
+pub mod synth;
 
 use rr_core::map::Map;
 use rr_core::validate::{has_errors, validate};
