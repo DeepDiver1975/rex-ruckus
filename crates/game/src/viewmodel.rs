@@ -1,8 +1,8 @@
-//! First-person weapon models: boot, pistol and shotgun, plus a kick leg, built from Bevy
+//! First-person weapon models (boot, pistol, shotgun, chaingun, rocket launcher, pipe bomb), plus a kick leg, built from Bevy
 //! primitives. Rendering only; nothing here touches the simulation.
 //!
 //! Layout. Spawned once (when the persistent [`PlayerCamera`] appears) as
-//! `PlayerCamera -> ViewRig -> { ViewModel(weapon) x3, KickLeg }`. None of it is a
+//! `PlayerCamera -> ViewRig -> { ViewModel(weapon) x6, KickLeg }`. None of it is a
 //! `LevelEntity`, so it survives restarts exactly like the camera. The rig carries all the
 //! motion (bob, sway, recoil, lowering, reload tilt); every part is `NotShadowCaster`.
 //!
@@ -21,7 +21,7 @@ use crate::flow::PlayState;
 use crate::player::{Look, Player, PlayerBody, PlayerCamera, PlayerTuning};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use rr_core::defs::WeaponId;
+use rr_core::defs::{AmmoKind, WeaponId};
 use rr_core::weapons::{WeaponEvent, WeaponPhase};
 use std::f32::consts::{PI, TAU};
 
@@ -45,6 +45,17 @@ const SWAY_MAX: f32 = 0.04;
 const BOB_RATE: f32 = 10.0;
 const LOWER_DEPTH: f32 = 0.25;
 const RELOAD_TILT: f32 = 0.6;
+/// Chaingun barrel spin: top speed (rad/s), spin-up rate (1/s of the gap) and spin-down decay
+/// (1/s). The cluster keeps spinning this long after the last shot.
+pub const SPIN_MAX: f32 = 30.0;
+const SPIN_UP: f32 = 12.0;
+const SPIN_DOWN: f32 = 3.0;
+pub const SPIN_HOLD_SECS: f32 = 0.15;
+/// Seconds of the detonator press and how far the box dips (metres).
+pub const PRESS_SECS: f32 = 0.2;
+const PRESS_DEPTH: f32 = 0.025;
+/// Where the chaingun's barrel cluster pivots, relative to its model root.
+pub const CLUSTER_AT: Vec3 = Vec3::new(0.0, 0.01, -0.03);
 
 /// Root of one weapon's model. Only the shown weapon's root is visible.
 #[derive(Component)]
@@ -53,6 +64,18 @@ pub struct ViewModel(pub WeaponId);
 /// Carries every viewmodel motion; child of the camera.
 #[derive(Component)]
 pub struct ViewRig;
+
+/// The chaingun's rotating barrel cluster; spins about the view axis.
+#[derive(Component)]
+pub struct BarrelCluster;
+
+/// The pipe bomb in the hand; hidden when the player has none left.
+#[derive(Component)]
+pub struct HeldBomb;
+
+/// The detonator box, shown while bombs are live; dips when the player detonates.
+#[derive(Component)]
+pub struct Detonator;
 
 /// The leg that thrusts out during a quick-kick.
 #[derive(Component)]
@@ -80,6 +103,13 @@ pub struct ViewState {
     pub flash: f32,
     /// Seconds of kick thrust left.
     pub kick: f32,
+    /// Chaingun cluster angle (radians) and angular speed (rad/s).
+    pub spin: f32,
+    pub spin_rate: f32,
+    /// Seconds the chaingun still counts as firing (spin target stays at top speed).
+    pub spin_hold: f32,
+    /// Seconds of detonator press left.
+    pub press: f32,
 }
 
 /// Sideways and vertical walking bob, camera-space metres. Exactly zero at `speed_frac == 0`,
@@ -102,6 +132,26 @@ pub fn decay_recoil(r: Recoil, dt: f32) -> Recoil {
 pub fn sway_step(sway: Vec2, d_yaw: f32, d_pitch: f32, dt: f32) -> Vec2 {
     let kicked = sway + Vec2::new(d_yaw, -d_pitch) * SWAY_GAIN;
     (kicked * (-SWAY_RATE * dt).exp()).clamp(Vec2::splat(-SWAY_MAX), Vec2::splat(SWAY_MAX))
+}
+
+/// One step of the chaingun spin: `(angle, rate)` after `dt`, accelerating while `firing`
+/// and coasting down otherwise. The rate stays within `0..=SPIN_MAX`.
+pub fn spin_step(angle: f32, rate: f32, firing: bool, dt: f32) -> (f32, f32) {
+    let rate = if firing {
+        rate + (SPIN_MAX - rate) * (1.0 - (-SPIN_UP * dt).exp())
+    } else {
+        rate * (-SPIN_DOWN * dt).exp()
+    };
+    let rate = rate.clamp(0.0, SPIN_MAX);
+    ((angle + rate * dt) % TAU, rate)
+}
+
+/// Detonator dip (metres, backwards into the hand) with `left` seconds of press to go.
+pub fn press_dip(left: f32) -> f32 {
+    if left <= 0.0 {
+        return 0.0;
+    }
+    ((1.0 - (left / PRESS_SECS).clamp(0.0, 1.0)) * PI).sin() * PRESS_DEPTH
 }
 
 /// How far a switch has dipped the model, 0 (raised) to 1 (fully lowered).
@@ -146,6 +196,8 @@ enum Mat {
     Metal,
     Grip,
     Boot,
+    /// Dark emissive-free red for the detonator button.
+    Red,
 }
 
 /// One model part: shape, centre relative to the rig, material.
@@ -184,6 +236,78 @@ const SHOTGUN: &[Part] = &[
     ),
     part(Shape::Cuboid(0.04, 0.05, 0.12), 0.0, -0.03, 0.07, Mat::Grip),
 ];
+const CHAINGUN: &[Part] = &[
+    // Receiver, hub behind the cluster and a grip.
+    part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, 0.0, 0.05, Mat::Metal),
+    part(Shape::Barrel(0.012, 0.03), 0.0, 0.01, -0.045, Mat::Grip),
+    part(
+        Shape::Cuboid(0.035, 0.06, 0.04),
+        0.0,
+        -0.05,
+        0.05,
+        Mat::Grip,
+    ),
+];
+/// Six barrels around the axis, relative to [`CLUSTER_AT`].
+const CLUSTER: &[Part] = &[
+    part(Shape::Barrel(0.007, 0.18), 0.0, 0.018, 0.0, Mat::Metal),
+    part(Shape::Barrel(0.007, 0.18), 0.0156, 0.009, 0.0, Mat::Metal),
+    part(Shape::Barrel(0.007, 0.18), 0.0156, -0.009, 0.0, Mat::Metal),
+    part(Shape::Barrel(0.007, 0.18), 0.0, -0.018, 0.0, Mat::Metal),
+    part(Shape::Barrel(0.007, 0.18), -0.0156, -0.009, 0.0, Mat::Metal),
+    part(Shape::Barrel(0.007, 0.18), -0.0156, 0.009, 0.0, Mat::Metal),
+];
+const ROCKETS: &[Part] = &[
+    // Tube, rear flare, forward sight, front sight post and a grip underneath.
+    part(Shape::Barrel(0.03, 0.26), 0.0, 0.0, -0.02, Mat::Metal),
+    part(Shape::Barrel(0.04, 0.03), 0.0, 0.0, 0.1, Mat::Metal),
+    part(
+        Shape::Cuboid(0.01, 0.03, 0.02),
+        0.0,
+        0.045,
+        -0.06,
+        Mat::Metal,
+    ),
+    part(
+        Shape::Cuboid(0.006, 0.02, 0.006),
+        0.0,
+        0.04,
+        -0.13,
+        Mat::Metal,
+    ),
+    part(
+        Shape::Cuboid(0.035, 0.06, 0.04),
+        0.0,
+        -0.05,
+        0.03,
+        Mat::Grip,
+    ),
+];
+const PIPE_HAND: &[Part] = &[
+    // Fist and wrist.
+    part(Shape::Cuboid(0.06, 0.05, 0.06), 0.0, -0.03, 0.0, Mat::Boot),
+    part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, -0.05, 0.07, Mat::Boot),
+];
+const HELD_BOMB: &[Part] = &[
+    part(Shape::Barrel(0.022, 0.11), 0.0, 0.005, -0.04, Mat::Metal),
+    part(Shape::Barrel(0.008, 0.02), 0.0, 0.005, -0.1, Mat::Grip),
+];
+const DETONATOR: &[Part] = &[
+    part(
+        Shape::Cuboid(0.04, 0.03, 0.05),
+        -0.07,
+        -0.05,
+        0.0,
+        Mat::Metal,
+    ),
+    part(
+        Shape::Cuboid(0.015, 0.012, 0.015),
+        -0.07,
+        -0.032,
+        0.0,
+        Mat::Red,
+    ),
+];
 const BOOT: &[Part] = &[
     part(
         Shape::Cuboid(0.07, 0.05, 0.15),
@@ -216,10 +340,21 @@ pub fn weapon_parts(w: WeaponId) -> &'static [Part] {
     match w {
         WeaponId::Boot => BOOT,
         WeaponId::Pistol => PISTOL,
-        // Placeholder models until the dedicated ones land.
-        WeaponId::Shotgun | WeaponId::Chaingun | WeaponId::Rockets => SHOTGUN,
-        WeaponId::PipeBombs => PISTOL,
+        WeaponId::Shotgun => SHOTGUN,
+        WeaponId::Chaingun => CHAINGUN,
+        WeaponId::Rockets => ROCKETS,
+        WeaponId::PipeBombs => PIPE_HAND,
     }
+}
+
+/// Extra model parts that move on their own, as `(centre offset of the node, parts)`: the
+/// spinning cluster, the held bomb and the detonator.
+pub fn extra_parts() -> [(Vec3, &'static [Part]); 3] {
+    [
+        (CLUSTER_AT, CLUSTER),
+        (Vec3::ZERO, HELD_BOMB),
+        (Vec3::ZERO, DETONATOR),
+    ]
 }
 
 pub fn leg_parts() -> &'static [Part] {
@@ -237,7 +372,7 @@ impl Plugin for ViewModelPlugin {
                 spawn_viewmodel,
                 read_fx.in_set(FxReaders),
                 advance_state.after(read_fx),
-                (pose_rig, pose_weapons, pose_leg).after(advance_state),
+                (pose_rig, pose_weapons, pose_extras, pose_leg).after(advance_state),
             ),
         );
     }
@@ -247,6 +382,7 @@ struct Looks {
     metal: Handle<StandardMaterial>,
     grip: Handle<StandardMaterial>,
     boot: Handle<StandardMaterial>,
+    red: Handle<StandardMaterial>,
 }
 
 fn matte(c: Color) -> StandardMaterial {
@@ -269,6 +405,11 @@ fn spawn_viewmodel(
             metal: materials.add(matte(Color::srgb(0.22, 0.23, 0.26))),
             grip: materials.add(matte(Color::srgb(0.32, 0.2, 0.1))),
             boot: materials.add(matte(Color::srgb(0.25, 0.17, 0.1))),
+            red: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.8, 0.1, 0.08),
+                emissive: Color::srgb(0.8, 0.1, 0.08).to_linear() * 2.0,
+                ..default()
+            }),
         };
         let flash_mesh = meshes.add(Sphere::new(0.02));
         let flash_mat = materials.add(StandardMaterial {
@@ -294,6 +435,7 @@ fn spawn_viewmodel(
                     Mat::Metal => looks.metal.clone(),
                     Mat::Grip => looks.grip.clone(),
                     Mat::Boot => looks.boot.clone(),
+                    Mat::Red => looks.red.clone(),
                 };
                 let rot = match p.shape {
                     // Cylinders stand along Y; lay them along the view axis.
@@ -319,6 +461,30 @@ fn spawn_viewmodel(
                 ))
                 .id();
             spawn_parts(&mut commands, root, weapon_parts(w));
+            let node = |commands: &mut Commands, marker: Entity, at: Vec3| {
+                commands.entity(marker).insert((
+                    Transform::from_translation(at),
+                    Visibility::Inherited,
+                    ChildOf(root),
+                ));
+            };
+            let [(cluster_at, cluster), (_, bomb), (_, detonator)] = extra_parts();
+            match w {
+                WeaponId::Chaingun => {
+                    let n = commands.spawn(BarrelCluster).id();
+                    node(&mut commands, n, cluster_at);
+                    spawn_parts(&mut commands, n, cluster);
+                }
+                WeaponId::PipeBombs => {
+                    let b = commands.spawn(HeldBomb).id();
+                    node(&mut commands, b, Vec3::ZERO);
+                    spawn_parts(&mut commands, b, bomb);
+                    let d = commands.spawn(Detonator).id();
+                    node(&mut commands, d, Vec3::ZERO);
+                    spawn_parts(&mut commands, d, detonator);
+                }
+                _ => {}
+            }
             if let Some(at) = muzzle(w) {
                 commands.spawn((
                     MuzzleFlash,
@@ -355,11 +521,21 @@ fn spawn_viewmodel(
 fn read_fx(fx: Res<FxQueue>, mut state: ResMut<ViewState>) {
     for ev in &fx.weapon {
         match ev {
-            WeaponEvent::Fire { .. } => {
+            // Launch (rockets, bombs) kicks like a shot; the chaingun also keeps spinning.
+            WeaponEvent::Fire { weapon, .. } => {
+                state.recoil.z += RECOIL_Z;
+                state.recoil.pitch += RECOIL_PITCH_DEG.to_radians();
+                state.flash = FLASH_SECS;
+                if *weapon == WeaponId::Chaingun {
+                    state.spin_hold = SPIN_HOLD_SECS;
+                }
+            }
+            WeaponEvent::Launch { .. } => {
                 state.recoil.z += RECOIL_Z;
                 state.recoil.pitch += RECOIL_PITCH_DEG.to_radians();
                 state.flash = FLASH_SECS;
             }
+            WeaponEvent::Detonate => state.press = PRESS_SECS,
             WeaponEvent::Kick { .. } => state.kick = KICK_SECS,
             _ => {}
         }
@@ -391,6 +567,10 @@ fn advance_state(
     state.recoil = decay_recoil(state.recoil, dt);
     state.flash = (state.flash - dt).max(0.0);
     state.kick = (state.kick - dt).max(0.0);
+    state.press = (state.press - dt).max(0.0);
+    (state.spin, state.spin_rate) =
+        spin_step(state.spin, state.spin_rate, state.spin_hold > 0.0, dt);
+    state.spin_hold = (state.spin_hold - dt).max(0.0);
 }
 
 fn pose_rig(
@@ -459,6 +639,41 @@ fn pose_weapons(
     }
 }
 
+/// The chaingun cluster's spin, the held bomb's visibility and the detonator's box and press.
+#[allow(clippy::type_complexity)]
+fn pose_extras(
+    state: Res<ViewState>,
+    player: Single<&PlayerArsenal, With<Player>>,
+    mut parts: Query<(
+        &mut Transform,
+        &mut Visibility,
+        Option<&BarrelCluster>,
+        Option<&HeldBomb>,
+        Option<&Detonator>,
+    )>,
+) {
+    let a = &player.0;
+    // Out of bombs but some still live: the hand is empty and only the detonator shows.
+    let has_bomb = a.reserve[AmmoKind::Bombs.index()] + a.clip[WeaponId::PipeBombs.index()] > 0;
+    let shown = |on: bool| {
+        if on {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        }
+    };
+    for (mut tf, mut vis, cluster, bomb, det) in &mut parts {
+        if cluster.is_some() {
+            tf.rotation = Quat::from_rotation_z(state.spin);
+        } else if bomb.is_some() {
+            *vis = shown(has_bomb);
+        } else if det.is_some() {
+            tf.translation = Vec3::Z * press_dip(state.press);
+            *vis = shown(a.live_bombs > 0);
+        }
+    }
+}
+
 fn pose_leg(
     state: Res<ViewState>,
     mut leg: Single<(&mut Transform, &mut Visibility), With<KickLeg>>,
@@ -519,11 +734,42 @@ mod tests {
                 p.at
             );
         }
+        for (at, parts) in extra_parts() {
+            for p in parts {
+                let d = (RIG_BASE + at + p.at).length();
+                assert!(d <= MAX_EYE_DIST, "extra part at {:?} is {d} m away", p.at);
+            }
+        }
         for w in WeaponId::ALL {
             if let Some(m) = muzzle(w) {
                 assert!((RIG_BASE + m).length() <= MAX_EYE_DIST);
             }
         }
+    }
+
+    #[test]
+    fn chaingun_spins_up_and_coasts_down() {
+        let (mut angle, mut rate) = (0.0, 0.0);
+        for _ in 0..120 {
+            (angle, rate) = spin_step(angle, rate, true, 1.0 / 60.0);
+            assert!((0.0..TAU).contains(&angle));
+        }
+        assert!(rate > SPIN_MAX * 0.95 && rate <= SPIN_MAX, "{rate}");
+        let top = rate;
+        (_, rate) = spin_step(angle, rate, false, 0.1);
+        assert!(rate < top && rate > 0.0, "coasts, not stops");
+        for _ in 0..600 {
+            (_, rate) = spin_step(0.0, rate, false, 1.0 / 60.0);
+        }
+        assert!(rate < 0.01);
+    }
+
+    #[test]
+    fn detonator_press_dips_and_returns() {
+        assert_eq!(press_dip(0.0), 0.0);
+        assert!(press_dip(PRESS_SECS * 0.5) > 0.0);
+        assert!(press_dip(PRESS_SECS * 0.5) <= PRESS_DEPTH + 1e-6);
+        assert!(press_dip(PRESS_SECS).abs() < 1e-6);
     }
 
     #[test]

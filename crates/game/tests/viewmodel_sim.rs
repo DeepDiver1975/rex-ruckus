@@ -9,7 +9,8 @@ use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, restart_level};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::player::{DEATH_ROLL, PlayerCamera, PlayerSimPlugin, ViewRoll, spawn_camera};
 use rr_game::viewmodel::{
-    KickLeg, MuzzleFlash, Recoil, ViewModel, ViewModelPlugin, ViewRig, ViewState,
+    BarrelCluster, Detonator, HeldBomb, KickLeg, MuzzleFlash, Recoil, ViewModel, ViewModelPlugin,
+    ViewRig, ViewState,
 };
 
 fn app() -> App {
@@ -128,4 +129,64 @@ fn restart_resets_view_state_and_roll() {
     );
     let mut q = app.world_mut().query::<Entity>();
     assert_eq!(q.iter(app.world()).count(), entities, "reset in place");
+}
+
+fn vis_of<C: Component>(app: &mut App) -> Visibility {
+    let mut q = app.world_mut().query_filtered::<&Visibility, With<C>>();
+    *q.single(app.world()).unwrap()
+}
+
+/// Launch kicks and flashes like Fire, the chaingun cluster spins while it fires, and the
+/// detonator shows only while bombs are live (the bomb in hand hides when none are left).
+#[test]
+fn new_weapon_models_react_to_events_and_bombs() {
+    use rr_core::defs::AmmoKind;
+    use rr_game::combat::PlayerArsenal;
+    let mut app = app();
+    app.update();
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .weapon
+        .push(WeaponEvent::Launch {
+            weapon: WeaponId::Rockets,
+            dir: Vec3::X,
+        });
+    app.update();
+    assert!(visible_flashes(&mut app) > 0, "flash after Launch");
+    assert!(app.world().resource::<ViewState>().recoil.z > 0.0);
+
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .weapon
+        .push(WeaponEvent::Fire {
+            weapon: WeaponId::Chaingun,
+            dirs: vec![Vec3::X],
+        });
+    app.update();
+    let spin = |app: &mut App| {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&Transform, With<BarrelCluster>>();
+        q.single(app.world()).unwrap().rotation
+    };
+    let r0 = spin(&mut app);
+    app.update();
+    assert!(!r0.abs_diff_eq(spin(&mut app), 1e-9), "cluster turns");
+
+    assert_eq!(vis_of::<Detonator>(&mut app), Visibility::Hidden);
+    {
+        let mut q = app.world_mut().query::<&mut PlayerArsenal>();
+        let mut a = q.single_mut(app.world_mut()).unwrap();
+        a.0.live_bombs = 2;
+        a.0.reserve[AmmoKind::Bombs.index()] = 0;
+        a.0.clip[WeaponId::PipeBombs.index()] = 0;
+    }
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .weapon
+        .push(WeaponEvent::Detonate);
+    app.update();
+    assert_eq!(vis_of::<Detonator>(&mut app), Visibility::Inherited);
+    assert_eq!(vis_of::<HeldBomb>(&mut app), Visibility::Hidden);
+    assert!(app.world().resource::<ViewState>().press > 0.0);
 }

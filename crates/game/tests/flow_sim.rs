@@ -2,7 +2,7 @@ use bevy::ecs::system::SystemId;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
-use rr_core::defs::Defs;
+use rr_core::defs::{Defs, WeaponId};
 use rr_core::fixtures::{combat_room, door_rooms};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map, Switch, SwitchAction};
 use rr_core::mechanics::Motion;
@@ -529,4 +529,67 @@ fn frozen_play_collapses_interpolation_endpoints() {
     for p in &c.projectiles {
         assert_eq!(p.prev, p.pos, "projectile {} prev collapsed", p.id);
     }
+}
+
+fn arsenal_of(app: &mut App) -> Mut<'_, PlayerArsenal> {
+    let mut q = app.world_mut().query::<&mut PlayerArsenal>();
+    q.single_mut(app.world_mut()).unwrap()
+}
+
+/// Keys 4/5/6 select the chaingun, rocket launcher and pipe bombs once owned and loaded.
+#[test]
+fn slot_keys_select_new_weapons() {
+    let defs = Defs::builtin();
+    let mut rig = InputRig::new(combat_room());
+    rig.frames(2);
+    {
+        let mut a = arsenal_of(&mut rig.app);
+        for w in [WeaponId::Chaingun, WeaponId::Rockets, WeaponId::PipeBombs] {
+            a.0.give_weapon(&defs, w);
+        }
+    }
+    for (key, w) in [
+        (KeyCode::Digit4, WeaponId::Chaingun),
+        (KeyCode::Digit5, WeaponId::Rockets),
+        (KeyCode::Digit6, WeaponId::PipeBombs),
+    ] {
+        rig.app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        rig.frames(60);
+        assert_eq!(arsenal_of(&mut rig.app).0.current, w, "{key:?}");
+    }
+}
+
+/// Q, J and N are latched taps: they survive reads between ticks and are consumed (and, until
+/// Task 21, ignored) by the next fixed tick.
+#[test]
+fn inventory_taps_latch_until_a_tick() {
+    let mut rig = InputRig::new(combat_room());
+    rig.frames(2);
+    let pending = |rig: &mut InputRig| {
+        let mut q = rig.app.world_mut().query::<&PendingInput>();
+        let p = q.single(rig.app.world()).unwrap();
+        (p.use_medkit, p.toggle_jetpack, p.toggle_nv)
+    };
+    for key in [KeyCode::KeyQ, KeyCode::KeyJ, KeyCode::KeyN] {
+        rig.app
+            .world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+    }
+    rig.read_only();
+    rig.read_only();
+    assert_eq!(
+        pending(&mut rig),
+        (true, true, true),
+        "latched across reads"
+    );
+    rig.tick();
+    assert_eq!(
+        pending(&mut rig),
+        (false, false, false),
+        "consumed by the tick"
+    );
 }

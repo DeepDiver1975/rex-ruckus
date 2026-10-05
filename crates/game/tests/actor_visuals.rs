@@ -8,7 +8,9 @@ use rr_core::defs::Defs;
 use rr_core::fixtures::combat_room;
 use rr_core::map::{ActorKind, ActorSpawn};
 use rr_core::projectile::{Projectile, Shooter, Targets};
-use rr_game::actors::{ActorVisualsPlugin, BoltVisual, GruntVisual, Spark};
+use rr_game::actors::{
+    ActorVisualsPlugin, BoltVisual, BombVisual, GruntVisual, RocketVisual, Spark,
+};
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
@@ -219,4 +221,73 @@ fn pain_material_wins_over_the_hit_flash() {
         grunt_materials(&mut app, 1),
         "a grunt in pain keeps its pain material"
     );
+}
+
+fn bomb(id: u32) -> Projectile {
+    Projectile {
+        owner: Shooter::Player,
+        targets: Targets::All,
+        gravity: 20.0,
+        bounce: Some(0.5),
+        remote: true,
+        vel: Vec3::new(6.0, 0.0, 2.0),
+        ..bolt(id)
+    }
+}
+
+fn rocket(id: u32) -> Projectile {
+    Projectile {
+        owner: Shooter::Player,
+        targets: Targets::All,
+        vel: Vec3::new(20.0, 0.0, 0.0),
+        splash: Some(rr_core::defs::SplashDef {
+            radius: 3.0,
+            damage: 100,
+            self_scale: 0.5,
+        }),
+        ..bolt(id)
+    }
+}
+
+fn rot_of<C: Component>(app: &mut App) -> (Vec3, Quat) {
+    let mut q = app.world_mut().query_filtered::<&Transform, With<C>>();
+    let t = q.single(app.world()).unwrap();
+    (t.translation, t.rotation)
+}
+
+/// Bombs and rockets get their own visuals (never a bolt), follow their projectile, bombs
+/// spin while moving and stop when resting, and a gone projectile loses its visual.
+#[test]
+fn bomb_visual_follows_projectile() {
+    let mut app = app();
+    let set = |app: &mut App, ps: Vec<Projectile>| {
+        app.world_mut().resource_mut::<LevelCombat>().0.projectiles = ps;
+    };
+    set(&mut app, vec![bomb(1), rocket(2), bolt(3)]);
+    app.update();
+    assert_eq!(count::<BombVisual>(&mut app), 1);
+    assert_eq!(count::<RocketVisual>(&mut app), 1);
+    assert_eq!(bolt_ids(&mut app), vec![3], "only the actor shot is a bolt");
+    let (pos, r0) = rot_of::<BombVisual>(&mut app);
+    // Between prev (x 2.9) and pos (x 3.0) in core x, which is Bevy x.
+    assert!(pos.x >= 2.89 && pos.x <= 3.01, "{pos:?}");
+    app.update();
+    app.update();
+    let (_, r1) = rot_of::<BombVisual>(&mut app);
+    assert!(r0.angle_between(r1) > 0.05, "spins while moving");
+    // Rests: the spin stops.
+    let mut resting = bomb(1);
+    resting.resting = true;
+    resting.vel = Vec3::ZERO;
+    set(&mut app, vec![resting]);
+    app.update();
+    let (_, a) = rot_of::<BombVisual>(&mut app);
+    app.update();
+    app.update();
+    let (_, b) = rot_of::<BombVisual>(&mut app);
+    assert!(a.abs_diff_eq(b, 1e-6), "resting bomb is still");
+    assert_eq!(count::<RocketVisual>(&mut app), 0);
+    set(&mut app, vec![]);
+    app.update();
+    assert_eq!(count::<BombVisual>(&mut app), 0);
 }

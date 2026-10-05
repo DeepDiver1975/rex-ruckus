@@ -178,6 +178,12 @@ fn player_weapons(
     let dt = time.timestep().as_secs_f32();
     for (body, look, vitals, mut arsenal, mut input) in &mut q {
         // Consume the latches every tick so presses never pile up.
+        // Inventory taps are consumed here and ignored until Task 21 wires them.
+        let _ = (
+            std::mem::take(&mut input.use_medkit),
+            std::mem::take(&mut input.toggle_jetpack),
+            std::mem::take(&mut input.toggle_nv),
+        );
         let input = WeaponInput {
             // A tap between ticks fires at least once even though the button is up again.
             fire: input.fire | input.fire_pressed,

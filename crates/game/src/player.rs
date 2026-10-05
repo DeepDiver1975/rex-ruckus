@@ -98,6 +98,12 @@ pub struct PendingInput {
     pub select: Option<WeaponId>,
     /// Latched mouse-wheel steps: +1 per wheel-up frame (next weapon), -1 per wheel-down.
     pub cycle: i32,
+    /// Latched medkit press (Q); Task 21 wires the effect.
+    pub use_medkit: bool,
+    /// Latched jetpack toggle press (J); Task 21 wires the effect.
+    pub toggle_jetpack: bool,
+    /// Latched night-vision toggle press (N); Task 21 wires the effect.
+    pub toggle_nv: bool,
 }
 
 /// Whether a held fire button may shoot. Fire is armed only after the button was seen released
@@ -329,6 +335,9 @@ pub fn read_input(
     if grabbed {
         input.reload |= keys.just_pressed(KeyCode::KeyR);
         input.kick |= keys.just_pressed(KeyCode::KeyF);
+        input.use_medkit |= keys.just_pressed(KeyCode::KeyQ);
+        input.toggle_jetpack |= keys.just_pressed(KeyCode::KeyJ);
+        input.toggle_nv |= keys.just_pressed(KeyCode::KeyN);
         for (key, w) in [
             (KeyCode::Digit1, WeaponId::Boot),
             (KeyCode::Digit2, WeaponId::Pistol),

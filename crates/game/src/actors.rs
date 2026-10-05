@@ -10,9 +10,9 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::actors::{Actor, AiState};
 use rr_core::combat::CombatEvent;
-use rr_core::projectile::Projectile;
+use rr_core::projectile::{Projectile, Shooter};
 use std::collections::BTreeSet;
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 /// Height of the Grunt model as built; the root is scaled to the enemy def's height.
 const MODEL_HEIGHT: f32 = 1.75;
@@ -56,6 +56,51 @@ struct HitFlash(f32);
 #[derive(Component)]
 pub struct BoltVisual(pub u32);
 
+/// A flying player rocket's visual (capsule plus emissive tail); the id is a `Projectile::id`.
+#[derive(Component)]
+pub struct RocketVisual(pub u32);
+
+/// A pipe bomb's visual (a cylinder that spins with its velocity); the id is a `Projectile::id`.
+#[derive(Component)]
+pub struct BombVisual(pub u32);
+
+/// Which visual a projectile gets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProjKind {
+    /// Anything an actor fired.
+    Bolt,
+    /// Player projectile that flies straight and splashes.
+    Rocket,
+    /// Player projectile that bounces or is remote-fused.
+    Bomb,
+}
+
+/// Picks the visual for a projectile.
+pub fn proj_kind(p: &Projectile) -> ProjKind {
+    match p.owner {
+        Shooter::Actor(_) => ProjKind::Bolt,
+        Shooter::Player if p.bounce.is_some() || p.remote => ProjKind::Bomb,
+        Shooter::Player => ProjKind::Rocket,
+    }
+}
+
+/// Common tag of every projectile visual, so one system syncs all kinds.
+#[derive(Component)]
+struct ProjVisual {
+    id: u32,
+    kind: ProjKind,
+}
+
+/// Roll of a bomb: fixed axis, angle grows with the distance travelled.
+#[derive(Component)]
+struct BombSpin {
+    axis: Vec3,
+    angle: f32,
+}
+
+/// Radians of spin per metre of flight.
+const BOMB_SPIN_PER_M: f32 = 8.0;
+
 /// An impact spark with its remaining lifetime in seconds.
 #[derive(Component)]
 pub struct Spark(pub f32);
@@ -71,6 +116,9 @@ struct ActorAssets {
     gun: Handle<Mesh>,
     tip: Handle<Mesh>,
     bolt: Handle<Mesh>,
+    rocket: Handle<Mesh>,
+    rocket_tail: Handle<Mesh>,
+    bomb: Handle<Mesh>,
     spark: Handle<Mesh>,
     skin: Handle<StandardMaterial>,
     skin_dim: Handle<StandardMaterial>,
@@ -82,6 +130,9 @@ struct ActorAssets {
     tip_idle: Handle<StandardMaterial>,
     tip_glow: Handle<StandardMaterial>,
     bolt_mat: Handle<StandardMaterial>,
+    rocket_mat: Handle<StandardMaterial>,
+    tail_mat: Handle<StandardMaterial>,
+    bomb_mat: Handle<StandardMaterial>,
     spark_mat: Handle<StandardMaterial>,
 }
 
@@ -114,6 +165,9 @@ impl ActorAssets {
             gun: meshes.add(Cuboid::new(0.12, 0.12, 0.6)),
             tip: meshes.add(Sphere::new(0.06)),
             bolt: meshes.add(Capsule3d::new(0.06, 0.3)),
+            rocket: meshes.add(Capsule3d::new(0.07, 0.35)),
+            rocket_tail: meshes.add(Cone::new(0.06, 0.35)),
+            bomb: meshes.add(Cylinder::new(0.07, 0.24)),
             spark: meshes.add(Sphere::new(0.08)),
             skin: materials.add(matte(Color::srgb(0.35, 0.42, 0.22))),
             skin_dim: materials.add(matte(Color::srgb(0.16, 0.19, 0.11))),
@@ -125,6 +179,9 @@ impl ActorAssets {
             tip_idle: materials.add(matte(Color::srgb(0.3, 0.12, 0.05))),
             tip_glow: materials.add(emissive(Color::srgb(1.0, 0.6, 0.15), 8.0)),
             bolt_mat: materials.add(emissive(BOLT_COLOR, 6.0)),
+            rocket_mat: materials.add(matte(Color::srgb(0.55, 0.57, 0.5))),
+            tail_mat: materials.add(emissive(Color::srgb(1.0, 0.55, 0.1), 10.0)),
+            bomb_mat: materials.add(matte(Color::srgb(0.3, 0.32, 0.28))),
             spark_mat: materials.add(emissive(Color::srgb(1.0, 0.85, 0.4), 10.0)),
         }
     }
@@ -142,7 +199,7 @@ impl Plugin for ActorVisualsPlugin {
                 (
                     (flash_tips, flash_hits, spawn_sparks).in_set(FxReaders),
                     pose_grunts.after(flash_tips).after(flash_hits),
-                    sync_bolts,
+                    sync_projectiles,
                     age_sparks,
                 )
                     .run_if(resource_exists::<ActorAssets>),
@@ -441,45 +498,115 @@ fn bolt_transform(p: &Projectile, alpha: f32) -> Transform {
     Transform::from_translation(to_bevy(p.prev.lerp(p.pos, alpha))).with_rotation(rot)
 }
 
-/// Keeps one [`BoltVisual`] per live projectile: spawns missing ones, moves the rest and
-/// despawns those whose projectile is gone (covers `ProjectileGone` without queue timing).
-fn sync_bolts(
+/// Rocket transform: like a bolt (long axis along the flight), tail trailing behind.
+fn rocket_transform(p: &Projectile, alpha: f32) -> Transform {
+    bolt_transform(p, alpha)
+}
+
+/// Keeps one visual per live projectile, of the kind [`proj_kind`] picks: spawns missing
+/// ones, moves the rest and despawns those whose projectile is gone or changed kind (covers
+/// `ProjectileGone` without queue timing). Bombs also roll with their speed until resting.
+fn sync_projectiles(
     mut commands: Commands,
     fixed: Res<Time<Fixed>>,
+    time: Res<Time>,
     combat: Res<LevelCombat>,
     a: Res<ActorAssets>,
-    mut q: Query<(Entity, &BoltVisual, &mut Transform)>,
+    mut q: Query<(Entity, &ProjVisual, &mut Transform, Option<&mut BombSpin>)>,
 ) {
     let alpha = fixed.overstep_fraction();
     let mut shown = BTreeSet::new();
-    for (e, bolt, mut t) in &mut q {
-        match combat.0.projectiles.iter().find(|p| p.id == bolt.0) {
-            Some(p) => {
-                *t = bolt_transform(p, alpha);
-                shown.insert(bolt.0);
+    for (e, vis, mut t, spin) in &mut q {
+        let Some(p) = combat
+            .0
+            .projectiles
+            .iter()
+            .find(|p| p.id == vis.id && proj_kind(p) == vis.kind)
+        else {
+            commands.entity(e).despawn();
+            continue;
+        };
+        shown.insert(vis.id);
+        match (vis.kind, spin) {
+            (ProjKind::Bomb, Some(mut spin)) => {
+                if !p.resting {
+                    spin.angle += p.vel.length() * time.delta_secs() * BOMB_SPIN_PER_M;
+                }
+                *t = Transform::from_translation(to_bevy(p.prev.lerp(p.pos, alpha)))
+                    .with_rotation(Quat::from_axis_angle(spin.axis, spin.angle));
             }
-            None => commands.entity(e).despawn(),
+            (ProjKind::Rocket, _) => *t = rocket_transform(p, alpha),
+            _ => *t = bolt_transform(p, alpha),
         }
     }
     for p in &combat.0.projectiles {
         if shown.contains(&p.id) {
             continue;
         }
-        commands.spawn((
-            Mesh3d(a.bolt.clone()),
-            MeshMaterial3d(a.bolt_mat.clone()),
-            bolt_transform(p, alpha),
-            PointLight {
-                color: BOLT_COLOR,
-                intensity: 15_000.0,
-                range: 2.5,
-                shadow_maps_enabled: false,
-                ..default()
-            },
-            NotShadowCaster,
-            BoltVisual(p.id),
-            LevelEntity,
-        ));
+        let kind = proj_kind(p);
+        let tag = ProjVisual { id: p.id, kind };
+        match kind {
+            ProjKind::Bolt => {
+                commands.spawn((
+                    Mesh3d(a.bolt.clone()),
+                    MeshMaterial3d(a.bolt_mat.clone()),
+                    bolt_transform(p, alpha),
+                    PointLight {
+                        color: BOLT_COLOR,
+                        intensity: 15_000.0,
+                        range: 2.5,
+                        shadow_maps_enabled: false,
+                        ..default()
+                    },
+                    NotShadowCaster,
+                    BoltVisual(p.id),
+                    tag,
+                    LevelEntity,
+                ));
+            }
+            ProjKind::Rocket => {
+                let root = commands
+                    .spawn((
+                        Mesh3d(a.rocket.clone()),
+                        MeshMaterial3d(a.rocket_mat.clone()),
+                        rocket_transform(p, alpha),
+                        PointLight {
+                            color: Color::srgb(1.0, 0.6, 0.2),
+                            intensity: 40_000.0,
+                            range: 5.0,
+                            shadow_maps_enabled: false,
+                            ..default()
+                        },
+                        NotShadowCaster,
+                        RocketVisual(p.id),
+                        tag,
+                        LevelEntity,
+                    ))
+                    .id();
+                // The cone's tip points +Y (forward); flip it so the wide end burns behind.
+                commands.spawn((
+                    Mesh3d(a.rocket_tail.clone()),
+                    MeshMaterial3d(a.tail_mat.clone()),
+                    Transform::from_xyz(0.0, -0.3, 0.0).with_rotation(Quat::from_rotation_x(PI)),
+                    NotShadowCaster,
+                    ChildOf(root),
+                ));
+            }
+            ProjKind::Bomb => {
+                let dir = to_bevy(p.vel).normalize_or_zero();
+                let axis = Vec3::Y.cross(dir).try_normalize().unwrap_or(Vec3::X);
+                commands.spawn((
+                    Mesh3d(a.bomb.clone()),
+                    MeshMaterial3d(a.bomb_mat.clone()),
+                    Transform::from_translation(to_bevy(p.prev.lerp(p.pos, alpha))),
+                    NotShadowCaster,
+                    BombVisual(p.id),
+                    BombSpin { axis, angle: 0.0 },
+                    tag,
+                    LevelEntity,
+                ));
+            }
+        }
     }
 }
 
