@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use rr_core::actors::AiState;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
 use rr_core::fixtures::combat_room;
@@ -143,4 +144,73 @@ fn impact_sparks_expire_and_fx_drains_after_readers() {
         app.update();
     }
     assert_eq!(count::<Spark>(&mut app), 0);
+}
+
+/// Every material under Grunt `idx`'s visual (skin, visor, gun, tip), sorted.
+fn grunt_materials(app: &mut App, idx: usize) -> Vec<AssetId<StandardMaterial>> {
+    let root = {
+        let mut q = app.world_mut().query::<(Entity, &GruntVisual)>();
+        q.iter(app.world()).find(|(_, g)| g.0 == idx).unwrap().0
+    };
+    let mut q = app
+        .world_mut()
+        .query::<(Entity, &MeshMaterial3d<StandardMaterial>)>();
+    let parts: Vec<_> = q.iter(app.world()).map(|(e, m)| (e, m.0.id())).collect();
+    let mut out: Vec<_> = parts
+        .into_iter()
+        .filter(|(e, _)| {
+            let mut cur = *e;
+            while let Some(p) = app.world().get::<ChildOf>(cur) {
+                cur = p.parent();
+                if cur == root {
+                    return true;
+                }
+            }
+            false
+        })
+        .map(|(_, id)| id)
+        .collect();
+    out.sort();
+    out
+}
+
+fn hurt(app: &mut App, actor: usize) {
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .combat
+        .push(CombatEvent::ActorHurt { actor, amount: 5 });
+}
+
+#[test]
+fn a_hit_flashes_the_grunt_briefly() {
+    let mut app = app();
+    app.update();
+    assert_eq!(grunt_materials(&mut app, 0), grunt_materials(&mut app, 1));
+    hurt(&mut app, 0);
+    app.update();
+    assert_ne!(
+        grunt_materials(&mut app, 0),
+        grunt_materials(&mut app, 1),
+        "the hit grunt flashes"
+    );
+    // 50 ms frames: over within about 0.1 s.
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(grunt_materials(&mut app, 0), grunt_materials(&mut app, 1));
+}
+
+#[test]
+fn pain_material_wins_over_the_hit_flash() {
+    let mut app = app();
+    for a in &mut app.world_mut().resource_mut::<LevelCombat>().0.actors {
+        a.state = AiState::Pain { t: 10.0 };
+    }
+    hurt(&mut app, 0);
+    app.update();
+    assert_eq!(
+        grunt_materials(&mut app, 0),
+        grunt_materials(&mut app, 1),
+        "a grunt in pain keeps its pain material"
+    );
 }

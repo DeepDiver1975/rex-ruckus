@@ -20,6 +20,8 @@ const MODEL_HEIGHT: f32 = 1.75;
 const BACK_HALF_DEPTH: f32 = 0.15;
 /// Seconds the gun tip glows after a shot.
 pub const TIP_GLOW_SECS: f32 = 0.12;
+/// Seconds the body flashes after a hit that did not kill.
+pub const HIT_FLASH_SECS: f32 = 0.1;
 /// Backward tilt while in pain (radians).
 const PAIN_TILT: f32 = 0.25;
 /// Head nod while asleep (radians, negative = chin down).
@@ -46,6 +48,10 @@ struct GruntRig {
 #[derive(Component, Default)]
 struct TipGlow(f32);
 
+/// Seconds of hit flash left on the body.
+#[derive(Component, Default)]
+struct HitFlash(f32);
+
 /// A flying bolt's visual; the id is a `Projectile::id`.
 #[derive(Component)]
 pub struct BoltVisual(pub u32);
@@ -69,6 +75,7 @@ struct ActorAssets {
     skin: Handle<StandardMaterial>,
     skin_dim: Handle<StandardMaterial>,
     skin_pain: Handle<StandardMaterial>,
+    skin_hit: Handle<StandardMaterial>,
     visor_on: Handle<StandardMaterial>,
     visor_off: Handle<StandardMaterial>,
     gun_mat: Handle<StandardMaterial>,
@@ -111,6 +118,7 @@ impl ActorAssets {
             skin: materials.add(matte(Color::srgb(0.35, 0.42, 0.22))),
             skin_dim: materials.add(matte(Color::srgb(0.16, 0.19, 0.11))),
             skin_pain: materials.add(emissive(Color::srgb(0.85, 0.15, 0.1), 1.5)),
+            skin_hit: materials.add(emissive(Color::srgb(1.0, 0.85, 0.7), 2.5)),
             visor_on: materials.add(emissive(Color::srgb(1.0, 0.1, 0.05), 4.0)),
             visor_off: materials.add(matte(Color::srgb(0.1, 0.05, 0.05))),
             gun_mat: materials.add(matte(Color::srgb(0.2, 0.2, 0.22))),
@@ -132,8 +140,8 @@ impl Plugin for ActorVisualsPlugin {
             .add_systems(
                 Update,
                 (
-                    (flash_tips, spawn_sparks).in_set(FxReaders),
-                    pose_grunts.after(flash_tips),
+                    (flash_tips, flash_hits, spawn_sparks).in_set(FxReaders),
+                    pose_grunts.after(flash_tips).after(flash_hits),
                     sync_bolts,
                     age_sparks,
                 )
@@ -177,6 +185,7 @@ fn spawn_grunts(
             .spawn((
                 GruntVisual(i),
                 TipGlow::default(),
+                HitFlash::default(),
                 Transform::from_translation(to_bevy(actor.body.pos))
                     .with_rotation(Quat::from_rotation_y(core_angle_to_yaw(actor.angle)))
                     .with_scale(Vec3::splat(scale)),
@@ -270,6 +279,34 @@ fn flash_tips(time: Res<Time>, fx: Res<FxQueue>, mut q: Query<(&GruntVisual, &mu
     }
 }
 
+/// Counts hit flashes down; `ActorHurt` relights the hit Grunt's flash for
+/// [`HIT_FLASH_SECS`]. An [`FxReaders`] system.
+fn flash_hits(time: Res<Time>, fx: Res<FxQueue>, mut q: Query<(&GruntVisual, &mut HitFlash)>) {
+    for (_, mut flash) in &mut q {
+        flash.0 = (flash.0 - time.delta_secs()).max(0.0);
+    }
+    for ev in &fx.combat {
+        if let CombatEvent::ActorHurt { actor, .. } = ev {
+            for (g, mut flash) in &mut q {
+                if g.0 == *actor {
+                    flash.0 = HIT_FLASH_SECS;
+                }
+            }
+        }
+    }
+}
+
+/// The body material. Priority: pain, then the hit flash, then the AI state's look. The flash
+/// shows only on a living Grunt that is not in pain, so it never fights the pain material and a
+/// Dying Grunt keeps its death look.
+fn skin_look(state: SkinLook, alive: bool, hit_flash: f32) -> SkinLook {
+    if state != SkinLook::Pain && alive && hit_flash > 0.0 {
+        SkinLook::Hit
+    } else {
+        state
+    }
+}
+
 /// The pose of one Grunt for its AI state.
 struct Pose {
     /// Whole-body pitch about the feet, backwards (radians).
@@ -286,6 +323,7 @@ enum SkinLook {
     Normal,
     Dim,
     Pain,
+    Hit,
 }
 
 fn pose(actor: &Actor, death_time: f32) -> Pose {
@@ -345,12 +383,12 @@ fn pose_grunts(
     combat: Res<LevelCombat>,
     defs: Res<GameDefs>,
     a: Res<ActorAssets>,
-    mut roots: Query<(&GruntVisual, &GruntRig, &TipGlow, &mut Transform)>,
+    mut roots: Query<(&GruntVisual, &GruntRig, &TipGlow, &HitFlash, &mut Transform)>,
     mut parts: Query<&mut Transform, Without<GruntVisual>>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
     let alpha = fixed.overstep_fraction();
-    for (g, rig, glow, mut t) in &mut roots {
+    for (g, rig, glow, hit, mut t) in &mut roots {
         let Some(actor) = combat.0.actors.get(g.0) else {
             continue;
         };
@@ -368,10 +406,11 @@ fn pose_grunts(
         if let Ok(mut arm) = parts.get_mut(rig.arm) {
             arm.rotation = Quat::from_rotation_x(p.arm);
         }
-        let skin = match p.skin {
+        let skin = match skin_look(p.skin, actor.alive(), hit.0) {
             SkinLook::Normal => &a.skin,
             SkinLook::Dim => &a.skin_dim,
             SkinLook::Pain => &a.skin_pain,
+            SkinLook::Hit => &a.skin_hit,
         };
         for e in rig.skin {
             set_material(&mut mats, e, skin);
@@ -504,6 +543,16 @@ mod tests {
             FRAC_PI_2,
             "no death time: flat at once"
         );
+    }
+
+    #[test]
+    fn hit_flash_never_overrides_pain_or_death() {
+        use SkinLook::*;
+        assert_eq!(skin_look(Normal, true, 0.05), Hit);
+        assert_eq!(skin_look(Dim, true, 0.05), Hit);
+        assert_eq!(skin_look(Normal, true, 0.0), Normal);
+        assert_eq!(skin_look(Pain, true, 0.05), Pain, "pain wins");
+        assert_eq!(skin_look(Normal, false, 0.05), Normal, "dying: no flash");
     }
 
     #[test]
