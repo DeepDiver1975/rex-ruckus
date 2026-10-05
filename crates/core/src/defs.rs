@@ -261,6 +261,8 @@ pub enum DefsError {
     DuplicateAmmo(AmmoKind),
     #[error("duplicate enemy definition: {0:?}")]
     DuplicateEnemy(ActorKind),
+    #[error("missing enemy definition: {0:?}")]
+    MissingEnemy(ActorKind),
     #[error("{what} grants {pickup} but the ammo max is {max}")]
     PickupOverMax { what: String, pickup: u32, max: u32 },
 }
@@ -550,8 +552,11 @@ impl Defs {
                 ));
             }
         }
-        if !self.enemies.iter().any(|e| e.kind == ActorKind::Grunt) {
-            return Err(DefsError::Missing("enemy Grunt".into()));
+        if let Some(k) = ActorKind::ALL
+            .into_iter()
+            .find(|&k| !self.enemies.iter().any(|e| e.kind == k))
+        {
+            return Err(DefsError::MissingEnemy(k));
         }
         Ok(())
     }
@@ -664,6 +669,23 @@ mod tests {
             d.validate(),
             Err(DefsError::DuplicateEnemy(d.enemies[0].kind))
         );
+    }
+
+    #[test]
+    fn every_actor_kind_needs_an_enemy_def() {
+        for k in ActorKind::ALL {
+            // Exhaustive: a new variant must be added to `ALL` (and this match).
+            match k {
+                ActorKind::Grunt
+                | ActorKind::Enforcer
+                | ActorKind::Slasher
+                | ActorKind::Drone
+                | ActorKind::Barrel => {}
+            }
+            let mut d = Defs::builtin();
+            d.enemies.retain(|e| e.kind != k);
+            assert_eq!(d.validate(), Err(DefsError::MissingEnemy(k)));
+        }
     }
 
     #[test]

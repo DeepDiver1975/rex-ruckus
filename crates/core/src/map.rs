@@ -189,6 +189,17 @@ pub enum ActorKind {
     Barrel,
 }
 
+impl ActorKind {
+    /// Every kind; each needs exactly one enemy def.
+    pub const ALL: [ActorKind; 5] = [
+        ActorKind::Grunt,
+        ActorKind::Enforcer,
+        ActorKind::Slasher,
+        ActorKind::Drone,
+        ActorKind::Barrel,
+    ];
+}
+
 fn yes() -> bool {
     true
 }
