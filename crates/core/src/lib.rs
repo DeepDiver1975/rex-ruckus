@@ -13,6 +13,7 @@ pub mod interact;
 pub mod map;
 pub mod mechanics;
 pub mod movement;
+pub mod pickups;
 pub mod projectile;
 pub mod rng;
 pub mod trace;

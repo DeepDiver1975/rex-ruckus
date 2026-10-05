@@ -46,8 +46,12 @@ impl Run {
         let mut bodies = [self.body];
         self.mech.tick(&mut self.map, &mut bodies, DT);
         self.body = bodies[0];
-        for i in self.mech.pickup(&self.map, &self.body) {
-            if let ItemKind::Key(k) = self.map.items[i].kind {
+        let map = &self.map;
+        for i in self
+            .mech
+            .pickup(map, &self.body, |k| matches!(k, ItemKind::Key(_)))
+        {
+            if let ItemKind::Key(k) = map.items[i].kind {
                 self.keys.insert(k);
             }
         }

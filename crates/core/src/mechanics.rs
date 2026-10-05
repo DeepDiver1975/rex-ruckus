@@ -3,7 +3,9 @@
 //! ceiling, a lift's floor) between two heights, and carries whoever stands on it.
 
 use crate::collide::{Body, touches_sector, z_range};
-use crate::map::{Channel, Key, KeySet, Map, MoverDef, MoverKind, SectorId, SwitchAction};
+use crate::map::{
+    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, SectorId, SwitchAction,
+};
 
 /// Feet within this distance of a lift floor ride along with it.
 const CARRY_EPS: f32 = 0.01;
@@ -110,6 +112,14 @@ impl Mechanics {
         hits.len()
     }
 
+    /// The first lock key (in mover order) that `keys` lacks among the movers listening on `ch`.
+    fn missing_listener_key(&self, ch: Channel, keys: KeySet) -> Option<Key> {
+        self.movers
+            .iter()
+            .filter(|m| m.def.channel == Some(ch))
+            .find_map(|m| m.def.lock.filter(|&k| !keys.contains(k)))
+    }
+
     /// Pressing use on `target` while holding `keys`.
     pub fn activate(&mut self, map: &Map, target: UseTarget, keys: KeySet) -> UseOutcome {
         match target {
@@ -126,6 +136,11 @@ impl Mechanics {
                 let sw = map.switches[i];
                 if let Some(k) = sw.key
                     && !keys.contains(k)
+                {
+                    return UseOutcome::NeedKey(k);
+                }
+                if let SwitchAction::Channel(ch) = sw.action
+                    && let Some(k) = self.missing_listener_key(ch, keys)
                 {
                     return UseOutcome::NeedKey(k);
                 }
@@ -188,8 +203,14 @@ impl Mechanics {
         changed
     }
 
-    /// Picks up every item within reach of `body`. Returns the indices taken by this call.
-    pub fn pickup(&mut self, map: &Map, body: &Body) -> Vec<usize> {
+    /// Picks up every item within reach of `body` that `accept` takes. Returns the indices taken
+    /// by this call; a refused item stays in the world for a later try.
+    pub fn pickup(
+        &mut self,
+        map: &Map,
+        body: &Body,
+        mut accept: impl FnMut(ItemKind) -> bool,
+    ) -> Vec<usize> {
         let mut got = Vec::new();
         for (i, item) in map.items.iter().enumerate() {
             if self.taken[i] || item.pos.distance(body.pos.truncate()) > body.radius + PICKUP_REACH
@@ -199,7 +220,7 @@ impl Mechanics {
             let floor = map
                 .find_sector(item.pos, Some(body.sector))
                 .map(|s| map.sectors[s].floor_z);
-            if floor.is_some_and(|f| (body.pos.z - f).abs() <= PICKUP_HEIGHT) {
+            if floor.is_some_and(|f| (body.pos.z - f).abs() <= PICKUP_HEIGHT) && accept(item.kind) {
                 self.taken[i] = true;
                 got.push(i);
             }
@@ -477,8 +498,90 @@ mod tests {
             "items: [(kind: Key(Red), pos: (2.5, 2.0)), (kind: Key(Blue), pos: (3.5, 2.0))],",
         ));
         let b = body_at(&map, 2.0, 2.0);
-        assert_eq!(mech.pickup(&map, &b), vec![0], "only the near item");
-        assert!(mech.pickup(&map, &b).is_empty(), "never twice");
+        assert_eq!(
+            mech.pickup(&map, &b, |_| true),
+            vec![0],
+            "only the near item"
+        );
+        assert!(mech.pickup(&map, &b, |_| true).is_empty(), "never twice");
         assert!(mech.taken[0] && !mech.taken[1]);
+    }
+
+    #[test]
+    fn refused_item_stays_and_can_be_taken_later() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door)",
+            "items: [(kind: Key(Red), pos: (2.5, 2.0))],",
+        ));
+        let b = body_at(&map, 2.0, 2.0);
+        assert!(mech.pickup(&map, &b, |_| false).is_empty());
+        assert!(!mech.taken[0]);
+        assert_eq!(mech.pickup(&map, &b, |_| true), vec![0]);
+    }
+
+    const CH_SWITCH: &str = "switches: [(wall: (7, 0), action: Channel(1))],";
+
+    #[test]
+    fn channel_to_locked_door_needs_key_at_switch() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            CH_SWITCH,
+        ));
+        let out = mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        assert_eq!(out, UseOutcome::NeedKey(Key::Red));
+        assert!(!mech.switch_on[0], "lamp stays off");
+        assert_eq!(mech.movers[0].motion, Motion::AtStart, "nothing fired");
+        let mut keys = KeySet::default();
+        keys.insert(Key::Red);
+        assert_eq!(
+            mech.activate(&map, UseTarget::Switch(0), keys),
+            UseOutcome::Activated
+        );
+        assert!(mech.switch_on[0]);
+        assert_eq!(mech.movers[0].motion, Motion::ToEnd);
+    }
+
+    #[test]
+    fn switch_missing_one_listener_key_fires_nothing() {
+        let mut map = door_rooms("(kind: Door, channel: Some(1), lock: Some(Red))", CH_SWITCH);
+        map.sectors[0].mover = Some(MoverDef {
+            kind: MoverKind::Door,
+            speed: 2.5,
+            lock: Some(Key::Blue),
+            channel: Some(1),
+            auto_return: None,
+        });
+        let (map, mut mech) = setup(map);
+        assert_eq!(mech.movers.len(), 2);
+        let mut keys = KeySet::default();
+        keys.insert(Key::Red);
+        assert_eq!(
+            mech.activate(&map, UseTarget::Switch(0), keys),
+            UseOutcome::NeedKey(Key::Blue)
+        );
+        let mut keys = KeySet::default();
+        keys.insert(Key::Blue);
+        assert_eq!(
+            mech.activate(&map, UseTarget::Switch(0), keys),
+            UseOutcome::NeedKey(Key::Red)
+        );
+        assert!(!mech.switch_on[0]);
+        assert!(mech.movers.iter().all(|m| m.motion == Motion::AtStart));
+        keys.insert(Key::Red);
+        assert_eq!(
+            mech.activate(&map, UseTarget::Switch(0), keys),
+            UseOutcome::Activated
+        );
+        assert!(mech.movers.iter().all(|m| m.motion == Motion::ToEnd));
+    }
+
+    #[test]
+    fn raw_fire_ignores_locks() {
+        let (_, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            CH_SWITCH,
+        ));
+        assert_eq!(mech.fire(1), 1);
+        assert_eq!(mech.movers[0].motion, Motion::ToEnd);
     }
 }

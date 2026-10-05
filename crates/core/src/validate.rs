@@ -273,7 +273,19 @@ fn check_reachability(map: &Map, r: &mut Report) {
     let Some(start) = map.find_sector(start, None) else {
         return; // reported by check_wiring
     };
-    let usable = |sw: &Switch, keys: KeySet| sw.key.is_none_or(|k| keys.contains(k));
+    // A channel switch also needs the lock key of every mover listening on its channel.
+    let usable = |sw: &Switch, keys: KeySet| {
+        sw.key.is_none_or(|k| keys.contains(k))
+            && match sw.action {
+                SwitchAction::Channel(c) => map
+                    .sectors
+                    .iter()
+                    .filter_map(|s| s.mover)
+                    .filter(|m| m.channel == Some(c))
+                    .all(|m| m.lock.is_none_or(|k| keys.contains(k))),
+                SwitchAction::Exit => true,
+            }
+    };
     let mut keys = KeySet::default();
     let mut fired: Vec<Channel> = Vec::new();
     let reached = loop {
@@ -498,5 +510,23 @@ mod tests {
             "switches: [(wall: (3, 4), action: Exit)],",
         );
         assert!(has(&errors(&stuck), "exit"));
+    }
+
+    #[test]
+    fn remote_locked_door_needs_its_key() {
+        // The only way to open the door is a remote switch, and that switch needs the door's own
+        // red card, which lies behind the door.
+        let map = door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            "switches: [(wall: (7, 0), action: Channel(1)), (wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (6.5, 2.0))],",
+        );
+        assert!(has(&errors(&map), "exit"));
+        assert!(has(&warnings(&map), "item 0"));
+        // With the key on the near side the same wiring is fine.
+        let ok = door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            "switches: [(wall: (7, 0), action: Channel(1)), (wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (2.0, 3.0))],",
+        );
+        assert_eq!(validate(&ok), vec![]);
     }
 }

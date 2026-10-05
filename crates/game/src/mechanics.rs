@@ -114,8 +114,11 @@ fn pickup_items(
     mut q: Query<(&PlayerBody, &mut Inventory)>,
 ) {
     for (body, mut inv) in &mut q {
-        for i in mech.0.pickup(&map.0, &body.0) {
-            // Temporary: non-key items are ignored until the combat pickup system lands.
+        // Temporary: non-key items are left in the world until `apply_pickup` is wired in.
+        for i in mech
+            .0
+            .pickup(&map.0, &body.0, |k| matches!(k, ItemKind::Key(_)))
+        {
             if let ItemKind::Key(k) = map.0.items[i].kind {
                 inv.keys.insert(k);
                 msg.show(format!("Picked up the {} keycard", k.name()));
