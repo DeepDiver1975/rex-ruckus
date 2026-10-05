@@ -14,6 +14,7 @@ use bevy::render::render_resource::PrimitiveTopology;
 use rr_core::destruct::FIXTURE_RADIUS;
 use rr_core::extrude::{MeshData, extrude_sector};
 use rr_core::map::{GLASS_MATERIAL, Map, SectorId};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 #[derive(Resource)]
@@ -107,6 +108,14 @@ fn spawn_sector(
     }
 }
 
+/// The sectors re-extruded for a dirty set: the set plus its neighbours (their step faces depend
+/// on it). Decals of these sectors are purged too.
+pub fn rebuild_set(map: &Map, dirty: &BTreeSet<SectorId>) -> BTreeSet<SectorId> {
+    let mut all = dirty.clone();
+    all.extend(dirty.iter().flat_map(|&s| map.neighbours(s)));
+    all
+}
+
 /// Re-extrudes every sector whose heights changed, plus its neighbours (their step faces
 /// depend on it), replacing the old mesh entities.
 pub fn rebuild_dirty_sectors(
@@ -120,9 +129,7 @@ pub fn rebuild_dirty_sectors(
     if dirty.0.is_empty() {
         return;
     }
-    let mut todo = std::mem::take(&mut dirty.0);
-    let around: Vec<SectorId> = todo.iter().flat_map(|&s| map.0.neighbours(s)).collect();
-    todo.extend(around);
+    let todo = rebuild_set(&map.0, &std::mem::take(&mut dirty.0));
     for (e, m) in &existing {
         if todo.contains(&m.0) {
             commands.entity(e).despawn();

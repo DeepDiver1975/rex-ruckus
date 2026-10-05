@@ -71,7 +71,8 @@ fn decals_cleared_on_sector_rebuild() {
     impact(&mut app, 1);
     app.update();
     assert_eq!(decals(&mut app).len(), 3);
-    app.world_mut().resource_mut::<DirtySectors>().0.insert(1);
+    // Sector 2's only neighbour is 1: room 0 is untouched.
+    app.world_mut().resource_mut::<DirtySectors>().0.insert(2);
     app.update();
     assert_eq!(decals(&mut app), vec![0]);
     assert_eq!(app.world().resource::<DecalRing>().len(), 1);
@@ -90,6 +91,19 @@ fn decals_cleared_on_restart() {
         .query_filtered::<(), (With<Decal>, With<LevelEntity>)>();
     assert_eq!(q.iter(app.world()).count(), 1, "decals are level entities");
     restart_level(app.world_mut());
+    assert!(decals(&mut app).is_empty());
+    assert_eq!(app.world().resource::<DecalRing>().len(), 0);
+}
+
+#[test]
+fn decals_of_neighbour_sectors_purged_with_dirty_door() {
+    let mut app = app();
+    // Door is sector 1 between rooms 0 and 2; the hole sits on its face, tagged with room 0.
+    impact(&mut app, 0);
+    app.update();
+    assert_eq!(decals(&mut app), vec![0]);
+    app.world_mut().resource_mut::<DirtySectors>().0.insert(1);
+    app.update();
     assert!(decals(&mut app).is_empty());
     assert_eq!(app.world().resource::<DecalRing>().len(), 0);
 }

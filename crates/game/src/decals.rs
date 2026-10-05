@@ -6,7 +6,7 @@
 use crate::combat::{FxQueue, FxReaders};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
-use crate::level::{CurrentMap, rebuild_dirty_sectors};
+use crate::level::{CurrentMap, rebuild_dirty_sectors, rebuild_set};
 use crate::mechanics::DirtySectors;
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
@@ -243,19 +243,22 @@ fn spawn_decals(
     }
 }
 
-/// Despawns the decals of every sector queued in [`DirtySectors`]. Runs before
+/// Despawns the decals of every sector queued in [`DirtySectors`] and of their neighbours (a
+/// shot at a step face is tagged with the shooter's side). Runs before
 /// `rebuild_dirty_sectors`, which empties the set.
 fn purge_dirty_decals(
     mut commands: Commands,
     dirty: Res<DirtySectors>,
+    map: Res<CurrentMap>,
     mut ring: ResMut<DecalRing>,
     decals: Query<(Entity, &Decal)>,
 ) {
     if dirty.0.is_empty() {
         return;
     }
+    let purge = rebuild_set(&map.0, &dirty.0);
     for (e, d) in &decals {
-        if dirty.0.contains(&d.sector) {
+        if purge.contains(&d.sector) {
             commands.entity(e).try_despawn();
             ring.0.retain(|&r| r != e);
         }
