@@ -5,7 +5,7 @@
 //! sector that owns the edge b→a.
 
 use glam::{Vec2, Vec3};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -181,7 +181,7 @@ pub enum ItemKind {
     NightVision,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActorKind {
     Grunt,
     Enforcer,

@@ -646,11 +646,10 @@ mod tests {
 
     #[test]
     fn lift_switch_emits_switch_then_start() {
-        let (_, mut mech) = setup(lift_shaft(
+        let (map, mut mech) = setup(lift_shaft(
             "(kind: Lift(to: 2.0), channel: Some(1))",
             CH_SWITCH,
         ));
-        let map = lift_shaft("(kind: Lift(to: 2.0), channel: Some(1))", CH_SWITCH);
         mech.activate(&map, UseTarget::Switch(0), KeySet::default());
         assert_eq!(
             mech.drain_events(),

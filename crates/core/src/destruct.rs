@@ -208,6 +208,34 @@ mod tests {
     }
 
     #[test]
+    fn open_crack_emits_started_then_stopped() {
+        use crate::fixtures::door_rooms;
+        use crate::map::MoverKind;
+        use crate::mechanics::{MechEvent, Mechanics};
+        let mut map = door_rooms("(kind: Crack)", "");
+        let mut mech = Mechanics::new(&mut map);
+        let mut dest = Destruct::new(&map);
+        assert!(dest.open_crack(&mut mech, 1));
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::MoverStarted {
+                sector: 1,
+                kind: MoverKind::Crack
+            }]
+        );
+        for _ in 0..600 {
+            mech.tick(&mut map, &mut [], 0.05);
+        }
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::MoverStopped {
+                sector: 1,
+                kind: MoverKind::Crack
+            }]
+        );
+    }
+
+    #[test]
     fn glass_blocks_move_shot_sight_noise() {
         let d = defs();
         let mut map = glass_rooms();
