@@ -13,6 +13,8 @@ use crate::rng::Rng;
 use crate::trace::{HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
 
+pub mod steer;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AiState {
     Sleep,
@@ -52,6 +54,11 @@ pub struct Actor {
     pub repath: f32,
     /// Next sector on the route to the player, when chasing out of sight.
     pub hop: Option<SectorId>,
+    /// Corner of the current sector the actor is steering around, when the line to its goal is
+    /// blocked (see `steer`).
+    pub corner: Option<Vec2>,
+    /// Seconds until pain may be rolled again; set to `pain_cooldown` when Pain ends.
+    pub pain_ready_in: f32,
     /// Strafe timer: the sign is the sidestep direction (+ = left of the facing, − = right), the
     /// magnitude the seconds until it flips. 0 means "not drawn yet".
     pub strafe: f32,
@@ -84,6 +91,10 @@ pub const CORPSE_HEIGHT: f32 = 0.3;
 pub const CLOSE_ENOUGH: f32 = 1.5;
 /// How far past a portal's midpoint the route waypoint lies, so the body actually crosses.
 const PORTAL_OVERSHOOT: f32 = 0.25;
+/// A steering corner counts as reached within this distance.
+const CORNER_REACHED: f32 = 0.15;
+/// A new corner must beat the current one by this much (m) to replace it on a repath.
+const CORNER_STICKY: f32 = 0.75;
 
 impl Actor {
     /// A fresh actor at a map spawn point, or `None` if the spawn lies outside every sector.
@@ -114,6 +125,8 @@ impl Actor {
             refire: 0.0,
             repath: 0.0,
             hop: None,
+            corner: None,
+            pain_ready_in: 0.0,
             strafe: 0.0,
             muzzle_offset: Vec3::from(def.muzzle),
             locomotion: def.locomotion,
@@ -225,6 +238,9 @@ pub fn think(
         return idle;
     }
     a.refire = (a.refire - dt).max(0.0);
+    if !matches!(a.state, AiState::Pain { .. }) {
+        a.pain_ready_in = (a.pain_ready_in - dt).max(0.0);
+    }
 
     let eye = a.eye();
     let to_player = p.eye - eye;
@@ -254,6 +270,7 @@ pub fn think(
         }
         AiState::Pain { t } => {
             a.state = if t - dt <= 0.0 {
+                a.pain_ready_in = def.pain_cooldown;
                 AiState::Chase
             } else {
                 AiState::Pain { t: t - dt }
@@ -451,11 +468,11 @@ fn chase(
 ) -> MoveInput {
     let here = a.body.pos.truncate();
     let player = p.eye.truncate();
-    let target = if sees || a.body.sector == p.sector {
+    a.repath -= dt;
+    let goal = if sees || a.body.sector == p.sector {
         a.hop = None;
         Some(player)
     } else {
-        a.repath -= dt;
         let stale = a
             .hop
             .is_none_or(|h| portal_waypoint(map, a.body.sector, h).is_none());
@@ -465,15 +482,44 @@ fn chase(
                 _ => Pass::Walk(def.tuning()),
             };
             a.hop = next_hop(map, a.body.sector, p.sector, pass);
-            a.repath = REPATH;
         }
         a.hop.and_then(|h| portal_waypoint(map, a.body.sector, h))
     };
-    let Some(target) = target else {
+    let Some(goal) = goal else {
+        a.corner = None;
+        if a.repath <= 0.0 {
+            a.repath = REPATH;
+        }
         return MoveInput::default(); // unreachable: wait
     };
-    let to = target - here;
-    let dir = to.normalize_or_zero();
+    // Steer around pillars and inside corners: keep the chosen corner until the next repath,
+    // or until it is reached or no longer in sight.
+    let (sector, radius) = (a.body.sector, def.radius);
+    if steer::line_clear(map, sector, here, goal, radius) {
+        a.corner = None;
+    } else {
+        let keep = a.corner.filter(|&c| {
+            c.distance(here) > CORNER_REACHED
+                && steer::line_clear(map, sector, here, c, radius * steer::CORNER_SLACK)
+        });
+        let best = if keep.is_none() || a.repath <= 0.0 {
+            steer::steer_corner(map, sector, here, goal, radius)
+        } else {
+            None
+        };
+        // Re-evaluating on repath must not flip between near-equal corners (dithering).
+        let cost = |c: Vec2| here.distance(c) + c.distance(goal);
+        a.corner = match (keep, best) {
+            (Some(k), Some(b)) if cost(k) <= cost(b) + CORNER_STICKY => Some(k),
+            (k, b) => b.or(k),
+        };
+    }
+    if a.repath <= 0.0 {
+        a.repath = REPATH;
+    }
+    let target = a.corner.unwrap_or(goal);
+    let to = goal - here;
+    let dir = (target - here).normalize_or_zero();
     if dir != Vec2::ZERO {
         a.angle = heading(dir);
     }
@@ -563,7 +609,8 @@ pub fn hurt(a: &mut Actor, def: &EnemyDef, n: i32, rng: &mut Rng) -> DamageOutco
             if matches!(a.state, AiState::Sleep | AiState::Alert { .. }) {
                 a.state = AiState::Chase;
             }
-            if rng.chance(def.pain_chance) {
+            let flinch = !matches!(a.state, AiState::Pain { .. }) && a.pain_ready_in <= 0.0;
+            if flinch && rng.chance(def.pain_chance) {
                 a.state = AiState::Pain { t: def.pain_time };
             }
         }
@@ -968,5 +1015,144 @@ mod tests {
             }
         }
         assert_eq!(sleeping.state, AiState::Sleep, "a dead player wakes nobody");
+    }
+
+    #[test]
+    fn pain_cooldown_prevents_stun_lock() {
+        let map = pillar_room();
+        let mut def = grunt();
+        def.pain_chance = 1.0;
+        def.health = 10_000;
+        let mut rng = Rng::new(9);
+        let p = player_at(&map, 8.0, 5.0);
+        let mut a = actor_at(&map, &def, 8.0, 8.0, -PI / 2.0, false);
+        a.state = AiState::Chase;
+        let mut fired = None;
+        let mut pains = 0;
+        let mut was_pain = false;
+        for i in 0..120 {
+            if i % 6 == 0 {
+                hurt(&mut a, &def, 1, &mut rng); // chaingun cadence
+            }
+            let (input, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+            let pain = matches!(a.state, AiState::Pain { .. });
+            pains += (pain && !was_pain) as u32;
+            was_pain = pain;
+            let _ = input;
+            if fire.is_some() && fired.is_none() {
+                fired = Some(i);
+            }
+        }
+        assert!(fired.is_some(), "stun-locked: never fired in 2 s");
+        assert!(pains <= 2, "{pains} pains in 2 s");
+    }
+
+    #[test]
+    fn pain_rolls_again_after_the_cooldown() {
+        let map = pillar_room();
+        let mut def = grunt();
+        def.pain_chance = 1.0;
+        def.health = 10_000;
+        let mut rng = Rng::new(3);
+        let p = player_at(&map, 2.0, 5.0); // hidden behind the pillar: nothing fires
+        let mut a = actor_at(&map, &def, 8.0, 5.0, 0.0, false);
+        a.state = AiState::Chase;
+        hurt(&mut a, &def, 1, &mut rng);
+        assert!(matches!(a.state, AiState::Pain { .. }));
+        for _ in 0..(def.pain_time / DT).ceil() as usize + 1 {
+            think(&mut a, &def, &map, &p, &mut rng, DT);
+        }
+        assert_eq!(a.state, AiState::Chase);
+        assert!(a.pain_ready_in > 0.0);
+        hurt(&mut a, &def, 1, &mut rng);
+        assert_eq!(a.state, AiState::Chase, "still cooling down");
+        for _ in 0..(def.pain_cooldown / DT).ceil() as usize + 2 {
+            think(&mut a, &def, &map, &p, &mut rng, DT);
+        }
+        hurt(&mut a, &def, 1, &mut rng);
+        assert!(matches!(a.state, AiState::Pain { .. }));
+    }
+
+    fn chase_until_sees(
+        map: &Map,
+        def: &EnemyDef,
+        a: &mut Actor,
+        p: &Perception,
+        max: usize,
+    ) -> bool {
+        let mut rng = Rng::new(1);
+        for _ in 0..max {
+            run(a, def, map, p, &mut rng, 1);
+            if crate::trace::can_see(map, a.eye(), a.body.sector, p.eye) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn actor_steers_around_pillar() {
+        let map = pillar_room();
+        let def = grunt();
+        let p = player_at(&map, 8.0, 5.0);
+        let mut a = actor_at(&map, &def, 2.0, 5.0, 0.0, false);
+        a.state = AiState::Chase;
+        assert!(
+            chase_until_sees(&map, &def, &mut a, &p, 480),
+            "stuck at {:?} {:?} {:?}",
+            a.body.pos,
+            a.state,
+            a.corner
+        );
+    }
+
+    #[test]
+    fn flyer_steers_around_pillar() {
+        let map = pillar_room();
+        let def = defs().enemy(ActorKind::Drone).clone();
+        let spawn = ActorSpawn {
+            kind: ActorKind::Drone,
+            pos: Vec2::new(2.0, 5.0),
+            angle: 0.0,
+            asleep: false,
+        };
+        let mut a = Actor::new(&map, &def, &spawn).unwrap();
+        a.state = AiState::Chase;
+        let p = player_at(&map, 8.0, 5.0);
+        assert!(
+            chase_until_sees(&map, &def, &mut a, &p, 480),
+            "stuck at {:?} {:?} {:?}",
+            a.body.pos,
+            a.state,
+            a.corner
+        );
+    }
+
+    #[test]
+    fn actor_reaches_target_around_l_corner() {
+        let map = Map::from_ron(
+            r#"(
+            name: "L",
+            materials: ["wall", "floor", "ceiling"],
+            vertices: [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (4.0, 4.0), (4.0, 10.0), (0.0, 10.0)],
+            sectors: [
+                (loops: [[0, 1, 2, 3, 4, 5]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            ],
+            player_start: (pos: (1.0, 1.0), angle_deg: 0.0),
+        )"#,
+        )
+        .unwrap();
+        let def = grunt();
+        let p = player_at(&map, 2.0, 9.0);
+        let mut a = actor_at(&map, &def, 9.0, 2.0, 0.0, false);
+        a.state = AiState::Chase;
+        assert!(!crate::trace::can_see(&map, a.eye(), a.body.sector, p.eye));
+        assert!(
+            chase_until_sees(&map, &def, &mut a, &p, 900),
+            "stuck at {:?} {:?} {:?}",
+            a.body.pos,
+            a.state,
+            a.corner
+        );
     }
 }
