@@ -17,7 +17,8 @@ mod player_attack;
 pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast};
 
 use crate::actors::{
-    Actor, AiState, Perception, effective_muzzle, hurt, swipe_reaches, think, tuning, volley, wake,
+    Actor, AiState, Perception, effective_muzzle, flyer_hover, hurt, swipe_reaches, think, tuning,
+    volley, wake,
 };
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
@@ -26,7 +27,7 @@ use crate::explosion::Blast;
 use crate::health::DamageOutcome;
 use crate::map::{Map, SectorId, WallId};
 use crate::mechanics::Mechanics;
-use crate::movement::{Tuning, step_player};
+use crate::movement::{Tuning, step_flyer, step_player};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
 use crate::rng::Rng;
 use crate::trace::HitKind;
@@ -255,7 +256,7 @@ impl Combat {
     /// 3. living actors and the player are pushed apart where they overlap;
     /// 4. projectiles fly; a hit on the player damages it; splash projectiles queue blasts;
     /// 5. queued blasts whose fuse ran out go off (see [`Combat::process_blasts`]);
-    /// 6. corpses snap to their floor.
+    /// 6. corpses snap to their floor (dead flyers fall to it first).
     ///
     /// Shots, projectiles and blasts that shatter glass change `map` (through `destruct`) and
     /// report `GlassBroken`. `mech` is where blasts open crack walls (`CrackOpened`; the mover
@@ -295,8 +296,16 @@ impl Combat {
             if !a.alive() {
                 continue;
             }
-            let t = tuning(a, def);
-            step_player(map, &mut a.body, &input, &t, dt);
+            if let Some(hover) = {
+                let floor = z_range(map, a.body.pos.truncate(), a.body.radius, a.body.sector).0;
+                flyer_hover(a, &perception, floor)
+            } {
+                let wish = input.wish.extend(0.0);
+                step_flyer(map, &mut a.body, wish, def.speed, hover, dt);
+            } else {
+                let t = tuning(a, def);
+                step_player(map, &mut a.body, &input, &t, dt);
+            }
             if let Some(dir) = fire {
                 out.push(CombatEvent::ActorFired { actor: i });
                 match def.attack {
@@ -345,8 +354,19 @@ impl Combat {
         out.extend(self.fly(map, defs, player, dt));
         self.process_blasts(map, mech, defs, player, dt, &mut out);
 
+        let gravity = Tuning::default().gravity;
         for a in self.actors.iter_mut().filter(|a| !a.alive()) {
-            a.body.pos.z = z_range(map, a.body.pos.truncate(), a.body.radius, a.body.sector).0;
+            let floor = z_range(map, a.body.pos.truncate(), a.body.radius, a.body.sector).0;
+            if matches!(a.locomotion, Locomotion::Fly { .. }) && a.body.pos.z > floor {
+                // A dead flyer drops with normal gravity, then lies on the floor.
+                a.body.vel.z -= gravity * dt;
+                a.body.pos.z = (a.body.pos.z + a.body.vel.z * dt).max(floor);
+            } else {
+                a.body.pos.z = floor;
+            }
+            if a.body.pos.z == floor {
+                a.body.vel = Vec3::ZERO;
+            }
         }
         out
     }
@@ -543,6 +563,8 @@ fn bounce_off_body(map: &Map, p: &mut Projectile, body: &Body) {
 mod blast_tests;
 #[cfg(test)]
 mod crack_tests;
+#[cfg(test)]
+mod drone_tests;
 #[cfg(test)]
 mod glass_tests;
 #[cfg(test)]

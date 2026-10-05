@@ -33,6 +33,19 @@
         pain_chance: 0.35, pain_time: 0.25, pain_cooldown: 0.8, death_time: 0.7, strafe: false,
     ),
     (
+        kind: Drone,
+        health: 25, radius: 0.4, height: 0.6, speed: 6.0,
+        sight_range: 30.0, fov_deg: 120.0, reaction: 0.4,
+        attack_range: 18.0, attack_refire: 1.1, aim_error_deg: 3.0,
+        attack: Bolts(
+            proj: (speed: 18.0, damage: 6, radius: 0.12, life: 4.0),
+            burst: 1, burst_gap: 0.0,
+        ),
+        locomotion: Fly(hover: 2.5, swoop: true),
+        muzzle: (0.3, 0.0, 0.3),
+        pain_chance: 0.4, pain_time: 0.25, pain_cooldown: 0.8, death_time: 0.6, strafe: false,
+    ),
+    (
         kind: Barrel,
         health: 15, radius: 0.4, height: 1.0, speed: 0.0,
         sight_range: 0.0, fov_deg: 360.0, reaction: 0.0,

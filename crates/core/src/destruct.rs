@@ -175,7 +175,7 @@ mod tests {
     use crate::defs::Defs;
     use crate::fixtures::{defs, glass_rooms};
     use crate::map::{ActorKind, ActorSpawn};
-    use crate::movement::Tuning;
+    use crate::movement::{Pass, Tuning};
     use crate::trace::{HitKind, Ray, can_see, trace_world};
     use glam::{Vec2, Vec3};
 
@@ -247,11 +247,11 @@ mod tests {
     fn glass_blocks_actor_path() {
         let mut map = glass_rooms();
         let t = Tuning::default();
-        assert_eq!(next_hop(&map, 1, 0, &t), None);
-        assert_eq!(next_hop(&map, 0, 1, &t), None);
+        assert_eq!(next_hop(&map, 1, 0, Pass::Walk(t)), None);
+        assert_eq!(next_hop(&map, 0, 1, Pass::Walk(t)), None);
         let w = pane(&map);
         Destruct::new(&map).break_glass(&mut map, w);
-        assert_eq!(next_hop(&map, 1, 0, &t), Some(0));
+        assert_eq!(next_hop(&map, 1, 0, Pass::Walk(t)), Some(0));
     }
 
     #[test]

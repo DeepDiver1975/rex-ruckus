@@ -173,7 +173,7 @@ pub enum ActorKind {
     Grunt,
     Enforcer,
     Slasher,
-    /// Flying enemy; its def arrives with the Drone.
+    /// Flying enemy: hovers, swoops at the player to shoot.
     Drone,
     /// Exploding barrel: a static, killable body.
     Barrel,

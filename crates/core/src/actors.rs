@@ -8,7 +8,7 @@ use crate::collide::Body;
 use crate::defs::{EnemyAttack, EnemyDef, Locomotion};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{ActorKind, ActorSpawn, Map, SectorId, WallId};
-use crate::movement::{MoveInput, Tuning, can_cross};
+use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
 use crate::rng::Rng;
 use crate::trace::{HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
@@ -89,7 +89,17 @@ impl Actor {
     /// A fresh actor at a map spawn point, or `None` if the spawn lies outside every sector.
     /// Sleeping spawns start in `Sleep`, awake ones in `Alert` (they still react before chasing).
     pub fn new(map: &Map, def: &EnemyDef, spawn: &ActorSpawn) -> Option<Actor> {
-        let body = Body::spawn(map, spawn.pos, def.radius, def.height)?;
+        let mut body = Body::spawn(map, spawn.pos, def.radius, def.height)?;
+        if let Locomotion::Fly { hover, .. } = def.locomotion {
+            // Flyers start at their cruising height, not on the floor.
+            let ceil = map.sectors[body.sector].ceil_z;
+            let floor = body.pos.z;
+            body.pos.z = (floor + hover)
+                .max(floor + FLYER_MIN_CLEARANCE)
+                .min(ceil - def.height)
+                .max(floor);
+            body.on_ground = false;
+        }
         Some(Actor {
             kind: spawn.kind,
             body,
@@ -149,6 +159,27 @@ fn angle_diff(a: f32, b: f32) -> f32 {
 
 /// Seconds a melee actor lunges before it swipes.
 pub const LUNGE_TIME: f32 = 0.2;
+
+/// Seconds a swooping flyer dives before its first shot.
+pub const SWOOP_WINDUP: f32 = 0.3;
+/// How far below the player's eye a swooping flyer dives (m).
+const SWOOP_BELOW_EYE: f32 = 0.3;
+
+/// The cruising height a flying actor steers to this tick, in metres above `floor` (the floor
+/// under it): its `hover`, except that a swooper in `Attack` dives to just below the player's
+/// eye. `None` for walkers.
+pub fn flyer_hover(a: &Actor, p: &Perception, floor: f32) -> Option<f32> {
+    let Locomotion::Fly { hover, swoop } = a.locomotion else {
+        return None;
+    };
+    Some(
+        if swoop && matches!(a.state, AiState::Attack { .. }) && p.alive {
+            p.eye.z - SWOOP_BELOW_EYE - floor
+        } else {
+            hover
+        },
+    )
+}
 
 /// Movement tuning for this tick: the def's, except that a melee actor in its lunge moves at
 /// `lunge_speed`.
@@ -261,6 +292,14 @@ pub fn think(
                     return (lunge(def, flat), None);
                 }
                 let burst = def.attack.burst();
+                if matches!(a.locomotion, Locomotion::Fly { swoop: true, .. }) {
+                    // A swooper dives first and fires when it is down (see `flyer_hover`).
+                    a.state = AiState::Attack {
+                        t: SWOOP_WINDUP,
+                        left: burst,
+                    };
+                    return (MoveInput::default(), None);
+                }
                 return (MoveInput::default(), Some(shoot(a, def, p, rng, burst)));
             }
             (chase(a, def, map, p, sees, rng, dt), None)
@@ -421,7 +460,11 @@ fn chase(
             .hop
             .is_none_or(|h| portal_waypoint(map, a.body.sector, h).is_none());
         if a.repath <= 0.0 || stale {
-            a.hop = next_hop(map, a.body.sector, p.sector, &def.tuning());
+            let pass = match a.locomotion {
+                Locomotion::Fly { .. } => Pass::Fly { height: def.height },
+                _ => Pass::Walk(def.tuning()),
+            };
+            a.hop = next_hop(map, a.body.sector, p.sector, pass);
             a.repath = REPATH;
         }
         a.hop.and_then(|h| portal_waypoint(map, a.body.sector, h))
@@ -472,9 +515,9 @@ fn portal_waypoint(map: &Map, from: SectorId, to: SectorId) -> Option<Vec2> {
 }
 
 /// First sector on the shortest (fewest portals) walkable route from `from` to `to`, judged on
-/// live floor and ceiling heights with `can_cross`, never through intact glass. `None` if
+/// live floor and ceiling heights with `Pass::allows` (`can_cross` for walkers, the opening for flyers), never through intact glass. `None` if
 /// `from == to` or `to` is unreachable.
-pub fn next_hop(map: &Map, from: SectorId, to: SectorId, t: &Tuning) -> Option<SectorId> {
+pub fn next_hop(map: &Map, from: SectorId, to: SectorId, pass: Pass) -> Option<SectorId> {
     if from == to {
         return None;
     }
@@ -486,7 +529,7 @@ pub fn next_hop(map: &Map, from: SectorId, to: SectorId, t: &Tuning) -> Option<S
     let mut queue = std::collections::VecDeque::from([from]);
     while let Some(s) = queue.pop_front() {
         for n in map.passages(s) {
-            if seen[n] || !can_cross(pose(s), pose(n), t) {
+            if seen[n] || !pass.allows(pose(s), pose(n)) {
                 continue;
             }
             seen[n] = true;
@@ -696,10 +739,10 @@ mod tests {
         let map = corridor();
         let def = grunt();
         let t = def.tuning();
-        assert_eq!(next_hop(&map, 0, 2, &t), Some(1));
-        assert_eq!(next_hop(&map, 1, 2, &t), Some(2));
-        assert_eq!(next_hop(&map, 2, 0, &t), Some(1));
-        assert_eq!(next_hop(&map, 1, 1, &t), None);
+        assert_eq!(next_hop(&map, 0, 2, Pass::Walk(t)), Some(1));
+        assert_eq!(next_hop(&map, 1, 2, Pass::Walk(t)), Some(2));
+        assert_eq!(next_hop(&map, 2, 0, Pass::Walk(t)), Some(1));
+        assert_eq!(next_hop(&map, 1, 1, Pass::Walk(t)), None);
 
         let p = player_at(&map, 7.0, 5.0);
         let mut a = actor_at(&map, &def, 1.0, 1.0, 0.0, false);
@@ -725,7 +768,7 @@ mod tests {
         let t = def.tuning();
         let authored = door_rooms("(kind: Door)", "");
         assert_eq!(
-            next_hop(&authored, 0, 2, &t),
+            next_hop(&authored, 0, 2, Pass::Walk(t)),
             Some(1),
             "open door is passable"
         );
@@ -733,8 +776,8 @@ mod tests {
         let mut map = door_rooms("(kind: Door)", "");
         let _mech = Mechanics::new(&mut map);
         assert_eq!(map.sectors[1].ceil_z, map.sectors[1].floor_z);
-        assert_eq!(next_hop(&map, 0, 2, &t), None);
-        assert_eq!(next_hop(&map, 0, 1, &t), None);
+        assert_eq!(next_hop(&map, 0, 2, Pass::Walk(t)), None);
+        assert_eq!(next_hop(&map, 0, 1, Pass::Walk(t)), None);
 
         let p = player_at(&map, 6.5, 2.0);
         let mut a = actor_at(&map, &def, 2.0, 2.0, 0.0, false);

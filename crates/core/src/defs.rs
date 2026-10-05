@@ -188,8 +188,7 @@ impl EnemyAttack {
 pub enum Locomotion {
     #[default]
     Walk,
-    /// Hovers `hover` metres above the floor; `swoop` dives at the player. Not implemented yet:
-    /// until the Drone lands, flyers walk.
+    /// Hovers `hover` metres above the floor; `swoop` dives at the player while it attacks.
     Fly { hover: f32, swoop: bool },
     /// Never moves, never thinks (barrels): a body that can be hurt and killed.
     Static,

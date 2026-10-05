@@ -3,7 +3,7 @@
 
 use crate::collide::{Body, clip_move, z_range};
 use crate::map::Map;
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MoveInput {
@@ -55,6 +55,75 @@ pub(crate) fn can_cross((fa, ca): Pose, (fb, cb): Pose, t: &Tuning) -> bool {
     fb <= fa + t.step_height
         && cb - fb >= t.crouch_height
         && ca.min(cb) - fa.max(fb) >= t.crouch_height
+}
+
+/// How an actor gets from sector to sector: walkers by `can_cross` (step height, crouch), flyers
+/// by the opening alone.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Pass {
+    Walk(Tuning),
+    /// A flyer of this body height: steps in the floor do not matter, only that the opening
+    /// (lowest ceiling minus highest floor of the two sectors) is at least `height`.
+    Fly {
+        height: f32,
+    },
+}
+
+impl Pass {
+    /// Can this mover go from a sector in pose `a` into one in pose `b`?
+    pub(crate) fn allows(&self, a: Pose, b: Pose) -> bool {
+        match self {
+            Pass::Walk(t) => can_cross(a, b, t),
+            Pass::Fly { height } => a.1.min(b.1) - a.0.max(b.0) >= *height,
+        }
+    }
+}
+
+/// Lowest a flyer cruises above the floor under it (m).
+pub const FLYER_MIN_CLEARANCE: f32 = 0.3;
+
+/// One tick of flying movement: no gravity. Horizontal motion is `wish.truncate()` (length
+/// clamped to 1) times `speed`, slid along walls and glass like a walker, but a flyer ignores
+/// floor steps: it may enter any sector whose opening fits its height. Vertical: `z` eases toward
+/// `floor_z + hover` at up to `speed` m/s and is clamped to
+/// `[floor_z + FLYER_MIN_CLEARANCE, ceil_z - height]` of the sector range under the body; where
+/// that range is empty the body sits at the (lowered) floor clearance, clipped by the ceiling.
+/// `wish.z` is ignored: the height is steered by `hover` alone. `on_ground` is always false.
+pub fn step_flyer(map: &Map, body: &mut Body, wish: Vec3, speed: f32, hover: f32, dt: f32) {
+    body.on_ground = false;
+    let fits = |b: &Body| {
+        let (floor, ceil) = z_range(map, b.pos.truncate(), b.radius, b.sector);
+        ceil - floor >= b.height
+    };
+    let was_fitting = fits(body);
+    let (start, start_sector, z) = (body.pos, body.sector, body.pos.z);
+
+    // Clip with the feet at the lowest cruising height and an unlimited step, so that only the
+    // openings decide what blocks the body.
+    let (floor, _) = z_range(map, body.pos.truncate(), body.radius, body.sector);
+    body.pos.z = floor + FLYER_MIN_CLEARANCE;
+    let delta = wish.truncate().clamp_length_max(1.0) * speed * dt;
+    clip_move(map, body, delta, f32::MAX);
+    body.pos.z = z;
+    if was_fitting && !fits(body) {
+        // The opening it slid into is too low for its height.
+        body.pos.x = start.x;
+        body.pos.y = start.y;
+        body.sector = start_sector;
+    }
+
+    let (floor, ceil) = z_range(map, body.pos.truncate(), body.radius, body.sector);
+    let (lo, hi) = (floor + FLYER_MIN_CLEARANCE, ceil - body.height);
+    let clamp = |z: f32| {
+        if hi >= lo {
+            z.clamp(lo, hi)
+        } else {
+            lo.min(hi).max(floor)
+        }
+    };
+    let eased = z + (floor + hover - z).clamp(-speed * dt, speed * dt);
+    body.pos.z = clamp(eased);
+    body.vel = ((body.pos - start) / dt).with_z((body.pos.z - z) / dt);
 }
 
 pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt: f32) {
