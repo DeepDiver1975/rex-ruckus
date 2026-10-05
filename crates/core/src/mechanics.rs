@@ -46,6 +46,32 @@ pub enum UseOutcome {
     Exit,
 }
 
+/// Something audible that happened in the mechanics, queued for `Mechanics::drain_events`.
+///
+/// `MoverStarted` fires when a mover leaves rest (`AtStart` or `AtEnd`), however it was
+/// triggered: toggle, channel, use or an auto-close. `MoverStopped` fires when it arrives. A
+/// reversal mid-motion (a re-toggle, or a body in the way) emits nothing: it is still moving.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MechEvent {
+    MoverStarted {
+        sector: SectorId,
+        kind: MoverKind,
+    },
+    MoverStopped {
+        sector: SectorId,
+        kind: MoverKind,
+    },
+    /// Index into `map.switches`.
+    SwitchUsed(usize),
+    NeedKey(Key),
+    Exit,
+    /// `item` indexes `map.items`.
+    ItemTaken {
+        item: usize,
+        kind: ItemKind,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mechanics {
     pub movers: Vec<Mover>,
@@ -54,6 +80,7 @@ pub struct Mechanics {
     /// Per item: already picked up.
     pub taken: Vec<bool>,
     mover_of: Vec<Option<usize>>,
+    events: Vec<MechEvent>,
 }
 
 /// The lock keys of every mover listening on `ch`, in sector (= mover) order.
@@ -104,7 +131,22 @@ impl Mechanics {
             switch_on: vec![false; map.switches.len()],
             taken: vec![false; map.items.len()],
             mover_of,
+            events: Vec::new(),
         }
+    }
+
+    /// Takes the events queued since the last call, oldest first.
+    pub fn drain_events(&mut self) -> Vec<MechEvent> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// Queues a start event for mover `m` (for code that sets its motion directly).
+    pub(crate) fn emit_started(&mut self, m: usize) {
+        let mv = &self.movers[m];
+        self.events.push(MechEvent::MoverStarted {
+            sector: mv.sector,
+            kind: mv.def.kind,
+        });
     }
 
     pub fn mover_in(&self, s: SectorId) -> Option<usize> {
@@ -118,10 +160,14 @@ impl Mechanics {
         if mv.def.kind == MoverKind::Crack {
             return;
         }
+        let at_rest = matches!(mv.motion, Motion::AtStart | Motion::AtEnd { .. });
         mv.motion = match mv.motion {
             Motion::AtStart | Motion::ToStart => Motion::ToEnd,
             Motion::AtEnd { .. } | Motion::ToEnd => Motion::ToStart,
         };
+        if at_rest {
+            self.emit_started(m);
+        }
     }
 
     /// The channel bus: toggles every mover listening on `ch`. Returns how many reacted.
@@ -148,6 +194,7 @@ impl Mechanics {
                 if let Some(k) = self.movers[m].def.lock
                     && !keys.contains(k)
                 {
+                    self.events.push(MechEvent::NeedKey(k));
                     return UseOutcome::NeedKey(k);
                 }
                 self.toggle(m);
@@ -158,20 +205,26 @@ impl Mechanics {
                 if let Some(k) = sw.key
                     && !keys.contains(k)
                 {
+                    self.events.push(MechEvent::NeedKey(k));
                     return UseOutcome::NeedKey(k);
                 }
                 if let SwitchAction::Channel(ch) = sw.action
                     && let Some(k) = self.missing_listener_key(map, ch, keys)
                 {
+                    self.events.push(MechEvent::NeedKey(k));
                     return UseOutcome::NeedKey(k);
                 }
                 self.switch_on[i] = !self.switch_on[i];
+                self.events.push(MechEvent::SwitchUsed(i));
                 match sw.action {
                     SwitchAction::Channel(ch) => {
                         self.fire(ch);
                         UseOutcome::Activated
                     }
-                    SwitchAction::Exit => UseOutcome::Exit,
+                    SwitchAction::Exit => {
+                        self.events.push(MechEvent::Exit);
+                        UseOutcome::Exit
+                    }
                 }
             }
         }
@@ -189,6 +242,10 @@ impl Mechanics {
                         *wait += dt;
                         if *wait >= limit {
                             mv.motion = Motion::ToStart;
+                            self.events.push(MechEvent::MoverStarted {
+                                sector: mv.sector,
+                                kind: mv.def.kind,
+                            });
                         }
                     }
                     continue;
@@ -211,6 +268,10 @@ impl Mechanics {
                     } else {
                         Motion::AtStart
                     };
+                    self.events.push(MechEvent::MoverStopped {
+                        sector: mv.sector,
+                        kind: mv.def.kind,
+                    });
                 }
             } else {
                 // Like a Build door hitting the player: go back the way we came.
@@ -243,6 +304,10 @@ impl Mechanics {
                 .map(|s| map.sectors[s].floor_z);
             if floor.is_some_and(|f| (body.pos.z - f).abs() <= PICKUP_HEIGHT) && accept(item.kind) {
                 self.taken[i] = true;
+                self.events.push(MechEvent::ItemTaken {
+                    item: i,
+                    kind: item.kind,
+                });
                 got.push(i);
             }
         }
@@ -538,6 +603,114 @@ mod tests {
         assert!(mech.pickup(&map, &b, |_| false).is_empty());
         assert!(!mech.taken[0]);
         assert_eq!(mech.pickup(&map, &b, |_| true), vec![0]);
+    }
+
+    fn started(sector: SectorId, kind: MoverKind) -> MechEvent {
+        MechEvent::MoverStarted { sector, kind }
+    }
+
+    fn stopped(sector: SectorId, kind: MoverKind) -> MechEvent {
+        MechEvent::MoverStopped { sector, kind }
+    }
+
+    #[test]
+    fn door_use_emits_start_stop_then_auto_close_pair() {
+        let (mut map, mut mech) = setup(door_rooms("(kind: Door, auto_return: Some(1.0))", ""));
+        let door = MoverKind::Door;
+        mech.activate(&map, UseTarget::Mover(0), KeySet::default());
+        assert_eq!(mech.drain_events(), vec![started(1, door)]);
+        run(&mut map, &mut mech, &mut [], 80);
+        assert_eq!(mech.drain_events(), vec![stopped(1, door)]);
+        // The one-second wait is silent; the auto-close then starts the door again.
+        let mut waited = 0;
+        while mech.events.is_empty() {
+            run(&mut map, &mut mech, &mut [], 1);
+            waited += 1;
+            assert!(waited < 90, "door never auto-closed");
+        }
+        assert!(waited >= 30, "closed after only {waited} ticks");
+        assert_eq!(mech.drain_events(), vec![started(1, door)]);
+        run(&mut map, &mut mech, &mut [], 80);
+        assert_eq!(mech.drain_events(), vec![stopped(1, door)]);
+    }
+
+    #[test]
+    fn reversal_mid_travel_emits_nothing() {
+        let (mut map, mut mech) = setup(door_rooms("(kind: Door)", ""));
+        mech.toggle(0);
+        mech.drain_events();
+        run(&mut map, &mut mech, &mut [], 20);
+        mech.toggle(0);
+        assert!(mech.drain_events().is_empty());
+    }
+
+    #[test]
+    fn lift_switch_emits_switch_then_start() {
+        let (_, mut mech) = setup(lift_shaft(
+            "(kind: Lift(to: 2.0), channel: Some(1))",
+            CH_SWITCH,
+        ));
+        let map = lift_shaft("(kind: Lift(to: 2.0), channel: Some(1))", CH_SWITCH);
+        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        assert_eq!(
+            mech.drain_events(),
+            vec![
+                MechEvent::SwitchUsed(0),
+                started(1, MoverKind::Lift { to: 2.0 })
+            ]
+        );
+        assert!(mech.drain_events().is_empty(), "drain empties the queue");
+    }
+
+    #[test]
+    fn missing_key_emits_need_key_only() {
+        let (map, mut mech) = setup(door_rooms("(kind: Door, lock: Some(Red))", ""));
+        mech.activate(&map, UseTarget::Mover(0), KeySet::default());
+        assert_eq!(mech.drain_events(), vec![MechEvent::NeedKey(Key::Red)]);
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            CH_SWITCH,
+        ));
+        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        assert_eq!(mech.drain_events(), vec![MechEvent::NeedKey(Key::Red)]);
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door)",
+            "switches: [(wall: (7, 0), action: Exit, key: Some(Blue))],",
+        ));
+        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        assert_eq!(mech.drain_events(), vec![MechEvent::NeedKey(Key::Blue)]);
+    }
+
+    #[test]
+    fn exit_switch_emits_exit() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door)",
+            "switches: [(wall: (7, 0), action: Exit)],",
+        ));
+        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::SwitchUsed(0), MechEvent::Exit]
+        );
+    }
+
+    #[test]
+    fn pickup_emits_item_taken_only_when_accepted() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door)",
+            "items: [(kind: Key(Red), pos: (2.5, 2.0)), (kind: Key(Blue), pos: (3.5, 2.0))],",
+        ));
+        let b = body_at(&map, 2.0, 2.0);
+        mech.pickup(&map, &b, |_| false);
+        assert!(mech.drain_events().is_empty());
+        mech.pickup(&map, &b, |_| true);
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::ItemTaken {
+                item: 0,
+                kind: ItemKind::Key(Key::Red)
+            }]
+        );
     }
 
     const CH_SWITCH: &str = "switches: [(wall: (7, 0), action: Channel(1))],";

@@ -68,6 +68,7 @@ impl Destruct {
         mv.def.speed = CRACK_SPEED;
         mv.def.auto_return = None;
         mv.motion = Motion::ToEnd;
+        mech.emit_started(m);
         true
     }
 

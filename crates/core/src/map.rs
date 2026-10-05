@@ -4,7 +4,7 @@
 //! counter-clockwise; further loops are holes, clockwise. A wall a→b becomes a portal into the
 //! sector that owns the edge b→a.
 
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 use serde::Deserialize;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -32,6 +32,9 @@ pub struct RawLevel {
     /// `wall`. Both sides of the portal get `Wall::glass`.
     #[serde(default)]
     pub glass: Vec<(usize, usize)>,
+    /// Level music track name.
+    #[serde(default)]
+    pub music: Option<String>,
 }
 
 /// Material name the glass pane of a `Wall::glass` portal renders with. `Map::from_raw` appends
@@ -299,6 +302,8 @@ pub struct Map {
     pub switches: Vec<Switch>,
     pub items: Vec<Item>,
     pub actors: Vec<ActorSpawn>,
+    /// Level music track name, if the level names one.
+    pub music: Option<String>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -502,11 +507,20 @@ impl Map {
             switches,
             items,
             actors,
+            music: raw.music,
         })
     }
 }
 
 impl Map {
+    /// Middle of sector `s`: the mean of its outer-loop vertices in XY, z halfway between floor and ceiling.
+    pub fn sector_centre(&self, s: SectorId) -> Vec3 {
+        let sec = &self.sectors[s];
+        let outer = &sec.loops[0];
+        let sum: Vec2 = outer.iter().map(|&w| self.walls[w].a).sum();
+        (sum / outer.len() as f32).extend((sec.floor_z + sec.ceil_z) * 0.5)
+    }
+
     /// Index of `GLASS_MATERIAL` in `materials`, if the level has one.
     pub fn glass_material(&self) -> Option<MaterialId> {
         self.materials.iter().position(|m| m == GLASS_MATERIAL)
@@ -540,6 +554,31 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
 mod tests {
     use super::*;
     use crate::fixtures::{pillar_room, two_rooms};
+
+    #[test]
+    fn sector_centre_is_the_middle_of_the_outer_loop() {
+        let map = two_rooms(1.0, 5.0);
+        assert_eq!(map.sector_centre(0), Vec3::new(2.0, 2.0, 1.5));
+        assert_eq!(map.sector_centre(1), Vec3::new(6.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn music_is_optional() {
+        let src = |extra: &str| {
+            format!(
+                r#"(name: "m", materials: ["w"], vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0)],
+                sectors: [(loops: [[0, 1, 2]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)],
+                player_start: (pos: (3.0, 1.0), angle_deg: 0.0), {extra})"#
+            )
+        };
+        assert_eq!(Map::from_ron(&src("")).unwrap().music, None);
+        assert_eq!(
+            Map::from_ron(&src(r#"music: Some("depot")"#))
+                .unwrap()
+                .music,
+            Some("depot".to_string())
+        );
+    }
 
     #[test]
     fn shared_edge_becomes_a_mirrored_portal() {
