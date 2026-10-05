@@ -56,6 +56,25 @@ pub struct Mechanics {
     mover_of: Vec<Option<usize>>,
 }
 
+/// The lock keys of every mover listening on `ch`, in sector (= mover) order.
+fn channel_locks(map: &Map, ch: Channel) -> impl Iterator<Item = Key> + '_ {
+    map.sectors
+        .iter()
+        .filter_map(|s| s.mover)
+        .filter(move |m| m.channel == Some(ch))
+        .filter_map(|m| m.lock)
+}
+
+/// Every key a switch on channel `ch` needs: the lock of each mover listening on it. The one
+/// rule shared by runtime (`Mechanics::activate`) and level validation.
+pub fn channel_required_keys(map: &Map, ch: Channel) -> KeySet {
+    let mut keys = KeySet::default();
+    for k in channel_locks(map, ch) {
+        keys.insert(k);
+    }
+    keys
+}
+
 impl Mechanics {
     /// Builds the runtime state and puts every sector into its start pose (doors closed).
     pub fn new(map: &mut Map) -> Mechanics {
@@ -118,11 +137,8 @@ impl Mechanics {
     }
 
     /// The first lock key (in mover order) that `keys` lacks among the movers listening on `ch`.
-    fn missing_listener_key(&self, ch: Channel, keys: KeySet) -> Option<Key> {
-        self.movers
-            .iter()
-            .filter(|m| m.def.channel == Some(ch))
-            .find_map(|m| m.def.lock.filter(|&k| !keys.contains(k)))
+    fn missing_listener_key(&self, map: &Map, ch: Channel, keys: KeySet) -> Option<Key> {
+        channel_locks(map, ch).find(|&k| !keys.contains(k))
     }
 
     /// Pressing use on `target` while holding `keys`.
@@ -145,7 +161,7 @@ impl Mechanics {
                     return UseOutcome::NeedKey(k);
                 }
                 if let SwitchAction::Channel(ch) = sw.action
-                    && let Some(k) = self.missing_listener_key(ch, keys)
+                    && let Some(k) = self.missing_listener_key(map, ch, keys)
                 {
                     return UseOutcome::NeedKey(k);
                 }

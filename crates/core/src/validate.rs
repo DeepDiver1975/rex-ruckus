@@ -7,6 +7,7 @@ use crate::geom::closest_point_on_segment;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
 };
+use crate::mechanics::channel_required_keys;
 use crate::movement::{Pose, Tuning, can_cross};
 use glam::Vec2;
 use std::collections::BTreeSet;
@@ -276,6 +277,21 @@ fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning
     reached
 }
 
+/// Can a player holding `keys` operate `sw`? A channel switch also needs the lock key of every
+/// mover listening on its channel (the same rule the runtime applies).
+fn switch_usable(map: &Map, sw: &Switch, keys: KeySet) -> bool {
+    sw.key.is_none_or(|k| keys.contains(k))
+        && match sw.action {
+            SwitchAction::Channel(c) => {
+                let need = channel_required_keys(map, c);
+                Key::ALL
+                    .iter()
+                    .all(|&k| !need.contains(k) || keys.contains(k))
+            }
+            SwitchAction::Exit => true,
+        }
+}
+
 /// Reports unreachable items and exits; returns the final reachable-sector set (None when the
 /// start is outside every sector).
 fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
@@ -284,19 +300,7 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
     let Some(start) = map.find_sector(start, None) else {
         return None; // reported by check_wiring
     };
-    // A channel switch also needs the lock key of every mover listening on its channel.
-    let usable = |sw: &Switch, keys: KeySet| {
-        sw.key.is_none_or(|k| keys.contains(k))
-            && match sw.action {
-                SwitchAction::Channel(c) => map
-                    .sectors
-                    .iter()
-                    .filter_map(|s| s.mover)
-                    .filter(|m| m.channel == Some(c))
-                    .all(|m| m.lock.is_none_or(|k| keys.contains(k))),
-                SwitchAction::Exit => true,
-            }
-    };
+    let usable = |sw: &Switch, keys: KeySet| switch_usable(map, sw, keys);
     let mut keys = KeySet::default();
     let mut fired: Vec<Channel> = Vec::new();
     let reached = loop {
@@ -617,6 +621,41 @@ mod tests {
             "switches: [(wall: (7, 0), action: Channel(1)), (wall: (3, 4), action: Exit)], items: [(kind: Key(Red), pos: (2.0, 3.0))],",
         );
         assert_eq!(validate(&ok), vec![]);
+    }
+
+    #[test]
+    fn validate_and_runtime_agree_on_channel_keys() {
+        use crate::mechanics::{Mechanics, UseOutcome, UseTarget};
+        let mut map = door_rooms(
+            "(kind: Door, channel: Some(1), lock: Some(Red))",
+            "switches: [(wall: (7, 0), action: Channel(1))],",
+        );
+        map.sectors[0].mover = Some(crate::map::MoverDef {
+            kind: crate::map::MoverKind::Door,
+            speed: 2.5,
+            lock: Some(Key::Blue),
+            channel: Some(1),
+            auto_return: None,
+        });
+        let need = channel_required_keys(&map, 1);
+        assert!(need.contains(Key::Red) && need.contains(Key::Blue) && !need.contains(Key::Yellow));
+        assert_eq!(channel_required_keys(&map, 2), KeySet::default());
+        for bits in 0..8u8 {
+            let mut keys = KeySet::default();
+            for (i, k) in Key::ALL.into_iter().enumerate() {
+                if bits >> i & 1 == 1 {
+                    keys.insert(k);
+                }
+            }
+            let mut m = map.clone();
+            let mut mech = Mechanics::new(&mut m);
+            let runtime = mech.activate(&m, UseTarget::Switch(0), keys) == UseOutcome::Activated;
+            assert_eq!(
+                switch_usable(&map, &map.switches[0], keys),
+                runtime,
+                "keys {bits:03b}"
+            );
+        }
     }
 
     fn actor(x: f32, y: f32, asleep: bool) -> String {
