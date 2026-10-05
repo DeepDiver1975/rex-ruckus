@@ -69,8 +69,8 @@ pub struct Recoil {
     pub pitch: f32,
 }
 
-/// Frame-loop animation state of the viewmodel.
-#[derive(Resource, Default)]
+/// Frame-loop animation state of the viewmodel. `restart_level` resets it in place.
+#[derive(Resource, Default, Debug, PartialEq)]
 pub struct ViewState {
     pub bob_phase: f32,
     pub sway: Vec2,

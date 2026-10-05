@@ -139,6 +139,11 @@ pub struct PlayerTuning(pub Tuning);
 #[derive(Resource)]
 pub struct MouseSensitivity(pub f32);
 
+/// Current camera roll (radians), eased toward [`view_targets`]'s roll. A resource so
+/// `restart_level` can snap it upright together with the eye.
+#[derive(Resource, Default, Debug)]
+pub struct ViewRoll(pub f32);
+
 /// Simulation only: safe to run headless.
 pub struct PlayerSimPlugin;
 
@@ -215,6 +220,7 @@ pub struct PlayerControlPlugin;
 impl Plugin for PlayerControlPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MouseSensitivity(0.0025))
+            .init_resource::<ViewRoll>()
             .add_systems(Startup, spawn_camera)
             .add_systems(Update, grab_cursor)
             .add_systems(
@@ -337,14 +343,14 @@ fn update_camera(
     state: Res<PlayState>,
     player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
-    mut roll: Local<f32>,
+    mut roll: ResMut<ViewRoll>,
 ) {
     let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
     let (eye_target, roll_target) = view_targets(*state, body.0.height - EYE_BELOW_TOP);
     let dt = frame_time.delta_secs();
     eye_h.0 = ease_toward(eye_h.0, eye_target, EYE_EASE_RATE, dt);
-    *roll = ease_toward(*roll, roll_target, EYE_EASE_RATE, dt);
+    roll.0 = ease_toward(roll.0, roll_target, EYE_EASE_RATE, dt);
     let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
     eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
     let eye = feet + Vec3::Z * eye_h.0;
@@ -353,7 +359,7 @@ fn update_camera(
         EulerRot::YXZ,
         core_angle_to_yaw(look.angle),
         look.pitch,
-        *roll,
+        roll.0,
     );
 }
 

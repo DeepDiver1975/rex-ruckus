@@ -7,8 +7,10 @@ use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{CombatSimPlugin, FxQueue, insert_defs};
 use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, restart_level};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::player::{PlayerCamera, PlayerSimPlugin, spawn_camera};
-use rr_game::viewmodel::{KickLeg, MuzzleFlash, ViewModel, ViewModelPlugin, ViewRig};
+use rr_game::player::{DEATH_ROLL, PlayerCamera, PlayerSimPlugin, ViewRoll, spawn_camera};
+use rr_game::viewmodel::{
+    KickLeg, MuzzleFlash, Recoil, ViewModel, ViewModelPlugin, ViewRig, ViewState,
+};
 
 fn app() -> App {
     let mut app = App::new();
@@ -92,4 +94,38 @@ fn flash_follows_fire_and_view_hides_when_dead() {
     *app.world_mut().resource_mut::<PlayState>() = PlayState::Dead;
     app.update();
     assert_eq!(rig_visibility(&mut app), Visibility::Hidden);
+}
+
+#[test]
+fn restart_resets_view_state_and_roll() {
+    let mut app = app();
+    app.init_resource::<ViewRoll>();
+    // Warm-up restart: registers the cached `restart_level` system (one entity) up front.
+    app.world_mut().run_system_cached(restart_level).unwrap();
+    {
+        let mut s = app.world_mut().resource_mut::<ViewState>();
+        s.last_look = Some(Vec2::new(2.0, 0.4));
+        s.recoil = Recoil {
+            z: 0.05,
+            pitch: 0.1,
+        };
+        s.flash = 0.04;
+        s.kick = 0.2;
+        s.sway = Vec2::new(0.01, 0.01);
+        s.bob_phase = 1.0;
+    }
+    app.world_mut().resource_mut::<ViewRoll>().0 = DEATH_ROLL;
+    let entities = {
+        let mut q = app.world_mut().query::<Entity>();
+        q.iter(app.world()).count()
+    };
+    app.world_mut().run_system_cached(restart_level).unwrap();
+    assert_eq!(*app.world().resource::<ViewState>(), ViewState::default());
+    assert_eq!(
+        app.world().resource::<ViewRoll>().0,
+        0.0,
+        "roll snaps upright"
+    );
+    let mut q = app.world_mut().query::<Entity>();
+    assert_eq!(q.iter(app.world()).count(), entities, "reset in place");
 }
