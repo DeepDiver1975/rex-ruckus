@@ -153,6 +153,12 @@ pub enum ItemKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum ActorKind {
     Grunt,
+    Enforcer,
+    Slasher,
+    /// Flying enemy; its def arrives with the Drone.
+    Drone,
+    /// Exploding barrel: a static, killable body.
+    Barrel,
 }
 
 fn yes() -> bool {

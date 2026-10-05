@@ -7,9 +7,9 @@
 //! `Mechanics::tick` and copies them back with [`Combat::write_back`]. Because player attacks
 //! run first, an actor killed by the player this tick never fires.
 
-use crate::actors::{Actor, AiState, Perception, hurt, think, wake};
+use crate::actors::{Actor, AiState, Perception, hurt, swipe_reaches, think, tuning, volley, wake};
 use crate::collide::{Body, clip_move, z_range};
-use crate::defs::{Attack, Defs, WeaponId};
+use crate::defs::{Attack, Defs, EnemyAttack, ProjectileDef, WeaponId};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{Map, SectorId};
 use crate::movement::{Tuning, step_player};
@@ -76,6 +76,19 @@ pub fn level_seed(name: &str) -> u64 {
     name.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
     })
+}
+
+/// Damages the player and reports `PlayerHurt { from }` (and `PlayerKilled` on the fatal hit).
+fn hurt_player(player: &mut PlayerTarget, amount: i32, from: Vec3, out: &mut Vec<CombatEvent>) {
+    match player.health.damage(amount) {
+        DamageOutcome::Ignored => {}
+        outcome => {
+            out.push(CombatEvent::PlayerHurt { amount, from });
+            if outcome == DamageOutcome::Killed {
+                out.push(CombatEvent::PlayerKilled);
+            }
+        }
+    }
 }
 
 /// `ActorWoke(i)` if the actor left `Sleep` and is still alive.
@@ -261,31 +274,44 @@ impl Combat {
             if !a.alive() {
                 continue;
             }
-            step_player(map, &mut a.body, &input, &def.tuning(), dt);
+            let t = tuning(a, def);
+            step_player(map, &mut a.body, &input, &t, dt);
             if let Some(dir) = fire {
-                let muzzle = a.muzzle();
-                let pd = def.projectile;
-                self.projectiles.push(Projectile {
-                    id: self.next_id,
-                    pos: muzzle,
-                    prev: muzzle,
-                    vel: dir * pd.speed,
-                    sector: map
-                        .find_sector(muzzle.truncate(), Some(a.body.sector))
-                        .unwrap_or(a.body.sector),
-                    radius: pd.radius,
-                    damage: pd.damage,
-                    owner: Shooter::Actor(i),
-                    targets: Targets::Player,
-                    life: pd.life,
-                    gravity: pd.gravity,
-                    bounce: pd.bounce,
-                    remote: pd.remote,
-                    splash: pd.splash,
-                    resting: false,
-                });
-                self.next_id = self.next_id.wrapping_add(1);
                 out.push(CombatEvent::ActorFired { actor: i });
+                match def.attack {
+                    EnemyAttack::Bolts { proj, .. } => self.spawn_bolt(map, i, dir, proj),
+                    EnemyAttack::Hitscan { .. } => {
+                        let mut bodies = vec![*player.body];
+                        bodies.extend(self.actors.iter().map(|a| a.body));
+                        let alive: Vec<bool> = self.actors.iter().map(Actor::alive).collect();
+                        let v = volley(
+                            map,
+                            &self.actors[i],
+                            i,
+                            def,
+                            dir,
+                            &bodies,
+                            |j| alive[j],
+                            &mut self.rng,
+                        );
+                        out.extend(
+                            v.impacts
+                                .into_iter()
+                                .map(|(point, normal)| CombatEvent::Impact { point, normal }),
+                        );
+                        if v.player_damage > 0 {
+                            let from = self.actors[i].muzzle();
+                            hurt_player(player, v.player_damage, from, &mut out);
+                        }
+                    }
+                    EnemyAttack::Melee { damage, .. } => {
+                        let a = &self.actors[i];
+                        if swipe_reaches(a, def, player.body) {
+                            hurt_player(player, damage, a.eye(), &mut out);
+                        }
+                    }
+                    EnemyAttack::None => {}
+                }
             }
         }
 
@@ -296,6 +322,32 @@ impl Combat {
             a.body.pos.z = z_range(map, a.body.pos.truncate(), a.body.radius, a.body.sector).0;
         }
         out
+    }
+
+    /// Spawns actor `i`'s bolt at its muzzle, flying along `dir`.
+    fn spawn_bolt(&mut self, map: &Map, i: usize, dir: Vec3, pd: ProjectileDef) {
+        let a = &self.actors[i];
+        let muzzle = a.muzzle();
+        self.projectiles.push(Projectile {
+            id: self.next_id,
+            pos: muzzle,
+            prev: muzzle,
+            vel: dir * pd.speed,
+            sector: map
+                .find_sector(muzzle.truncate(), Some(a.body.sector))
+                .unwrap_or(a.body.sector),
+            radius: pd.radius,
+            damage: pd.damage,
+            owner: Shooter::Actor(i),
+            targets: Targets::Player,
+            life: pd.life,
+            gravity: pd.gravity,
+            bounce: pd.bounce,
+            remote: pd.remote,
+            splash: pd.splash,
+            resting: false,
+        });
+        self.next_id = self.next_id.wrapping_add(1);
     }
 
     /// Pushes every living actor and the player apart by half their XY overlap each, when
@@ -340,18 +392,9 @@ impl Combat {
                     point: h.point,
                     normal: h.normal,
                 }),
-                ProjectileStep::HitBody(BODY_PLAYER) => match player.health.damage(p.damage) {
-                    DamageOutcome::Ignored => {}
-                    outcome => {
-                        out.push(CombatEvent::PlayerHurt {
-                            amount: p.damage,
-                            from: p.prev,
-                        });
-                        if outcome == DamageOutcome::Killed {
-                            out.push(CombatEvent::PlayerKilled);
-                        }
-                    }
-                },
+                ProjectileStep::HitBody(BODY_PLAYER) => {
+                    hurt_player(player, p.damage, p.prev, &mut out);
+                }
                 // Not reachable in M3 (actor bolts only target the player).
                 ProjectileStep::HitBody(i) => out.extend(self.damage_actor(defs, i - 1, p.damage)),
             }
@@ -443,7 +486,8 @@ mod tests {
 
         /// Unit direction from the eye to actor `i`'s chest.
         fn aim_at(&self, c: &Combat, i: usize) -> Vec3 {
-            (c.actors[i].muzzle() - self.eye()).normalize()
+            let a = &c.actors[i];
+            (a.body.pos + Vec3::Z * 0.6 * a.body.height - self.eye()).normalize()
         }
     }
 
@@ -741,7 +785,13 @@ mod tests {
             })
             .expect("bolt hit the player");
         assert!(fired < at);
-        assert_eq!(amount, d.enemy(ActorKind::Grunt).projectile.damage);
+        assert_eq!(
+            amount,
+            match d.enemy(ActorKind::Grunt).attack {
+                EnemyAttack::Bolts { proj, .. } => proj.damage,
+                _ => unreachable!("the Grunt shoots bolts"),
+            }
+        );
         assert_eq!(p.health.hp, PLAYER_MAX_HEALTH - amount);
         let came_from = (from - p.body.pos).truncate().normalize();
         assert!(
@@ -963,5 +1013,209 @@ mod tests {
             a.0.iter()
                 .any(|e| matches!(e, CombatEvent::ActorFired { .. }))
         );
+    }
+
+    fn spawn_kind(map: &mut Map, kind: ActorKind, x: f32, y: f32, angle: f32, asleep: bool) {
+        map.actors.push(ActorSpawn {
+            kind,
+            pos: Vec2::new(x, y),
+            angle,
+            asleep,
+        });
+    }
+
+    /// Shipped defs with the Enforcer planted, so its line of fire is predictable.
+    fn standing_enforcer() -> Defs {
+        let mut d = defs();
+        for e in &mut d.enemies {
+            if e.kind == ActorKind::Enforcer {
+                e.strafe = false;
+            }
+        }
+        d
+    }
+
+    #[test]
+    fn bolt_spawns_at_muzzle_offset() {
+        let mut map = combat_room();
+        spawn_at(&mut map, 6.0, 1.5, PI, false);
+        let d = defs();
+        let mut c = Combat::spawn(&map, &d, 1);
+        c.actors[0].state = AiState::Chase;
+        let mut p = Player::at(&map, 1.5, 1.5);
+        let def = d.enemy(ActorKind::Grunt);
+        let (fwd, side, up) = def.muzzle;
+        for _ in 0..120 {
+            let ev = p.tick(&mut c, &map, &d);
+            if count(&ev, |e| matches!(e, CombatEvent::ActorFired { .. })) > 0 {
+                let a = &c.actors[0];
+                let b = &c.projectiles[0];
+                // The bolt starts at the def offset rotated by the heading, not at chest height.
+                let (sin, cos) = a.angle.sin_cos();
+                let want =
+                    a.body.pos + Vec3::new(fwd * cos - side * sin, fwd * sin + side * cos, up);
+                assert!(b.prev.distance(want) < 1e-4, "{:?} vs {want:?}", b.prev);
+                assert!((b.prev.z - a.body.pos.z - up).abs() < 1e-4);
+                assert!(b.prev.z - a.body.pos.z > 0.6 * a.body.height);
+                return;
+            }
+        }
+        panic!("the Grunt never fired");
+    }
+
+    #[test]
+    fn enforcer_hitscan_hurts_player() {
+        let mut map = combat_room();
+        spawn_kind(&mut map, ActorKind::Enforcer, 2.0, 1.5, 0.0, false);
+        let d = standing_enforcer();
+        let mut c = Combat::spawn(&map, &d, 7);
+        c.actors[0].state = AiState::Chase;
+        let mut p = Player::at(&map, 7.0, 1.5);
+        let mut hurt_total = 0;
+        let (mut volleys, mut impacts) = (0, 0);
+        for _ in 0..900 {
+            let before = p.health.hp;
+            let ev = p.tick(&mut c, &map, &d);
+            volleys += count(&ev, |e| matches!(e, CombatEvent::ActorFired { .. }));
+            impacts += count(&ev, |e| matches!(e, CombatEvent::Impact { .. }));
+            for e in &ev {
+                if let CombatEvent::PlayerHurt { amount, from } = e {
+                    // One event per volley: whole pellets of 5, at most 6 of them.
+                    assert!(amount % 5 == 0 && (5..=30).contains(amount), "{amount}");
+                    assert_eq!(*from, c.actors[0].muzzle());
+                    if p.health.alive() {
+                        assert_eq!(before - p.health.hp, *amount);
+                    }
+                    hurt_total += amount;
+                }
+            }
+            assert!(c.projectiles.is_empty(), "hitscan spawns no bolts");
+            if !p.health.alive() {
+                break;
+            }
+        }
+        assert!(volleys >= 2, "{volleys} volleys");
+        assert!(hurt_total > 0, "no pellet ever hit the player");
+        assert!(impacts > 0, "pellets that miss hit the wall");
+    }
+
+    #[test]
+    fn hitscan_pellets_stop_at_other_bodies() {
+        let mut map = combat_room();
+        spawn_kind(&mut map, ActorKind::Enforcer, 2.0, 1.5, 0.0, false);
+        spawn_kind(&mut map, ActorKind::Barrel, 3.5, 1.5, 0.0, true);
+        let mut d = standing_enforcer();
+        // A tall crate: the muzzle is above a normal barrel's top.
+        for e in &mut d.enemies {
+            if e.kind == ActorKind::Barrel {
+                e.height = 2.0;
+            }
+        }
+        let mut c = Combat::spawn(&map, &d, 3);
+        c.actors[0].state = AiState::Chase;
+        let mut p = Player::at(&map, 7.0, 1.5);
+        // Actors walk through each other, so only the first volley, fired from behind the
+        // crate, is guaranteed to be blocked.
+        let ev = p.tick(&mut c, &map, &d);
+        assert!(ev.contains(&CombatEvent::ActorFired { actor: 0 }), "{ev:?}");
+        assert_eq!(
+            count(&ev, |e| matches!(e, CombatEvent::PlayerHurt { .. })),
+            0
+        );
+        assert_eq!(p.health.hp, PLAYER_MAX_HEALTH);
+        assert_eq!(c.actors[1].health.hp, d.enemy(ActorKind::Barrel).health);
+    }
+
+    #[test]
+    fn slasher_lunges_and_hits() {
+        let mut map = combat_room();
+        spawn_kind(&mut map, ActorKind::Slasher, 2.0, 1.5, 0.0, false);
+        let d = defs();
+        let def = d.enemy(ActorKind::Slasher);
+        let mut c = Combat::spawn(&map, &d, 5);
+        c.actors[0].state = AiState::Chase;
+        let mut p = Player::at(&map, 3.4, 1.5);
+        let mut top_speed = 0.0_f32;
+        for _ in 0..120 {
+            let ev = p.tick(&mut c, &map, &d);
+            if matches!(c.actors[0].state, AiState::Attack { .. }) {
+                top_speed = top_speed.max(c.actors[0].body.vel.truncate().length());
+            }
+            if let Some(CombatEvent::PlayerHurt { amount, from }) = ev
+                .iter()
+                .find(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
+            {
+                assert_eq!(*amount, 18);
+                let eye = c.actors[0].eye();
+                assert!(
+                    (from.z - eye.z).abs() < 1e-4 && from.truncate().distance(eye.truncate()) < 0.3
+                );
+                assert!(top_speed > def.speed, "lunge speed {top_speed}");
+                return;
+            }
+        }
+        panic!("the Slasher never hit");
+    }
+
+    #[test]
+    fn slasher_misses_when_player_backs_off() {
+        let mut map = combat_room();
+        spawn_kind(&mut map, ActorKind::Slasher, 2.0, 1.5, 0.0, false);
+        let d = defs();
+        let mut c = Combat::spawn(&map, &d, 5);
+        c.actors[0].state = AiState::Chase;
+        let mut p = Player::at(&map, 3.4, 1.5);
+        let mut swung = false;
+        for _ in 0..30 {
+            if matches!(c.actors[0].state, AiState::Attack { .. }) && !swung {
+                // The player leaps clear the moment the lunge starts.
+                p.body.pos.x = 7.5;
+                swung = true;
+            }
+            let ev = p.tick(&mut c, &map, &d);
+            assert_eq!(
+                count(&ev, |e| matches!(e, CombatEvent::PlayerHurt { .. })),
+                0
+            );
+            if swung && !matches!(c.actors[0].state, AiState::Attack { .. }) {
+                break;
+            }
+        }
+        assert!(swung, "the Slasher never attacked");
+        assert_eq!(p.health.hp, PLAYER_MAX_HEALTH);
+        assert!(c.actors[0].refire > 0.0, "a miss still costs the refire");
+    }
+
+    #[test]
+    fn barrel_never_thinks() {
+        let mut map = combat_room();
+        spawn_kind(&mut map, ActorKind::Barrel, 4.0, 1.5, 0.0, false);
+        let d = defs();
+        let def = d.enemy(ActorKind::Barrel);
+        let mut c = Combat::spawn(&map, &d, 2);
+        let start = c.actors[0].clone();
+        let mut p = Player::at(&map, 2.0, 1.5);
+        for _ in 0..300 {
+            assert!(p.tick(&mut c, &map, &d).is_empty());
+        }
+        assert!(c.make_noise(&map, p.eye(), p.body.sector, 30.0).is_empty());
+        assert_eq!(c.actors[0], start, "no state change, no movement");
+        assert_eq!(c.actors[0].state, AiState::Sleep);
+        // It is still a body: a trace hits it, damage lands without pain or waking, a kill goes
+        // through Dying to Dead.
+        let aim = p.aim_at(&c, 0);
+        let ev = p.shoot(&mut c, &map, &d, WeaponId::Pistol, vec![aim]);
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e, CombatEvent::ActorHurt { .. }))
+        );
+        assert!(c.actors[0].health.hp < def.health);
+        assert_eq!(c.actors[0].state, AiState::Sleep, "no wake, no pain");
+        let ev = c.damage_actor(&d, 0, 1000);
+        assert!(ev.contains(&CombatEvent::ActorKilled(0)));
+        for _ in 0..30 {
+            p.tick(&mut c, &map, &d);
+        }
+        assert_eq!(c.actors[0].state, AiState::Dead);
     }
 }

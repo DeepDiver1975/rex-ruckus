@@ -5,11 +5,12 @@
 //! `def.tuning()` and spawns a bolt for the returned fire direction.
 
 use crate::collide::Body;
-use crate::defs::EnemyDef;
+use crate::defs::{EnemyAttack, EnemyDef, Locomotion};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{ActorKind, ActorSpawn, Map, SectorId};
 use crate::movement::{MoveInput, Tuning, can_cross};
 use crate::rng::Rng;
+use crate::trace::{HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,6 +55,10 @@ pub struct Actor {
     /// Strafe timer: the sign is the sidestep direction (+ = left of the facing, − = right), the
     /// magnitude the seconds until it flips. 0 means "not drawn yet".
     pub strafe: f32,
+    /// Muzzle offset (forward, side, up) from the feet; see `EnemyDef::muzzle`.
+    pub muzzle_offset: Vec3,
+    /// Copied from the def; `Static` actors never think, wake or feel pain.
+    pub locomotion: Locomotion,
 }
 
 /// What an actor knows about the player this tick.
@@ -91,7 +96,7 @@ impl Actor {
             prev_pos: body.pos,
             angle: spawn.angle,
             health: Health::new(def.health),
-            state: if spawn.asleep {
+            state: if spawn.asleep || def.locomotion == Locomotion::Static {
                 AiState::Sleep
             } else {
                 AiState::Alert { t: 0.0 }
@@ -100,6 +105,8 @@ impl Actor {
             repath: 0.0,
             hop: None,
             strafe: 0.0,
+            muzzle_offset: Vec3::from(def.muzzle),
+            locomotion: def.locomotion,
         })
     }
 
@@ -108,9 +115,12 @@ impl Actor {
         self.body.pos + Vec3::Z * 0.9 * self.body.height
     }
 
-    /// Muzzle point at chest height (feet + 0.6 · height); bolts start here.
+    /// Muzzle point: the def's (forward, side, up) offset from the feet, rotated by the
+    /// heading (side is positive to the left). Bolts and pellets start here.
     pub fn muzzle(&self) -> Vec3 {
-        self.body.pos + Vec3::Z * 0.6 * self.body.height
+        let (sin, cos) = self.angle.sin_cos();
+        let (fwd, side, up) = self.muzzle_offset.into();
+        self.body.pos + Vec3::new(fwd * cos - side * sin, fwd * sin + side * cos, up)
     }
 
     /// Dying and dead actors are no longer targets.
@@ -121,7 +131,7 @@ impl Actor {
 
 /// Noise reached this actor: a sleeper becomes `Alert { t: 0 }`; any other state is unchanged.
 pub fn wake(a: &mut Actor) {
-    if a.state == AiState::Sleep {
+    if a.state == AiState::Sleep && a.locomotion != Locomotion::Static {
         a.state = AiState::Alert { t: 0.0 };
     }
 }
@@ -137,8 +147,25 @@ fn angle_diff(a: f32, b: f32) -> f32 {
     d.min(std::f32::consts::TAU - d)
 }
 
-/// One tick of AI. Returns the movement wish for `step_player` and, when the actor fires, the
-/// unit direction of the bolt from `a.muzzle()`.
+/// Seconds a melee actor lunges before it swipes.
+pub const LUNGE_TIME: f32 = 0.2;
+
+/// Movement tuning for this tick: the def's, except that a melee actor in its lunge moves at
+/// `lunge_speed`.
+pub fn tuning(a: &Actor, def: &EnemyDef) -> Tuning {
+    match (a.state, def.attack) {
+        (AiState::Attack { .. }, EnemyAttack::Melee { lunge_speed, .. }) => Tuning {
+            max_speed: lunge_speed,
+            ..def.tuning()
+        },
+        _ => def.tuning(),
+    }
+}
+
+/// One tick of AI. Returns the movement wish for `step_player` and, when the actor attacks, the
+/// unit direction from `a.muzzle()` to the player's chest (jittered by the aim error). The
+/// caller resolves the attack by `def.attack`: it spawns a bolt, traces a volley (`volley`) or
+/// swipes (`swipe_reaches`).
 ///
 /// Dying and dead actors (and every actor while the player is dead) return a zero input and
 /// never fire. A dead player wakes nobody and freezes every state but `Dying`.
@@ -163,7 +190,7 @@ pub fn think(
         }
         _ => {}
     }
-    if !p.alive {
+    if a.locomotion == Locomotion::Static || !p.alive {
         return idle;
     }
     a.refire = (a.refire - dt).max(0.0);
@@ -213,7 +240,7 @@ pub fn think(
             let t = t - dt;
             if t > 0.0 {
                 a.state = AiState::Attack { t, left };
-                return idle;
+                return (lunge(def, flat), None);
             }
             if left == 0 {
                 a.refire = def.attack_refire;
@@ -223,13 +250,33 @@ pub fn think(
             (MoveInput::default(), Some(shoot(a, def, p, rng, left)))
         }
         AiState::Chase => {
-            if sees && dist <= def.attack_range && a.refire <= 0.0 && def.burst > 0 {
+            let armed = def.attack != EnemyAttack::None;
+            if sees && dist <= def.attack_range && a.refire <= 0.0 && armed {
                 a.angle = heading(flat);
-                return (MoveInput::default(), Some(shoot(a, def, p, rng, def.burst)));
+                if matches!(def.attack, EnemyAttack::Melee { .. }) {
+                    a.state = AiState::Attack {
+                        t: LUNGE_TIME,
+                        left: 1,
+                    };
+                    return (lunge(def, flat), None);
+                }
+                let burst = def.attack.burst();
+                return (MoveInput::default(), Some(shoot(a, def, p, rng, burst)));
             }
             (chase(a, def, map, p, sees, rng, dt), None)
         }
         AiState::Dying { .. } | AiState::Dead => idle,
+    }
+}
+
+/// Full-speed wish along `flat` while lunging (melee only; the tuning carries the speed).
+fn lunge(def: &EnemyDef, flat: Vec2) -> MoveInput {
+    match def.attack {
+        EnemyAttack::Melee { .. } => MoveInput {
+            wish: flat.normalize_or_zero(),
+            ..MoveInput::default()
+        },
+        _ => MoveInput::default(),
     }
 }
 
@@ -238,7 +285,7 @@ pub fn think(
 fn shoot(a: &mut Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng, left: u32) -> Vec3 {
     if left > 1 {
         a.state = AiState::Attack {
-            t: def.burst_gap,
+            t: def.attack.burst_gap(),
             left: left - 1,
         };
     } else {
@@ -246,6 +293,73 @@ fn shoot(a: &mut Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng, left: u32
         a.state = AiState::Chase;
     }
     aim(a, def, p, rng)
+}
+
+/// Result of an enemy hitscan volley.
+#[derive(Debug, Default, PartialEq)]
+pub struct Volley {
+    /// Damage of the pellets that hit the player body.
+    pub player_damage: i32,
+    /// `(point, normal)` of every pellet that hit the world.
+    pub impacts: Vec<(Vec3, Vec3)>,
+}
+
+/// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
+/// direction, already jittered by the aim error) with `spread_deg` extra spread, up to
+/// `def.attack_range`. `bodies` is `[player, actor 0, actor 1, ...]` and `alive(i)` says whether
+/// actor `i` is a living target. Pellets stopped by another actor do no damage (no infighting).
+#[allow(clippy::too_many_arguments)]
+pub fn volley(
+    map: &Map,
+    a: &Actor,
+    shooter: usize,
+    def: &EnemyDef,
+    dir: Vec3,
+    bodies: &[Body],
+    alive: impl Fn(usize) -> bool,
+    rng: &mut Rng,
+) -> Volley {
+    let EnemyAttack::Hitscan {
+        damage,
+        pellets,
+        spread_deg,
+    } = def.attack
+    else {
+        return Volley::default();
+    };
+    let origin = a.muzzle();
+    let sector = map
+        .find_sector(origin.truncate(), Some(a.body.sector))
+        .unwrap_or(a.body.sector);
+    let skip = |i: usize| i != 0 && (i - 1 == shooter || !alive(i - 1));
+    let mut out = Volley::default();
+    for d in crate::weapons::spread_dirs(dir, pellets, spread_deg, rng) {
+        let ray = Ray {
+            origin,
+            dir: d,
+            sector,
+            max: def.attack_range,
+        };
+        let Some(h) = trace(map, &ray, bodies, skip, 0.0) else {
+            continue;
+        };
+        match h.kind {
+            HitKind::Body(0) => out.player_damage += damage,
+            HitKind::Body(_) => {}
+            _ => out.impacts.push((h.point, h.normal)),
+        }
+    }
+    out
+}
+
+/// Whether a swipe from `a` lands on `target`: its centre within `attack_range` plus the
+/// target's radius horizontally, and the two bodies overlapping vertically.
+pub fn swipe_reaches(a: &Actor, def: &EnemyDef, target: &Body) -> bool {
+    let reach = def.attack_range + target.radius;
+    let flat = a.body.pos.truncate().distance(target.pos.truncate());
+    let z_overlap =
+        a.body.pos.z < target.pos.z + target.height && target.pos.z < a.body.pos.z + a.body.height;
+    flat <= reach && z_overlap
 }
 
 /// Bolt direction from the muzzle to the player's chest, jittered by the aim error.
@@ -368,6 +482,8 @@ pub fn hurt(a: &mut Actor, def: &EnemyDef, n: i32, rng: &mut Rng) -> DamageOutco
             a.body.height = CORPSE_HEIGHT;
             a.hop = None;
         }
+        // Static actors (barrels) neither wake nor flinch.
+        DamageOutcome::Hurt if a.locomotion == Locomotion::Static => {}
         DamageOutcome::Hurt => {
             if matches!(a.state, AiState::Sleep | AiState::Alert { .. }) {
                 a.state = AiState::Chase;
@@ -604,7 +720,15 @@ mod tests {
         let map = pillar_room();
         let mut def = grunt();
         def.strafe = false;
-        def.burst = 3;
+        let EnemyAttack::Bolts { proj, .. } = def.attack else {
+            panic!("the Grunt shoots bolts")
+        };
+        def.attack = EnemyAttack::Bolts {
+            proj,
+            burst: 3,
+            burst_gap: 0.25,
+        };
+        let (burst, burst_gap) = (def.attack.burst(), def.attack.burst_gap());
         let p = player_at(&map, 2.0, 8.0);
         let mut a = actor_at(&map, &def, 8.0, 8.0, PI, false);
         a.state = AiState::Chase;
@@ -625,15 +749,11 @@ mod tests {
             }
         }
         assert!(attack_ticks > 0);
-        assert!(
-            fired.len() >= 2 * def.burst as usize,
-            "{} shots",
-            fired.len()
-        );
-        let gap = (def.burst_gap / DT).round() as usize;
+        assert!(fired.len() >= 2 * burst as usize, "{} shots", fired.len());
+        let gap = (burst_gap / DT).round() as usize;
         let refire = (def.attack_refire / DT).round() as usize;
         // First burst: `burst` shots `burst_gap` apart.
-        for w in fired[..def.burst as usize].windows(2) {
+        for w in fired[..burst as usize].windows(2) {
             assert!(
                 (w[1].0 - w[0].0).abs_diff(gap) <= 1,
                 "{} → {}",
@@ -642,7 +762,7 @@ mod tests {
             );
         }
         // Then nothing until the refire timer has run.
-        let pause = fired[def.burst as usize].0 - fired[def.burst as usize - 1].0;
+        let pause = fired[burst as usize].0 - fired[burst as usize - 1].0;
         assert!(pause + 1 >= refire, "pause {pause} ticks, refire {refire}");
         // Every bolt is a unit vector aimed at the chest, within the aim error.
         let max_err = def.aim_error_deg.to_radians() + 1e-3;

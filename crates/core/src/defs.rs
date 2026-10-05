@@ -144,6 +144,57 @@ pub struct SplashDef {
     pub self_scale: f32,
 }
 
+/// How an enemy attacks once it has the player in range.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum EnemyAttack {
+    /// Slow bolts spawned at the muzzle: `burst` shots `burst_gap` seconds apart.
+    Bolts {
+        proj: ProjectileDef,
+        burst: u32,
+        burst_gap: f32,
+    },
+    /// An instant volley of `pellets` traces, each `damage`, spread over `spread_deg`.
+    Hitscan {
+        damage: i32,
+        pellets: u32,
+        spread_deg: f32,
+    },
+    /// A short lunge at `lunge_speed` followed by a claw swipe of `damage`.
+    Melee { damage: i32, lunge_speed: f32 },
+    /// Never attacks.
+    None,
+}
+
+impl EnemyAttack {
+    /// Shots in one attack sequence (1 for everything but bolt bursts).
+    pub fn burst(&self) -> u32 {
+        match *self {
+            EnemyAttack::Bolts { burst, .. } => burst,
+            _ => 1,
+        }
+    }
+
+    /// Seconds between the shots of a burst.
+    pub fn burst_gap(&self) -> f32 {
+        match *self {
+            EnemyAttack::Bolts { burst_gap, .. } => burst_gap,
+            _ => 0.0,
+        }
+    }
+}
+
+/// How an enemy gets around.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Deserialize)]
+pub enum Locomotion {
+    #[default]
+    Walk,
+    /// Hovers `hover` metres above the floor; `swoop` dives at the player. Not implemented yet:
+    /// until the Drone lands, flyers walk.
+    Fly { hover: f32, swoop: bool },
+    /// Never moves, never thinks (barrels): a body that can be hurt and killed.
+    Static,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct EnemyDef {
     pub kind: ActorKind,
@@ -156,14 +207,26 @@ pub struct EnemyDef {
     pub reaction: f32,
     pub attack_range: f32,
     pub attack_refire: f32,
-    pub burst: u32,
-    pub burst_gap: f32,
     pub aim_error_deg: f32,
-    pub projectile: ProjectileDef,
+    pub attack: EnemyAttack,
+    #[serde(default)]
+    pub locomotion: Locomotion,
+    /// Muzzle offset from the feet as (forward, side, up), side positive to the actor's left,
+    /// rotated by its heading.
+    pub muzzle: (f32, f32, f32),
     pub pain_chance: f32,
     pub pain_time: f32,
+    /// Minimum seconds between pains (behaviour lands with the stun-lock fix).
+    #[serde(default)]
+    pub pain_cooldown: f32,
     pub death_time: f32,
     pub strafe: bool,
+    /// Area blast when the actor dies (exploding barrels).
+    #[serde(default)]
+    pub death_splash: Option<SplashDef>,
+    /// Seconds between the death and that blast.
+    #[serde(default)]
+    pub death_fuse: f32,
 }
 
 impl EnemyDef {
@@ -392,35 +455,100 @@ impl Defs {
         }
         for e in &self.enemies {
             let what = format!("enemy {:?}", e.kind);
+            let fixed = e.locomotion == Locomotion::Static;
+            let armed = e.attack != EnemyAttack::None;
             if e.health <= 0 {
                 return Err(invalid(what, "health must be positive"));
             }
-            if !pos(e.radius) || !pos(e.height) || !pos(e.speed) {
-                return Err(invalid(what, "radius, height and speed must be positive"));
+            if !pos(e.radius) || !pos(e.height) {
+                return Err(invalid(what, "radius and height must be positive"));
             }
-            if !pos(e.sight_range) || !pos(e.attack_range) || !pos(e.attack_refire) {
-                return Err(invalid(what, "ranges and refire must be positive"));
+            // Static actors never move, look or attack, so those numbers may be zero.
+            if !(if fixed { nonneg(e.speed) } else { pos(e.speed) }) {
+                return Err(invalid(what, "speed must be positive"));
+            }
+            if !(if fixed {
+                nonneg(e.sight_range)
+            } else {
+                pos(e.sight_range)
+            }) {
+                return Err(invalid(what, "sight range must be positive"));
+            }
+            if !(if armed {
+                pos(e.attack_range) && pos(e.attack_refire)
+            } else {
+                nonneg(e.attack_range) && nonneg(e.attack_refire)
+            }) {
+                return Err(invalid(what, "attack range and refire must be positive"));
             }
             if !(e.fov_deg.is_finite() && e.fov_deg > 0.0 && e.fov_deg <= 360.0) {
                 return Err(invalid(what, "fov must be in (0, 360]"));
             }
             if !nonneg(e.reaction)
-                || !nonneg(e.burst_gap)
                 || !nonneg(e.aim_error_deg)
                 || !nonneg(e.pain_time)
+                || !nonneg(e.pain_cooldown)
                 || !nonneg(e.death_time)
+                || !nonneg(e.death_fuse)
             {
                 return Err(invalid(what, "times and aim error must not be negative"));
             }
-            if e.burst == 0 {
-                return Err(invalid(what, "burst must be at least 1"));
+            let m = e.muzzle;
+            if !(m.0.is_finite() && m.1.is_finite() && m.2.is_finite()) {
+                return Err(invalid(what, "muzzle must be finite"));
             }
             if !(0.0..=1.0).contains(&e.pain_chance) {
                 return Err(invalid(what, "pain chance must be in [0, 1]"));
             }
-            let p = &e.projectile;
-            if !pos(p.speed) || !pos(p.radius) || !pos(p.life) || p.damage <= 0 {
-                return Err(invalid(what, "projectile values must be positive"));
+            match e.attack {
+                EnemyAttack::Bolts {
+                    proj,
+                    burst,
+                    burst_gap,
+                } => {
+                    if burst == 0 {
+                        return Err(invalid(what, "burst must be at least 1"));
+                    }
+                    if !nonneg(burst_gap) {
+                        return Err(invalid(what, "burst gap must not be negative"));
+                    }
+                    if !pos(proj.speed) || !pos(proj.radius) || !pos(proj.life) || proj.damage <= 0
+                    {
+                        return Err(invalid(what, "projectile values must be positive"));
+                    }
+                }
+                EnemyAttack::Hitscan {
+                    damage,
+                    pellets,
+                    spread_deg,
+                } => {
+                    if damage <= 0 || pellets == 0 || !nonneg(spread_deg) {
+                        return Err(invalid(
+                            what,
+                            "hitscan damage and pellets must be positive, spread not negative",
+                        ));
+                    }
+                }
+                EnemyAttack::Melee {
+                    damage,
+                    lunge_speed,
+                } => {
+                    if damage <= 0 || !pos(lunge_speed) {
+                        return Err(invalid(
+                            what,
+                            "melee damage and lunge speed must be positive",
+                        ));
+                    }
+                }
+                EnemyAttack::None => {}
+            }
+            if let Some(s) = e.death_splash
+                && (!pos(s.radius) || s.damage <= 0 || !nonneg(s.self_scale))
+            {
+                return Err(invalid(
+                    what,
+                    "death splash radius and damage must be positive",
+                ));
             }
         }
         if !self.enemies.iter().any(|e| e.kind == ActorKind::Grunt) {
@@ -568,5 +696,57 @@ mod tests {
         let g = d.enemy(ActorKind::Grunt);
         assert!(g.radius <= 0.4);
         assert!(g.height <= crate::movement::Tuning::default().stand_height);
+    }
+
+    #[test]
+    fn static_enemies_may_have_zero_speed_and_sight() {
+        let d = Defs::builtin();
+        let barrel = d.enemy(ActorKind::Barrel);
+        assert_eq!(barrel.locomotion, Locomotion::Static);
+        assert_eq!(barrel.attack, EnemyAttack::None);
+        assert_eq!((barrel.speed, barrel.sight_range), (0.0, 0.0));
+        assert_eq!(barrel.health, 15);
+        assert_eq!(
+            barrel.death_splash.map(|s| (s.radius, s.damage)),
+            Some((4.0, 70))
+        );
+        // The same zeros are rejected on a walker.
+        rejects(
+            W,
+            &E.replacen(
+                "health: 70, radius: 0.4, height: 1.85, speed: 3.0",
+                "health: 70, radius: 0.4, height: 1.85, speed: 0.0",
+                1,
+            ),
+        );
+        // And a Static def still needs a body.
+        rejects(
+            W,
+            &E.replacen("health: 15, radius: 0.4", "health: 15, radius: 0.0", 1),
+        );
+    }
+
+    #[test]
+    fn enemy_attacks_are_validated() {
+        let d = Defs::builtin();
+        assert_eq!(
+            d.enemy(ActorKind::Enforcer).attack,
+            EnemyAttack::Hitscan {
+                damage: 5,
+                pellets: 6,
+                spread_deg: 7.0
+            }
+        );
+        assert_eq!(
+            d.enemy(ActorKind::Slasher).attack,
+            EnemyAttack::Melee {
+                damage: 18,
+                lunge_speed: 12.0
+            }
+        );
+        assert_eq!(d.enemy(ActorKind::Grunt).attack.burst(), 2);
+        rejects(W, &E.replacen("pellets: 6", "pellets: 0", 1));
+        rejects(W, &E.replacen("lunge_speed: 12.0", "lunge_speed: 0.0", 1));
+        rejects(W, &E.replacen("burst: 2", "burst: 0", 1));
     }
 }
