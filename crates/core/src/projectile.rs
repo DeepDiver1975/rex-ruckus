@@ -86,6 +86,9 @@ const REST_SPEED: f32 = 0.5;
 const NUDGE_SLACK: f32 = 1.5;
 /// Gap left between a bouncing projectile's surface and the wall it hit (m).
 const BOUNCE_NUDGE: f32 = 0.01;
+/// How far past a step's reach (m) a free move that ended outside every sector looks for the
+/// wall it must have touched; far beyond f32 rounding at map scale, short of any real gap.
+const CONTACT_SLOP: f32 = 0.01;
 
 /// Advances `p` by `dt`: gravity first, then the move. A body or world hit within the step ends
 /// it (`pos` is set to the hit point), except that a projectile with `bounce` reflects off world
@@ -117,14 +120,33 @@ pub fn step_projectile(
             sector: p.sector,
             max: speed * left,
         };
-        let Some(hit) = trace(map, &ray, bodies, |i| p.ignores(i) || skip(i), p.radius) else {
-            p.pos += p.vel * left;
-            match map.find_sector(p.pos.truncate(), Some(p.sector)) {
-                Some(s) => p.sector = s,
-                // `pos` has already advanced but `sector` is stale here.
-                None => return ProjectileStep::Expired,
+        let ignored = |i| p.ignores(i) || skip(i);
+        let hit = match trace(map, &ray, bodies, ignored, p.radius) {
+            Some(hit) => hit,
+            None => {
+                let end = p.pos + p.vel * left;
+                if let Some(s) = map.find_sector(end.truncate(), Some(p.sector)) {
+                    p.pos = end;
+                    p.sector = s;
+                    break;
+                }
+                // The trace put the next wall just past `ray.max`, yet the move (computed
+                // differently, in f32) ends on or past it, where `find_sector`'s half-open rule
+                // finds no sector. That is a contact with the wall, not a way out of the map:
+                // look a little further and take what the ray meets as this step's hit.
+                let reach = Ray {
+                    max: ray.max + CONTACT_SLOP,
+                    ..ray
+                };
+                match trace(map, &reach, bodies, ignored, p.radius) {
+                    Some(hit) => hit,
+                    None => {
+                        // `pos` has advanced but `sector` is stale here.
+                        p.pos = end;
+                        return ProjectileStep::Expired;
+                    }
+                }
             }
-            break;
         };
         p.pos = hit.point;
         if let HitKind::Body(i) = hit.kind {
@@ -133,7 +155,8 @@ pub fn step_projectile(
         let Some(e) = p.bounce else {
             return ProjectileStep::HitWorld(hit);
         };
-        left -= hit.dist / speed;
+        // A contact found past `ray.max` (see above) uses up the rest of the step.
+        left = (left - hit.dist / speed).max(0.0);
         let n = hit.normal;
         p.vel = (p.vel - 2.0 * p.vel.dot(n) * n) * e;
         // The nudge can cross a portal edge (step face, soffit); re-resolve the sector from the
@@ -500,6 +523,29 @@ mod tests {
                     p.pos
                 );
             }
+        }
+    }
+
+    #[test]
+    fn bomb_landing_exactly_on_outer_wall_bounces_instead_of_leaving_map() {
+        // Shrunk `bomb_never_tunnels` case: on tick 41 the free move ends at exactly x=16.5 (the
+        // east wall of sector 4) while the trace put that wall ~1e-6 m past the step's reach.
+        let map = combat_room();
+        let start = Vec3::new(15.260368, 5.7560463, 0.6);
+        let mut p = bomb(&map, start, Vec3::new(-32.656967, 36.054604, 23.89844));
+        for tick in 0..120 {
+            let o = step_projectile(&map, &mut p, &[], |_| false, DT);
+            assert!(
+                matches!(o, ProjectileStep::Flying | ProjectileStep::Resting),
+                "tick {tick}: {o:?} at {:?}",
+                p.pos
+            );
+            assert!(
+                map.sector_contains(p.sector, p.pos.truncate()),
+                "tick {tick}: sector {} does not contain {:?}",
+                p.sector,
+                p.pos
+            );
         }
     }
 
