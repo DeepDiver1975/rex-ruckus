@@ -170,7 +170,8 @@ fn player_weapons(
         // Consume the latches every tick so presses never pile up.
         let input = WeaponInput {
             // A tap between ticks fires at least once even though the button is up again.
-            fire: input.fire | std::mem::take(&mut input.fire_pressed),
+            fire: input.fire | input.fire_pressed,
+            fire_pressed: std::mem::take(&mut input.fire_pressed),
             reload: std::mem::take(&mut input.reload),
             kick: std::mem::take(&mut input.kick),
             select: input.select.take(),

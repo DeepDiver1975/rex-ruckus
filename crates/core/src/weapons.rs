@@ -12,7 +12,10 @@ use glam::Vec3;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WeaponInput {
+    /// Fire held (a tap between ticks also counts).
     pub fire: bool,
+    /// Fire went down since the last tick (edge). Detonates live pipe bombs.
+    pub fire_pressed: bool,
     pub reload: bool,
     pub kick: bool,
     pub select: Option<WeaponId>,
@@ -29,8 +32,20 @@ pub enum WeaponPhase {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WeaponEvent {
-    Fire { weapon: WeaponId, dirs: Vec<Vec3> },
-    Kick { dir: Vec3 },
+    Fire {
+        weapon: WeaponId,
+        dirs: Vec<Vec3>,
+    },
+    /// A projectile weapon fired along `dir`; combat spawns the projectile.
+    Launch {
+        weapon: WeaponId,
+        dir: Vec3,
+    },
+    /// Fire pressed with pipe bombs live: set them all off. Costs no ammo and throws nothing.
+    Detonate,
+    Kick {
+        dir: Vec3,
+    },
     DryFire,
     ReloadStart,
     ReloadDone,
@@ -49,6 +64,8 @@ pub struct Arsenal {
     pub kick_cooldown: f32,
     /// A manual reload press waiting for the phase to return to `Ready`.
     pub reload_queued: bool,
+    /// Pipe bombs currently in the world; the combat layer sets this every tick.
+    pub live_bombs: u32,
 }
 
 /// `pellets` unit vectors spread uniformly (by solid angle) over a cone of half-angle
@@ -81,6 +98,7 @@ impl Arsenal {
             reserve: [0; AmmoKind::ALL.len()],
             kick_cooldown: 0.0,
             reload_queued: false,
+            live_bombs: 0,
         };
         for k in AmmoKind::ALL {
             a.reserve[k.index()] = defs.ammo(k).start;
@@ -186,6 +204,20 @@ impl Arsenal {
             self.begin_switch(defs, w);
         }
 
+        // Remote detonation: a fresh press with bombs out, unless mid-switch or mid-reload.
+        // It eats the press (no throw this tick) and costs one refire.
+        let mut masked = *input;
+        if self.current == WeaponId::PipeBombs
+            && input.fire_pressed
+            && self.live_bombs > 0
+            && matches!(self.phase, WeaponPhase::Ready | WeaponPhase::Cooldown(_))
+        {
+            ev.push(WeaponEvent::Detonate);
+            self.phase = WeaponPhase::Cooldown(defs.weapon(WeaponId::PipeBombs).refire);
+            masked.fire = false;
+        }
+        let input = &masked;
+
         let mut left = dt;
         // Bounded: every iteration either consumes time or changes phase towards a timed one.
         for _ in 0..64 {
@@ -249,6 +281,12 @@ impl Arsenal {
     ) -> bool {
         let w = self.current;
         let d = defs.weapon(w);
+        // Out of bombs with none live: put the launcher away without waiting for a press.
+        if w == WeaponId::PipeBombs && self.live_bombs == 0 && !self.has_ammo(defs, w) {
+            let best = self.best_armed(defs);
+            self.begin_switch(defs, best);
+            return matches!(self.phase, WeaponPhase::Switching { .. });
+        }
         let queued = std::mem::take(&mut self.reload_queued);
         let (Some(size), Some(kind)) = (d.clip, d.ammo) else {
             return self.try_fire(defs, input, aim, rng, ev);
@@ -277,6 +315,10 @@ impl Arsenal {
         let w = self.current;
         let d = defs.weapon(w);
         if !self.has_ammo(defs, w) {
+            // Bombs still out: stay armed so the next press can detonate them.
+            if w == WeaponId::PipeBombs && self.live_bombs > 0 {
+                return false;
+            }
             ev.push(WeaponEvent::DryFire);
             let best = self.best_armed(defs);
             self.begin_switch(defs, best);
@@ -289,7 +331,16 @@ impl Arsenal {
                 self.reserve[kind.index()] -= 1;
             }
         }
+        if let Attack::Projectile { .. } = d.attack {
+            ev.push(WeaponEvent::Launch {
+                weapon: w,
+                dir: aim,
+            });
+            self.phase = WeaponPhase::Cooldown(d.refire);
+            return true;
+        }
         let dirs = match d.attack {
+            Attack::Projectile { .. } => unreachable!("handled above"),
             Attack::Melee { .. } => vec![aim],
             Attack::Hitscan {
                 pellets,
@@ -830,6 +881,122 @@ mod tests {
         assert_eq!(
             a.cycle_target(&d, -1),
             Some(WeaponId::ALL[(a.current.index() + 5) % 6])
+        );
+    }
+    fn armed(w: WeaponId, bullets: u32, rockets: u32, bombs: u32) -> (Defs, Arsenal, Rng) {
+        let d = fixtures::defs();
+        let mut a = Arsenal::new(&d);
+        a.owned[w.index()] = true;
+        a.current = w;
+        a.reserve[AmmoKind::Bullets.index()] = bullets;
+        a.reserve[AmmoKind::Rockets.index()] = rockets;
+        a.reserve[AmmoKind::Bombs.index()] = bombs;
+        (d, a, Rng::new(1))
+    }
+
+    fn launches(ev: &[WeaponEvent]) -> usize {
+        ev.iter()
+            .filter(|e| matches!(e, WeaponEvent::Launch { .. }))
+            .count()
+    }
+
+    #[test]
+    fn chaingun_fires_at_refire_rate() {
+        let (d, mut a, mut rng) = armed(WeaponId::Chaingun, 100, 0, 0);
+        let ev = run(&mut a, &d, &held(), &mut rng, 1.0);
+        let expected = (1.0 / d.weapon(WeaponId::Chaingun).refire).ceil() as usize;
+        assert_eq!(expected, 15, "shipped chaingun: 0.07 s refire");
+        assert_eq!(fires(&ev), expected);
+        assert_eq!(a.reserve[AmmoKind::Bullets.index()], 100 - expected as u32);
+    }
+
+    #[test]
+    fn rocket_launch_consumes_one() {
+        let (d, mut a, mut rng) = armed(WeaponId::Rockets, 0, 5, 0);
+        let ev = a.tick(&d, &held(), Vec3::X, &mut rng, DT);
+        assert_eq!(
+            ev,
+            vec![WeaponEvent::Launch {
+                weapon: WeaponId::Rockets,
+                dir: Vec3::X
+            }]
+        );
+        assert_eq!(a.reserve[AmmoKind::Rockets.index()], 4);
+        assert!(matches!(a.phase, WeaponPhase::Cooldown(_)));
+        // Refire 0.8 s: held for 1 s launches twice in total.
+        let ev = run(&mut a, &d, &held(), &mut rng, 1.0);
+        assert_eq!(launches(&ev), 1);
+    }
+
+    #[test]
+    fn fire_detonates_live_bombs() {
+        let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 0, 0, 3);
+        a.live_bombs = 2;
+        let press = WeaponInput {
+            fire: true,
+            fire_pressed: true,
+            ..Default::default()
+        };
+        let ev = a.tick(&d, &press, Vec3::X, &mut rng, DT);
+        assert_eq!(ev, vec![WeaponEvent::Detonate]);
+        assert_eq!(a.reserve[AmmoKind::Bombs.index()], 3, "no ammo spent");
+        // A held button without a fresh press does not detonate again.
+        a.live_bombs = 2;
+        let ev = run(&mut a, &d, &held(), &mut rng, 1.0);
+        assert!(!ev.contains(&WeaponEvent::Detonate));
+    }
+
+    #[test]
+    fn fire_throws_when_none_live() {
+        let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 0, 0, 3);
+        let press = WeaponInput {
+            fire: true,
+            fire_pressed: true,
+            ..Default::default()
+        };
+        let ev = a.tick(&d, &press, Vec3::X, &mut rng, DT);
+        assert_eq!(
+            ev,
+            vec![WeaponEvent::Launch {
+                weapon: WeaponId::PipeBombs,
+                dir: Vec3::X
+            }]
+        );
+        assert_eq!(a.reserve[AmmoKind::Bombs.index()], 2);
+        // Live bombs but a mere hold: throws (no edge), consuming ammo.
+        let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 0, 0, 3);
+        a.live_bombs = 1;
+        let ev = a.tick(&d, &held(), Vec3::X, &mut rng, DT);
+        assert_eq!(launches(&ev), 1);
+    }
+
+    #[test]
+    fn out_of_bombs_switches_away() {
+        let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 0, 0, 0);
+        a.owned[WeaponId::Pistol.index()] = true;
+        a.reserve[AmmoKind::Bullets.index()] = 10;
+        a.tick(&d, &WeaponInput::default(), Vec3::X, &mut rng, DT);
+        assert!(matches!(
+            a.phase,
+            WeaponPhase::Switching {
+                to: WeaponId::Pistol,
+                ..
+            }
+        ));
+        // With bombs still live and no ammo the player stays to detonate.
+        let (d, mut a, mut rng) = armed(WeaponId::PipeBombs, 10, 0, 0);
+        a.live_bombs = 1;
+        let ev = run(&mut a, &d, &held(), &mut rng, 0.5);
+        assert!(ev.is_empty());
+        assert_eq!(a.phase, WeaponPhase::Ready);
+        let press = WeaponInput {
+            fire: true,
+            fire_pressed: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            a.tick(&d, &press, Vec3::X, &mut rng, DT),
+            vec![WeaponEvent::Detonate]
         );
     }
 }

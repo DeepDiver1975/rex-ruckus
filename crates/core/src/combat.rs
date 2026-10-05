@@ -129,6 +129,8 @@ impl Combat {
             // Melee is a single ray along the aim.
             Attack::Melee { range, damage } => (damage, range, &dirs[..dirs.len().min(1)]),
             Attack::Hitscan { damage, range, .. } => (damage, range, dirs),
+            // Projectiles arrive as `Launch` events (wired in a later task).
+            Attack::Projectile { .. } => return Vec::new(),
         };
 
         // The actors alone form the bodies slice here, so body `i` is actor `i`; the player

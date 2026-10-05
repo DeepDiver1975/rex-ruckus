@@ -74,6 +74,10 @@ pub enum Attack {
         spread_deg: f32,
         range: f32,
     },
+    /// Rockets and thrown bombs: combat spawns the projectile on `WeaponEvent::Launch`.
+    Projectile {
+        proj: ProjectileDef,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -241,6 +245,35 @@ fn check_attack(what: &str, a: &Attack) -> Result<(), DefsError> {
             }
             if !pos(range) {
                 return Err(invalid(what, "range must be positive"));
+            }
+        }
+        Attack::Projectile { proj } => {
+            if !pos(proj.speed) || !pos(proj.radius) || !pos(proj.life) {
+                return Err(invalid(
+                    what,
+                    "projectile speed, radius and life must be positive",
+                ));
+            }
+            if proj.damage < 0 || !nonneg(proj.gravity) {
+                return Err(invalid(
+                    what,
+                    "projectile damage and gravity must not be negative",
+                ));
+            }
+            if proj
+                .bounce
+                .is_some_and(|e| !(e.is_finite() && (0.0..=1.0).contains(&e)))
+            {
+                return Err(invalid(what, "bounce must be within 0..=1"));
+            }
+            match proj.splash {
+                Some(s) if !pos(s.radius) || s.damage <= 0 || !nonneg(s.self_scale) => {
+                    return Err(invalid(what, "splash radius and damage must be positive"));
+                }
+                None if proj.damage <= 0 => {
+                    return Err(invalid(what, "damage must be positive"));
+                }
+                _ => {}
             }
         }
     }

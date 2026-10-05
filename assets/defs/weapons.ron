@@ -25,23 +25,29 @@
             refire: 0.9, ammo: Some(Shells), clip: None, reload: 0.0,
             switch_time: 0.3, noise: 30.0, pickup_ammo: 10, priority: 3,
         ),
-        // Placeholder attacks for the next three weapons: Hitscan until the projectile tasks.
         (
             id: Chaingun, name: "Chaingun",
-            attack: Hitscan(damage: 7, pellets: 1, spread_deg: 2.5, range: 200.0),
-            refire: 0.08, ammo: Some(Bullets), clip: None, reload: 0.0,
+            attack: Hitscan(damage: 9, pellets: 1, spread_deg: 2.5, range: 200.0),
+            refire: 0.07, ammo: Some(Bullets), clip: None, reload: 0.0,
             switch_time: 0.4, noise: 30.0, pickup_ammo: 40, priority: 4,
         ),
         (
             id: Rockets, name: "Rocket Launcher",
-            attack: Hitscan(damage: 40, pellets: 1, spread_deg: 0.0, range: 200.0),
-            refire: 1.0, ammo: Some(Rockets), clip: None, reload: 0.0,
-            switch_time: 0.5, noise: 35.0, pickup_ammo: 5, priority: 0,
+            attack: Projectile(proj: (
+                speed: 30.0, damage: 20, radius: 0.15, life: 5.0,
+                splash: Some((radius: 5.0, damage: 80, self_scale: 0.5)),
+            )),
+            refire: 0.8, ammo: Some(Rockets), clip: None, reload: 0.0,
+            switch_time: 0.5, noise: 30.0, pickup_ammo: 5, priority: 0,
         ),
         (
             id: PipeBombs, name: "Pipe Bombs",
-            attack: Hitscan(damage: 40, pellets: 1, spread_deg: 0.0, range: 200.0),
-            refire: 0.8, ammo: Some(Bombs), clip: None, reload: 0.0,
+            attack: Projectile(proj: (
+                speed: 12.0, damage: 0, radius: 0.1, life: 60.0,
+                gravity: 12.0, bounce: Some(0.45), remote: true,
+                splash: Some((radius: 6.0, damage: 100, self_scale: 1.0)),
+            )),
+            refire: 0.5, ammo: Some(Bombs), clip: None, reload: 0.0,
             switch_time: 0.4, noise: 10.0, pickup_ammo: 3, priority: 0,
         ),
     ],
