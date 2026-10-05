@@ -1,0 +1,777 @@
+//! Enemy actors: the Grunt's per-tick brain (sleep → alert → chase ⇄ attack, pain, death),
+//! sector-graph chasing and damage reactions.
+//!
+//! `think` only decides; the caller moves the body with `movement::step_player` using
+//! `def.tuning()` and spawns a bolt for the returned fire direction.
+
+use crate::collide::Body;
+use crate::defs::EnemyDef;
+use crate::health::{DamageOutcome, Health};
+use crate::map::{ActorKind, ActorSpawn, Map, SectorId};
+use crate::movement::{MoveInput, Tuning, can_cross};
+use crate::rng::Rng;
+use glam::{Vec2, Vec3};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AiState {
+    Sleep,
+    /// Awake; `t` counts up to the reaction time, then the actor chases.
+    Alert {
+        t: f32,
+    },
+    Chase,
+    /// Firing a burst: `t` is the time until the next shot, `left` the shots still to fire.
+    Attack {
+        t: f32,
+        left: u32,
+    },
+    /// Frozen; `t` counts down.
+    Pain {
+        t: f32,
+    },
+    /// Collapsing; `t` counts down, then `Dead`.
+    Dying {
+        t: f32,
+    },
+    Dead,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Actor {
+    pub kind: ActorKind,
+    pub body: Body,
+    pub prev_pos: Vec3,
+    /// Heading in radians (0 = +x, counter-clockwise).
+    pub angle: f32,
+    pub health: Health,
+    pub state: AiState,
+    /// Time until the next burst may start.
+    pub refire: f32,
+    /// Time until the chase route (`hop`) is recomputed.
+    pub repath: f32,
+    /// Next sector on the route to the player, when chasing out of sight.
+    pub hop: Option<SectorId>,
+    /// Strafe timer: the sign is the sidestep direction (+ = left of the facing, − = right), the
+    /// magnitude the seconds until it flips. 0 means "not drawn yet".
+    pub strafe: f32,
+}
+
+/// What an actor knows about the player this tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Perception {
+    /// The player's eye point (what actors try to see).
+    pub eye: Vec3,
+    /// The player's chest point (feet + 0.6 · height), where actors aim.
+    pub chest: Vec3,
+    pub sector: SectorId,
+    pub alive: bool,
+}
+
+/// How long a chase route stays valid before `next_hop` runs again.
+pub const REPATH: f32 = 0.5;
+/// Sidestep strength while strafing, as a fraction of the actor's speed.
+pub const STRAFE: f32 = 0.6;
+/// Range of the strafe flip interval, in seconds.
+pub const STRAFE_FLIP: (f32, f32) = (0.8, 1.5);
+/// Body height of a dying or dead actor.
+pub const CORPSE_HEIGHT: f32 = 0.3;
+/// Chasing actors with the player in sight stop closing in at this distance.
+pub const CLOSE_ENOUGH: f32 = 1.5;
+/// How far past a portal's midpoint the route waypoint lies, so the body actually crosses.
+const PORTAL_OVERSHOOT: f32 = 0.25;
+
+impl Actor {
+    /// A fresh actor at a map spawn point, or `None` if the spawn lies outside every sector.
+    /// Sleeping spawns start in `Sleep`, awake ones in `Alert` (they still react before chasing).
+    pub fn new(map: &Map, def: &EnemyDef, spawn: &ActorSpawn) -> Option<Actor> {
+        let body = Body::spawn(map, spawn.pos, def.radius, def.height)?;
+        Some(Actor {
+            kind: spawn.kind,
+            body,
+            prev_pos: body.pos,
+            angle: spawn.angle,
+            health: Health::new(def.health),
+            state: if spawn.asleep {
+                AiState::Sleep
+            } else {
+                AiState::Alert { t: 0.0 }
+            },
+            refire: 0.0,
+            repath: 0.0,
+            hop: None,
+            strafe: 0.0,
+        })
+    }
+
+    /// Eye point: feet + 0.9 · height.
+    pub fn eye(&self) -> Vec3 {
+        self.body.pos + Vec3::Z * 0.9 * self.body.height
+    }
+
+    /// Muzzle point at chest height (feet + 0.6 · height); bolts start here.
+    pub fn muzzle(&self) -> Vec3 {
+        self.body.pos + Vec3::Z * 0.6 * self.body.height
+    }
+
+    /// Dying and dead actors are no longer targets.
+    pub fn alive(&self) -> bool {
+        !matches!(self.state, AiState::Dying { .. } | AiState::Dead)
+    }
+}
+
+/// Noise reached this actor: a sleeper becomes `Alert { t: 0 }`; any other state is unchanged.
+pub fn wake(a: &mut Actor) {
+    if a.state == AiState::Sleep {
+        a.state = AiState::Alert { t: 0.0 };
+    }
+}
+
+/// Heading of a horizontal direction (0 = +x, counter-clockwise).
+fn heading(d: Vec2) -> f32 {
+    d.y.atan2(d.x)
+}
+
+/// Absolute difference between two headings, in [0, π].
+fn angle_diff(a: f32, b: f32) -> f32 {
+    let d = (a - b).rem_euclid(std::f32::consts::TAU);
+    d.min(std::f32::consts::TAU - d)
+}
+
+/// One tick of AI. Returns the movement wish for `step_player` and, when the actor fires, the
+/// unit direction of the bolt from `a.muzzle()`.
+///
+/// Dying and dead actors (and every actor while the player is dead) return a zero input and
+/// never fire. A dead player wakes nobody and freezes every state but `Dying`.
+pub fn think(
+    a: &mut Actor,
+    def: &EnemyDef,
+    map: &Map,
+    p: &Perception,
+    rng: &mut Rng,
+    dt: f32,
+) -> (MoveInput, Option<Vec3>) {
+    let idle = (MoveInput::default(), None);
+    match a.state {
+        AiState::Dead => return idle,
+        AiState::Dying { t } => {
+            a.state = if t - dt <= 0.0 {
+                AiState::Dead
+            } else {
+                AiState::Dying { t: t - dt }
+            };
+            return idle;
+        }
+        _ => {}
+    }
+    if !p.alive {
+        return idle;
+    }
+    a.refire = (a.refire - dt).max(0.0);
+
+    let eye = a.eye();
+    let to_player = p.eye - eye;
+    let flat = to_player.truncate();
+    let dist = to_player.length();
+    let sees = dist <= def.sight_range && crate::trace::can_see(map, eye, a.body.sector, p.eye);
+
+    match a.state {
+        AiState::Sleep => {
+            let in_fov = angle_diff(a.angle, heading(flat)) <= (def.fov_deg / 2.0).to_radians();
+            if in_fov && sees {
+                a.state = AiState::Alert { t: 0.0 };
+            }
+            idle
+        }
+        AiState::Alert { t } => {
+            if sees {
+                a.angle = heading(flat);
+            }
+            let t = t + dt;
+            a.state = if t >= def.reaction {
+                AiState::Chase
+            } else {
+                AiState::Alert { t }
+            };
+            idle
+        }
+        AiState::Pain { t } => {
+            a.state = if t - dt <= 0.0 {
+                AiState::Chase
+            } else {
+                AiState::Pain { t: t - dt }
+            };
+            idle
+        }
+        AiState::Attack { t, left } => {
+            if !sees {
+                // Lost the target mid-burst: give up the rest of it.
+                a.refire = def.attack_refire;
+                a.state = AiState::Chase;
+                return idle;
+            }
+            a.angle = heading(flat);
+            let t = t - dt;
+            if t > 0.0 {
+                a.state = AiState::Attack { t, left };
+                return idle;
+            }
+            if left == 0 {
+                a.refire = def.attack_refire;
+                a.state = AiState::Chase;
+                return idle;
+            }
+            (MoveInput::default(), Some(shoot(a, def, p, rng, left)))
+        }
+        AiState::Chase => {
+            if sees && dist <= def.attack_range && a.refire <= 0.0 && def.burst > 0 {
+                a.angle = heading(flat);
+                return (MoveInput::default(), Some(shoot(a, def, p, rng, def.burst)));
+            }
+            (chase(a, def, map, p, sees, rng, dt), None)
+        }
+        AiState::Dying { .. } | AiState::Dead => idle,
+    }
+}
+
+/// Fires one shot of a burst that had `left` (≥ 1) shots to go and moves on: to the next shot
+/// `burst_gap` later, or, after the last one, back to `Chase` with the refire timer reset.
+fn shoot(a: &mut Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng, left: u32) -> Vec3 {
+    if left > 1 {
+        a.state = AiState::Attack {
+            t: def.burst_gap,
+            left: left - 1,
+        };
+    } else {
+        a.refire = def.attack_refire;
+        a.state = AiState::Chase;
+    }
+    aim(a, def, p, rng)
+}
+
+/// Bolt direction from the muzzle to the player's chest, jittered by the aim error.
+fn aim(a: &Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng) -> Vec3 {
+    let ideal = (p.chest - a.muzzle()).normalize_or(Vec3::X);
+    crate::weapons::spread_dirs(ideal, 1, def.aim_error_deg, rng)[0]
+}
+
+/// Chase movement: straight at a visible (or same-sector) player, otherwise toward the next
+/// sector on the route, strafing while the player is in sight.
+fn chase(
+    a: &mut Actor,
+    def: &EnemyDef,
+    map: &Map,
+    p: &Perception,
+    sees: bool,
+    rng: &mut Rng,
+    dt: f32,
+) -> MoveInput {
+    let here = a.body.pos.truncate();
+    let player = p.eye.truncate();
+    let target = if sees || a.body.sector == p.sector {
+        a.hop = None;
+        Some(player)
+    } else {
+        a.repath -= dt;
+        let stale = a
+            .hop
+            .is_none_or(|h| portal_waypoint(map, a.body.sector, h).is_none());
+        if a.repath <= 0.0 || stale {
+            a.hop = next_hop(map, a.body.sector, p.sector, &def.tuning());
+            a.repath = REPATH;
+        }
+        a.hop.and_then(|h| portal_waypoint(map, a.body.sector, h))
+    };
+    let Some(target) = target else {
+        return MoveInput::default(); // unreachable: wait
+    };
+    let to = target - here;
+    let dir = to.normalize_or_zero();
+    if dir != Vec2::ZERO {
+        a.angle = heading(dir);
+    }
+    let mut wish = if sees && to.length() <= CLOSE_ENOUGH {
+        Vec2::ZERO
+    } else {
+        dir
+    };
+    if sees && def.strafe && dir != Vec2::ZERO {
+        let left = a.strafe.abs() - dt;
+        if a.strafe == 0.0 || left <= 0.0 {
+            let sign = if a.strafe == 0.0 {
+                if rng.chance(0.5) { 1.0 } else { -1.0 }
+            } else {
+                -a.strafe.signum()
+            };
+            let (lo, hi) = STRAFE_FLIP;
+            a.strafe = sign * (lo + rng.unit() * (hi - lo));
+        } else {
+            a.strafe = a.strafe.signum() * left;
+        }
+        wish += dir.perp() * STRAFE * a.strafe.signum();
+    }
+    MoveInput {
+        wish: wish.clamp_length_max(1.0),
+        ..MoveInput::default()
+    }
+}
+
+/// Just past the midpoint of the widest portal wall from sector `from` into `to`, or `None` if
+/// the two sectors share no portal.
+fn portal_waypoint(map: &Map, from: SectorId, to: SectorId) -> Option<Vec2> {
+    let wall = map.sectors[from]
+        .walls()
+        .map(|w| &map.walls[w])
+        .filter(|w| w.next_sector == Some(to))
+        .max_by(|x, y| x.a.distance(x.b).total_cmp(&y.a.distance(y.b)))?;
+    Some((wall.a + wall.b) * 0.5 - wall.inward_normal() * PORTAL_OVERSHOOT)
+}
+
+/// First sector on the shortest (fewest portals) walkable route from `from` to `to`, judged on
+/// live floor and ceiling heights with `can_cross`. `None` if `from == to` or `to` is unreachable.
+pub fn next_hop(map: &Map, from: SectorId, to: SectorId, t: &Tuning) -> Option<SectorId> {
+    if from == to {
+        return None;
+    }
+    let pose = |s: SectorId| (map.sectors[s].floor_z, map.sectors[s].ceil_z);
+    // `first[s]` is the first hop on the route to `s`.
+    let mut first: Vec<Option<SectorId>> = vec![None; map.sectors.len()];
+    let mut seen = vec![false; map.sectors.len()];
+    seen[from] = true;
+    let mut queue = std::collections::VecDeque::from([from]);
+    while let Some(s) = queue.pop_front() {
+        for n in map.neighbours(s) {
+            if seen[n] || !can_cross(pose(s), pose(n), t) {
+                continue;
+            }
+            seen[n] = true;
+            first[n] = if s == from { Some(n) } else { first[s] };
+            if n == to {
+                return first[n];
+            }
+            queue.push_back(n);
+        }
+    }
+    None
+}
+
+/// Applies `n` damage. A kill sends the actor to `Dying` from any state; a non-killing hit wakes
+/// a sleeping or alert actor into `Chase` and then, with `def.pain_chance`, into `Pain`. Dying
+/// and dead actors ignore hits, as does a hit of `n <= 0`.
+pub fn hurt(a: &mut Actor, def: &EnemyDef, n: i32, rng: &mut Rng) -> DamageOutcome {
+    if !a.alive() {
+        return DamageOutcome::Ignored;
+    }
+    let outcome = a.health.damage(n);
+    match outcome {
+        DamageOutcome::Killed => {
+            a.state = AiState::Dying { t: def.death_time };
+            a.body.height = CORPSE_HEIGHT;
+            a.hop = None;
+        }
+        DamageOutcome::Hurt => {
+            if matches!(a.state, AiState::Sleep | AiState::Alert { .. }) {
+                a.state = AiState::Chase;
+            }
+            if rng.chance(def.pain_chance) {
+                a.state = AiState::Pain { t: def.pain_time };
+            }
+        }
+        DamageOutcome::Ignored => {}
+    }
+    outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fixtures::{defs, door_rooms, pillar_room};
+    use crate::mechanics::Mechanics;
+    use crate::movement::step_player;
+    use std::f32::consts::PI;
+
+    const DT: f32 = 1.0 / 60.0;
+
+    fn grunt() -> EnemyDef {
+        defs().enemy(ActorKind::Grunt).clone()
+    }
+
+    fn actor_at(map: &Map, def: &EnemyDef, x: f32, y: f32, angle: f32, asleep: bool) -> Actor {
+        let spawn = ActorSpawn {
+            kind: ActorKind::Grunt,
+            pos: Vec2::new(x, y),
+            angle,
+            asleep,
+        };
+        Actor::new(map, def, &spawn).expect("spawn inside the map")
+    }
+
+    /// A standing player (1.8 m) at `(x, y)`.
+    fn player_at(map: &Map, x: f32, y: f32) -> Perception {
+        let b = Body::spawn(map, Vec2::new(x, y), 0.35, 1.8).unwrap();
+        Perception {
+            eye: b.pos + Vec3::Z * 1.6,
+            chest: b.pos + Vec3::Z * 0.6 * b.height,
+            sector: b.sector,
+            alive: true,
+        }
+    }
+
+    /// Runs `think` and moves the body like the combat orchestrator will. Returns fire directions
+    /// with the tick index at which they were fired.
+    fn run(
+        a: &mut Actor,
+        def: &EnemyDef,
+        map: &Map,
+        p: &Perception,
+        rng: &mut Rng,
+        ticks: usize,
+    ) -> Vec<(usize, Vec3)> {
+        let t = def.tuning();
+        let mut fired = Vec::new();
+        for i in 0..ticks {
+            let (input, fire) = think(a, def, map, p, rng, DT);
+            if a.alive() {
+                a.prev_pos = a.body.pos;
+                step_player(map, &mut a.body, &input, &t, DT);
+            }
+            if let Some(d) = fire {
+                fired.push((i, d));
+            }
+        }
+        fired
+    }
+
+    /// An L-shaped route with no line of sight end to end: room A x,y∈[0,4] (sector 0), a 2 m
+    /// corridor B x∈[4,8], y∈[0,2] (sector 1) and room C x∈[6,8], y∈[2,6] (sector 2).
+    fn corridor() -> Map {
+        Map::from_ron(
+            r#"(
+            name: "corridor",
+            materials: ["wall", "floor", "ceiling"],
+            vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (4.0, 4.0), (0.0, 4.0),
+                       (8.0, 0.0), (8.0, 2.0), (6.0, 2.0), (8.0, 6.0), (6.0, 6.0)],
+            sectors: [
+                (loops: [[0, 1, 2, 3, 4]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+                (loops: [[1, 5, 6, 7, 2]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+                (loops: [[7, 6, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            ],
+            player_start: (pos: (1.0, 1.0), angle_deg: 0.0),
+        )"#,
+        )
+        .expect("corridor fixture is valid")
+    }
+
+    #[test]
+    fn sleeping_grunt_ignores_player_behind_it() {
+        let map = pillar_room();
+        let def = grunt();
+        // Facing +x; the player is 6 m straight behind along a clear line.
+        let mut a = actor_at(&map, &def, 8.0, 8.0, 0.0, true);
+        let p = player_at(&map, 2.0, 8.0);
+        let mut rng = Rng::new(1);
+        for _ in 0..120 {
+            let (input, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+            assert_eq!(input, MoveInput::default());
+            assert!(fire.is_none());
+        }
+        assert_eq!(a.state, AiState::Sleep);
+    }
+
+    #[test]
+    fn sleeping_grunt_wakes_on_sight_in_fov() {
+        let map = pillar_room();
+        let def = grunt();
+        let p = player_at(&map, 2.0, 8.0);
+        let mut rng = Rng::new(1);
+        // Facing the player.
+        let mut a = actor_at(&map, &def, 8.0, 8.0, PI, true);
+        think(&mut a, &def, &map, &p, &mut rng, DT);
+        assert!(matches!(a.state, AiState::Alert { .. }), "{:?}", a.state);
+        // Just inside the FOV edge (60° off a 120° FOV, minus a little) still wakes.
+        let edge = PI - (def.fov_deg / 2.0 - 2.0).to_radians();
+        let mut a = actor_at(&map, &def, 8.0, 8.0, edge, true);
+        think(&mut a, &def, &map, &p, &mut rng, DT);
+        assert!(matches!(a.state, AiState::Alert { .. }), "{:?}", a.state);
+        // Just outside it does not.
+        let out = PI - (def.fov_deg / 2.0 + 2.0).to_radians();
+        let mut a = actor_at(&map, &def, 8.0, 8.0, out, true);
+        think(&mut a, &def, &map, &p, &mut rng, DT);
+        assert_eq!(a.state, AiState::Sleep);
+        // Facing the player but with the pillar in the way: stays asleep.
+        let hidden = player_at(&map, 2.0, 5.0);
+        let mut a = actor_at(&map, &def, 8.0, 5.0, PI, true);
+        think(&mut a, &def, &map, &hidden, &mut rng, DT);
+        assert_eq!(a.state, AiState::Sleep);
+        // Facing the player, in plain sight, but beyond sight range: stays asleep.
+        let mut short = def.clone();
+        short.sight_range = 5.0;
+        let mut a = actor_at(&map, &short, 8.0, 8.0, PI, true);
+        think(&mut a, &short, &map, &p, &mut rng, DT);
+        assert_eq!(a.state, AiState::Sleep);
+    }
+
+    #[test]
+    fn wake_moves_only_sleepers_to_alert() {
+        let map = pillar_room();
+        let def = grunt();
+        let mut a = actor_at(&map, &def, 8.0, 8.0, 0.0, true);
+        wake(&mut a);
+        assert_eq!(a.state, AiState::Alert { t: 0.0 });
+        a.state = AiState::Chase;
+        wake(&mut a);
+        assert_eq!(a.state, AiState::Chase);
+    }
+
+    #[test]
+    fn alert_waits_reaction_then_chases() {
+        let map = pillar_room();
+        let def = grunt();
+        // Player out of sight behind the pillar, so only the timer matters.
+        let p = player_at(&map, 2.0, 5.0);
+        let mut a = actor_at(&map, &def, 8.0, 5.0, PI, true);
+        wake(&mut a);
+        let mut rng = Rng::new(3);
+        let ticks = (def.reaction / DT).round() as usize;
+        for _ in 0..ticks - 1 {
+            let (input, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+            assert_eq!(input.wish, Vec2::ZERO, "alert actors stand still");
+            assert!(fire.is_none());
+            assert!(matches!(a.state, AiState::Alert { .. }), "{:?}", a.state);
+        }
+        think(&mut a, &def, &map, &p, &mut rng, DT);
+        think(&mut a, &def, &map, &p, &mut rng, DT);
+        assert_eq!(a.state, AiState::Chase);
+    }
+
+    #[test]
+    fn chase_routes_through_portal_sectors() {
+        let map = corridor();
+        let def = grunt();
+        let t = def.tuning();
+        assert_eq!(next_hop(&map, 0, 2, &t), Some(1));
+        assert_eq!(next_hop(&map, 1, 2, &t), Some(2));
+        assert_eq!(next_hop(&map, 2, 0, &t), Some(1));
+        assert_eq!(next_hop(&map, 1, 1, &t), None);
+
+        let p = player_at(&map, 7.0, 5.0);
+        let mut a = actor_at(&map, &def, 1.0, 1.0, 0.0, false);
+        assert!(!crate::trace::can_see(&map, a.eye(), a.body.sector, p.eye));
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(5);
+        let mut visited = vec![a.body.sector];
+        for _ in 0..600 {
+            run(&mut a, &def, &map, &p, &mut rng, 1);
+            if visited.last() != Some(&a.body.sector) {
+                visited.push(a.body.sector);
+            }
+            if a.body.sector == 2 {
+                break;
+            }
+        }
+        assert_eq!(visited, vec![0, 1, 2], "route taken");
+    }
+
+    #[test]
+    fn chase_does_not_path_through_closed_door() {
+        let def = grunt();
+        let t = def.tuning();
+        let authored = door_rooms("(kind: Door)", "");
+        assert_eq!(
+            next_hop(&authored, 0, 2, &t),
+            Some(1),
+            "open door is passable"
+        );
+
+        let mut map = door_rooms("(kind: Door)", "");
+        let _mech = Mechanics::new(&mut map);
+        assert_eq!(map.sectors[1].ceil_z, map.sectors[1].floor_z);
+        assert_eq!(next_hop(&map, 0, 2, &t), None);
+        assert_eq!(next_hop(&map, 0, 1, &t), None);
+
+        let p = player_at(&map, 6.5, 2.0);
+        let mut a = actor_at(&map, &def, 2.0, 2.0, 0.0, false);
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(9);
+        let fired = run(&mut a, &def, &map, &p, &mut rng, 180);
+        assert!(fired.is_empty());
+        assert_eq!(a.body.sector, 0);
+        assert_eq!(a.state, AiState::Chase);
+        assert!(a.body.vel.truncate().length() < 1e-3, "stands at the door");
+    }
+
+    #[test]
+    fn attack_fires_burst_then_cooldown() {
+        let map = pillar_room();
+        let mut def = grunt();
+        def.strafe = false;
+        def.burst = 3;
+        let p = player_at(&map, 2.0, 8.0);
+        let mut a = actor_at(&map, &def, 8.0, 8.0, PI, false);
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(11);
+        let total = ((2.0 * def.attack_refire + 1.0) / DT) as usize;
+        let mut fired = Vec::new();
+        let mut attack_ticks = 0;
+        let t = def.tuning();
+        for i in 0..total {
+            let (input, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+            if matches!(a.state, AiState::Attack { .. }) {
+                attack_ticks += 1;
+                assert_eq!(input.wish, Vec2::ZERO, "attackers stand still");
+            }
+            step_player(&map, &mut a.body, &input, &t, DT);
+            if let Some(d) = fire {
+                fired.push((i, d, a.muzzle()));
+            }
+        }
+        assert!(attack_ticks > 0);
+        assert!(
+            fired.len() >= 2 * def.burst as usize,
+            "{} shots",
+            fired.len()
+        );
+        let gap = (def.burst_gap / DT).round() as usize;
+        let refire = (def.attack_refire / DT).round() as usize;
+        // First burst: `burst` shots `burst_gap` apart.
+        for w in fired[..def.burst as usize].windows(2) {
+            assert!(
+                (w[1].0 - w[0].0).abs_diff(gap) <= 1,
+                "{} → {}",
+                w[0].0,
+                w[1].0
+            );
+        }
+        // Then nothing until the refire timer has run.
+        let pause = fired[def.burst as usize].0 - fired[def.burst as usize - 1].0;
+        assert!(pause + 1 >= refire, "pause {pause} ticks, refire {refire}");
+        // Every bolt is a unit vector aimed at the chest, within the aim error.
+        let max_err = def.aim_error_deg.to_radians() + 1e-3;
+        for (_, d, muzzle) in &fired {
+            assert!((d.length() - 1.0).abs() < 1e-4);
+            let ideal = (p.chest - *muzzle).normalize();
+            assert!(
+                d.angle_between(ideal) <= max_err,
+                "off by {}",
+                d.angle_between(ideal)
+            );
+        }
+    }
+
+    #[test]
+    fn kill_during_pain_goes_to_dying() {
+        let map = pillar_room();
+        let mut def = grunt();
+        def.pain_chance = 1.0;
+        let mut rng = Rng::new(2);
+        let mut a = actor_at(&map, &def, 8.0, 8.0, 0.0, true);
+        assert_eq!(hurt(&mut a, &def, 1, &mut rng), DamageOutcome::Hurt);
+        assert_eq!(a.state, AiState::Pain { t: def.pain_time });
+        assert_eq!(hurt(&mut a, &def, 1000, &mut rng), DamageOutcome::Killed);
+        assert_eq!(a.state, AiState::Dying { t: def.death_time });
+        assert_eq!(a.body.height, CORPSE_HEIGHT);
+        assert!(!a.alive());
+        // Dying runs out into Dead, motionless and silent throughout.
+        let p = player_at(&map, 2.0, 8.0);
+        let ticks = (def.death_time / DT).ceil() as usize + 1;
+        for _ in 0..ticks {
+            let (input, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+            assert_eq!(input, MoveInput::default());
+            assert!(fire.is_none());
+        }
+        assert_eq!(a.state, AiState::Dead);
+        // Pain itself ends in Chase.
+        let ticks = (def.pain_time / DT).ceil() as usize + 1;
+        let hidden = player_at(&map, 2.0, 5.0);
+        let mut c = actor_at(&map, &def, 8.0, 5.0, 0.0, true);
+        hurt(&mut c, &def, 1, &mut rng);
+        for _ in 0..ticks {
+            let (input, fire) = think(&mut c, &def, &map, &hidden, &mut rng, DT);
+            assert!(fire.is_none());
+            if matches!(c.state, AiState::Pain { .. }) {
+                assert_eq!(input.wish, Vec2::ZERO, "pain freezes");
+            }
+        }
+        assert_eq!(c.state, AiState::Chase);
+    }
+
+    #[test]
+    fn pain_is_seeded_and_bounded() {
+        let map = pillar_room();
+        let def = grunt();
+        let outcomes = |seed: u64, def: &EnemyDef| -> Vec<bool> {
+            let mut rng = Rng::new(seed);
+            (0..2000)
+                .map(|_| {
+                    let mut a = actor_at(&map, def, 8.0, 8.0, 0.0, true);
+                    assert_eq!(hurt(&mut a, def, 1, &mut rng), DamageOutcome::Hurt);
+                    match a.state {
+                        AiState::Pain { t } => {
+                            assert_eq!(t, def.pain_time);
+                            true
+                        }
+                        AiState::Chase => false,
+                        s => panic!("hurt sleeper ended in {s:?}"),
+                    }
+                })
+                .collect()
+        };
+        let a = outcomes(77, &def);
+        assert_eq!(a, outcomes(77, &def), "same seed, same outcomes");
+        assert_ne!(a, outcomes(78, &def));
+        let rate = a.iter().filter(|&&p| p).count() as f32 / a.len() as f32;
+        assert!(
+            (rate - def.pain_chance).abs() < 0.05,
+            "pain rate {rate} vs chance {}",
+            def.pain_chance
+        );
+        let mut never = def.clone();
+        never.pain_chance = 0.0;
+        assert!(outcomes(5, &never).iter().all(|&p| !p));
+        let mut always = def.clone();
+        always.pain_chance = 1.0;
+        assert!(outcomes(5, &always).iter().all(|&p| p));
+    }
+
+    #[test]
+    fn dead_actor_is_ignored_by_hurt() {
+        let map = pillar_room();
+        let def = grunt();
+        let mut rng = Rng::new(4);
+        let mut a = actor_at(&map, &def, 8.0, 8.0, 0.0, false);
+        assert_eq!(hurt(&mut a, &def, 0, &mut rng), DamageOutcome::Ignored);
+        assert_eq!(a.state, AiState::Alert { t: 0.0 }, "no damage, no reaction");
+        assert_eq!(
+            hurt(&mut a, &def, def.health, &mut rng),
+            DamageOutcome::Killed
+        );
+        let dying = a.clone();
+        assert_eq!(hurt(&mut a, &def, 10, &mut rng), DamageOutcome::Ignored);
+        assert_eq!(a, dying);
+        a.state = AiState::Dead;
+        let dead = a.clone();
+        assert_eq!(hurt(&mut a, &def, 10, &mut rng), DamageOutcome::Ignored);
+        assert_eq!(a, dead);
+    }
+
+    #[test]
+    fn actors_idle_when_player_dead() {
+        let map = pillar_room();
+        let def = grunt();
+        let mut p = player_at(&map, 2.0, 8.0);
+        p.alive = false;
+        let mut rng = Rng::new(6);
+        let mut chasing = actor_at(&map, &def, 8.0, 8.0, PI, false);
+        chasing.state = AiState::Chase;
+        let mut attacking = actor_at(&map, &def, 8.0, 8.0, PI, false);
+        attacking.state = AiState::Attack { t: 0.0, left: 2 };
+        let mut sleeping = actor_at(&map, &def, 8.0, 8.0, PI, true);
+        for a in [&mut chasing, &mut attacking, &mut sleeping] {
+            for _ in 0..120 {
+                let (input, fire) = think(a, &def, &map, &p, &mut rng, DT);
+                assert_eq!(input, MoveInput::default());
+                assert!(fire.is_none());
+            }
+        }
+        assert_eq!(sleeping.state, AiState::Sleep, "a dead player wakes nobody");
+    }
+}

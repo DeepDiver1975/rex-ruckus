@@ -1,6 +1,7 @@
 //! Build-inspired game core: sector maps, mesh extrusion, collision and movement.
 //! Coordinates are right-handed, Z-up, in metres (x = east, y = north).
 
+pub mod actors;
 pub mod collide;
 pub mod defs;
 pub mod extrude;

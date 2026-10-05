@@ -5,7 +5,7 @@
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
 };
-use crate::movement::Tuning;
+use crate::movement::{Pose, Tuning, can_cross};
 use glam::Vec2;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -229,8 +229,6 @@ fn check_wiring(map: &Map, r: &mut Report) {
     }
 }
 
-type Pose = (f32, f32);
-
 /// Floor/ceiling pairs a sector can offer a player, given the keys held and channels fired.
 fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
     let sec = &map.sectors[s];
@@ -247,13 +245,6 @@ fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
         (MoverKind::Lift { to }, true) => vec![(sec.floor_z, sec.ceil_z), (to, sec.ceil_z)],
         (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
     }
-}
-
-/// Can a (crouching) player walk from a sector in pose `a` into one in pose `b`?
-fn can_cross((fa, ca): Pose, (fb, cb): Pose, t: &Tuning) -> bool {
-    fb <= fa + t.step_height
-        && cb - fb >= t.crouch_height
-        && ca.min(cb) - fa.max(fb) >= t.crouch_height
 }
 
 fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning) -> Vec<bool> {
