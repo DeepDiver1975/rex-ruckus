@@ -1,0 +1,90 @@
+// M3 test level: the first fight. Coordinates in metres, x = east, y = north, z = up.
+// Route: start room (pistol ammo) → shotgun closet behind the east door → arena door (closes
+// again after 4 s) → arena with four pillars, 3 Grunts → lift in the NE corner up to the
+// balcony (2 Grunts, blue key) → back down → blue door in the arena's west wall → exit room
+// (1 sleeping Grunt, exit switch on the west wall).
+(
+    name: "Combat Arena",
+    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door"],
+    vertices: [
+        (0.0, 0.0), (10.0, 0.0), (10.0, 3.0), (10.0, 5.0), (10.0, 8.0),    // 0-4  start room
+        (6.0, 8.0), (4.0, 8.0), (0.0, 8.0),                                 // 5-7
+        (10.5, 3.0), (10.5, 5.0),                                           // 8-9  closet door
+        (10.5, 1.5), (14.0, 1.5), (14.0, 6.5), (10.5, 6.5),                 // 10-13 closet
+        (6.0, 8.5), (4.0, 8.5),                                             // 14-15 arena door
+        (-7.0, 8.5), (17.0, 8.5), (17.0, 25.0), (14.0, 25.0),               // 16-19 arena
+        (14.0, 28.0), (3.0, 28.0), (-7.0, 28.0), (-7.0, 18.0), (-7.0, 16.0),// 20-24
+        (17.0, 28.0),                                                       // 25    lift
+        (17.0, 33.0), (3.0, 33.0),                                          // 26-27 balcony
+        (-7.5, 18.0), (-7.5, 16.0),                                         // 28-29 blue door
+        (-15.5, 13.0), (-7.5, 13.0), (-7.5, 21.0), (-15.5, 21.0),           // 30-33 exit room
+        (-15.5, 17.5), (-15.5, 16.5),                                       // 34-35 exit switch
+        (-1.0, 13.0), (-1.0, 15.0), (1.0, 15.0), (1.0, 13.0),               // 36-39 pillar SW
+        (9.0, 13.0), (9.0, 15.0), (11.0, 15.0), (11.0, 13.0),               // 40-43 pillar SE
+        (-1.0, 21.0), (-1.0, 23.0), (1.0, 23.0), (1.0, 21.0),               // 44-47 pillar NW
+        (9.0, 21.0), (9.0, 23.0), (11.0, 23.0), (11.0, 21.0),               // 48-51 pillar NE
+    ],
+    sectors: [
+        // 0 start room (pistol ammo, health)
+        (loops: [[0, 1, 2, 3, 4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 1 closet door (start → shotgun closet), opened by hand
+        (loops: [[2, 8, 9, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
+         face_mat: Some(6), mover: Some((kind: Door))),
+        // 2 shotgun closet
+        (loops: [[10, 11, 12, 13, 9, 8]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 5),
+        // 3 arena door (start → arena), closes again after 4 s
+        (loops: [[6, 5, 14, 15]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
+         face_mat: Some(6), mover: Some((kind: Door, auto_return: Some(4.0)))),
+        // 4 arena: 24 × 19.5 m, 6 m ceiling, four pillar holes
+        (loops: [
+            [16, 15, 14, 17, 18, 19, 20, 21, 22, 23, 24],
+            [36, 37, 38, 39],
+            [40, 41, 42, 43],
+            [44, 45, 46, 47],
+            [48, 49, 50, 51],
+         ], floor_z: 0.0, ceil_z: 6.0, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
+        // 5 lift (NE corner) up to the balcony; use it from on it or from either side
+        (loops: [[19, 18, 25, 20]], floor_z: 0.0, ceil_z: 6.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
+         face_mat: Some(3), mover: Some((kind: Lift(to: 3.0), speed: 2.0))),
+        // 6 balcony (blue key, shells); its south edge overlooks the arena (a 3 m step)
+        (loops: [[21, 20, 25, 26, 27]], floor_z: 3.0, ceil_z: 6.5, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
+        // 7 blue door (arena → exit room)
+        (loops: [[24, 23, 28, 29]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
+         face_mat: Some(6), mover: Some((kind: Door, lock: Some(Blue)))),
+        // 8 exit room (exit switch on the west wall)
+        (loops: [[30, 31, 29, 28, 32, 33, 34, 35]], floor_z: 0.0, ceil_z: 4.5, floor_mat: 4, ceil_mat: 3, wall_mat: 5),
+    ],
+    switches: [
+        (wall: (34, 35), action: Exit),
+    ],
+    items: [
+        (kind: PistolAmmo, pos: (2.0, 6.0)),
+        (kind: PistolAmmo, pos: (8.0, 6.0)),
+        (kind: HealthSmall, pos: (8.0, 2.0)),
+        (kind: Shotgun, pos: (12.5, 4.0)),
+        (kind: ShotgunShells, pos: (13.0, 2.5)),
+        (kind: HealthSmall, pos: (5.0, 18.0)),
+        (kind: Key(Blue), pos: (10.0, 31.5)),
+        (kind: ShotgunShells, pos: (5.0, 31.0)),
+    ],
+    actors: [
+        // Arena: two sleepers by the side walls, one awake guard at the far end.
+        (kind: Grunt, pos: (-4.0, 18.0), angle_deg: 0.0),
+        (kind: Grunt, pos: (14.0, 18.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (5.0, 25.0), angle_deg: 270.0, asleep: false),
+        // Balcony: both awake, watching the arena.
+        (kind: Grunt, pos: (7.0, 30.5), angle_deg: 270.0, asleep: false),
+        (kind: Grunt, pos: (13.0, 31.0), angle_deg: 270.0, asleep: false),
+        // Exit room: asleep behind the blue door.
+        (kind: Grunt, pos: (-11.5, 17.0), angle_deg: 0.0),
+    ],
+    player_start: (pos: (5.0, 2.0), angle_deg: 90.0),
+    lights: [
+        (pos: (5.0, 4.0, 3.5), color: (1.0, 0.9, 0.75), intensity: 400000.0, range: 12.0),
+        (pos: (12.25, 4.0, 3.0), color: (0.6, 0.7, 1.0), intensity: 200000.0, range: 8.0),
+        (pos: (-1.0, 18.0, 5.5), color: (1.0, 0.85, 0.7), intensity: 500000.0, range: 16.0),
+        (pos: (11.0, 18.0, 5.5), color: (1.0, 0.85, 0.7), intensity: 500000.0, range: 16.0),
+        (pos: (10.0, 30.5, 6.0), color: (1.0, 0.5, 0.4), intensity: 300000.0, range: 12.0),
+        (pos: (-11.5, 17.0, 4.0), color: (0.5, 0.6, 1.0), intensity: 400000.0, range: 12.0),
+    ],
+)

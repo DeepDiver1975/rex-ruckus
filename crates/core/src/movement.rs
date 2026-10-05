@@ -45,6 +45,18 @@ impl Default for Tuning {
     }
 }
 
+/// A sector's floor and ceiling heights, `(floor_z, ceil_z)`.
+pub(crate) type Pose = (f32, f32);
+
+/// Can a (crouching) walker with tuning `t` go from a sector in pose `a` into one in pose `b`?
+/// Shared by level validation (authored reachability) and actor pathing (live heights). A closed
+/// door (`ceil_z == floor_z`) never fits.
+pub(crate) fn can_cross((fa, ca): Pose, (fb, cb): Pose, t: &Tuning) -> bool {
+    fb <= fa + t.step_height
+        && cb - fb >= t.crouch_height
+        && ca.min(cb) - fa.max(fb) >= t.crouch_height
+}
+
 pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt: f32) {
     // Crouch / stand up (only if there is headroom).
     let (_, ceil_here) = z_range(map, body.pos.truncate(), body.radius, body.sector);

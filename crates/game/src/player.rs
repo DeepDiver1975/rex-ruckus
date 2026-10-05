@@ -2,12 +2,14 @@
 //! and the camera interpolated between ticks.
 
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
+use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::level::CurrentMap;
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::collide::{Body, z_range};
+use rr_core::defs::WeaponId;
 use rr_core::map::KeySet;
 use rr_core::movement::{MoveInput, Tuning, step_player};
 
@@ -23,6 +25,19 @@ pub const EYE_EASE_RATE: f32 = 14.0;
 /// Frame-rate independent exponential approach of `current` towards `target`.
 pub fn ease_toward(current: f32, target: f32, rate: f32, dt: f32) -> f32 {
     target + (current - target) * (-rate * dt).exp()
+}
+
+/// Eye height above the feet once dead (core metres).
+pub const DEATH_EYE: f32 = 0.25;
+/// View roll once dead (radians).
+pub const DEATH_ROLL: f32 = 0.35;
+
+/// Where the eye height and view roll ease to: the live values, or the death camera's.
+pub fn view_targets(state: PlayState, live_eye: f32) -> (f32, f32) {
+    match state {
+        PlayState::Dead => (DEATH_EYE, DEATH_ROLL),
+        _ => (live_eye, 0.0),
+    }
 }
 
 /// Keeps the eased eye height below the ceiling (`ceil` is an absolute z, `feet_z` the feet's).
@@ -71,6 +86,38 @@ pub struct PendingInput {
     pub crouch: bool,
     /// Latched by a use-key press; the next fixed tick consumes it.
     pub use_pressed: bool,
+    /// Fire button held (gated by [`fire_gate`]); re-read every frame.
+    pub fire: bool,
+    /// Latched: fire was pressed since the last tick, so a tap between ticks still fires.
+    pub fire_pressed: bool,
+    /// Latched reload press (R).
+    pub reload: bool,
+    /// Latched quick-kick press (F).
+    pub kick: bool,
+    /// Latched weapon selection (keys 1/2/3); the last press before a tick wins.
+    pub select: Option<WeaponId>,
+    /// Latched mouse-wheel steps: +1 per wheel-up frame (next weapon), -1 per wheel-down.
+    pub cycle: i32,
+}
+
+/// Whether a held fire button may shoot. Fire is armed only after the button was seen released
+/// while the cursor is grabbed, so the click that grabs the cursor never fires. Losing the
+/// grab disarms.
+pub fn fire_gate(grabbed: bool, pressed: bool, armed: &mut bool) -> bool {
+    if !grabbed {
+        *armed = false;
+    } else if !pressed {
+        *armed = true;
+    }
+    grabbed && pressed && *armed
+}
+
+/// While play is over (dead or level complete), a held fire button disarms [`fire_gate`]. The
+/// click that restarts the level then has to be released before the new player can shoot.
+pub fn disarm_while_over(playing: bool, pressed: bool, armed: &mut bool) {
+    if !playing && pressed {
+        *armed = false;
+    }
 }
 
 /// Keycards the player holds.
@@ -92,6 +139,11 @@ pub struct PlayerTuning(pub Tuning);
 #[derive(Resource)]
 pub struct MouseSensitivity(pub f32);
 
+/// Current camera roll (radians), eased toward [`view_targets`]'s roll. A resource so
+/// `restart_level` can snap it upright together with the eye.
+#[derive(Resource, Default, Debug)]
+pub struct ViewRoll(pub f32);
+
 /// Simulation only: safe to run headless.
 pub struct PlayerSimPlugin;
 
@@ -99,12 +151,19 @@ impl Plugin for PlayerSimPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(60.0))
             .init_resource::<PlayerTuning>()
-            .add_systems(Startup, spawn_player)
-            .add_systems(FixedUpdate, simulate_player.in_set(PlayerSimSet));
+            .init_resource::<PlayState>()
+            .add_systems(SpawnLevel, spawn_player)
+            .add_systems(
+                FixedUpdate,
+                simulate_player
+                    .in_set(PlayerSimSet)
+                    .run_if(resource_equals(PlayState::Playing)),
+            );
     }
 }
 
-fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
+/// Spawns a fresh player at the level start (in [`SpawnLevel`]); combat adds its loadout.
+pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
     let start = map.0.player_start;
     let body = Body::spawn(
         &map.0,
@@ -120,6 +179,7 @@ fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<Player
     });
     commands.spawn((
         Player,
+        LevelEntity,
         PrevFeet(body.pos),
         PlayerBody(body),
         Look {
@@ -160,6 +220,7 @@ pub struct PlayerControlPlugin;
 impl Plugin for PlayerControlPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(MouseSensitivity(0.0025))
+            .init_resource::<ViewRoll>()
             .add_systems(Startup, spawn_camera)
             .add_systems(Update, grab_cursor)
             .add_systems(
@@ -172,7 +233,9 @@ impl Plugin for PlayerControlPlugin {
     }
 }
 
-fn spawn_camera(mut commands: Commands) {
+/// The first-person camera. Spawned once at startup and kept across restarts: it is not a
+/// [`LevelEntity`], and `update_camera` follows whichever player exists.
+pub fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
@@ -216,16 +279,25 @@ fn grab_cursor(
     }
 }
 
-fn read_input(
+/// Gathers keyboard and mouse input into the player's [`PendingInput`] and [`Look`] every frame.
+#[allow(clippy::too_many_arguments)]
+pub fn read_input(
     keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
+    scroll: Res<AccumulatedMouseScroll>,
     sensitivity: Res<MouseSensitivity>,
     cursor: Single<&CursorOptions>,
+    state: Res<PlayState>,
     player: Single<(&mut PendingInput, &mut Look), With<Player>>,
+    mut fire_armed: Local<bool>,
 ) {
     let (mut input, mut look) = player.into_inner();
+    let playing = *state == PlayState::Playing;
     // Any active grab counts: on X11 `Locked` may fall back to `Confined`.
-    if cursor.grab_mode != CursorGrabMode::None {
+    let grabbed = cursor.grab_mode != CursorGrabMode::None;
+    // The view is frozen once play is over (the death camera takes over).
+    if grabbed && playing {
         look.angle -= mouse.delta.x * sensitivity.0;
         look.pitch = (look.pitch - mouse.delta.y * sensitivity.0).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
@@ -237,23 +309,48 @@ fn read_input(
     input.jump = keys.pressed(KeyCode::Space);
     input.crouch = keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft);
     input.use_pressed |= keys.just_pressed(KeyCode::KeyE);
+
+    let held = buttons.pressed(MouseButton::Left);
+    let fire = fire_gate(grabbed, held, &mut fire_armed);
+    input.fire = fire;
+    // `*fire_armed` rather than `fire`: a press and release within one frame still counts.
+    // While play is over this edge is what `restart_on_press` reads.
+    input.fire_pressed |= grabbed && *fire_armed && buttons.just_pressed(MouseButton::Left);
+    disarm_while_over(playing, held, &mut fire_armed);
+    if grabbed {
+        input.reload |= keys.just_pressed(KeyCode::KeyR);
+        input.kick |= keys.just_pressed(KeyCode::KeyF);
+        for (key, w) in [
+            (KeyCode::Digit1, WeaponId::Boot),
+            (KeyCode::Digit2, WeaponId::Pistol),
+            (KeyCode::Digit3, WeaponId::Shotgun),
+        ] {
+            if keys.just_pressed(key) {
+                input.select = Some(w);
+            }
+        }
+        // `signum` of 0.0 is 1.0, so only count frames that actually scrolled.
+        if scroll.delta.y != 0.0 {
+            input.cycle += scroll.delta.y.signum() as i32;
+        }
+    }
 }
 
 fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
     map: Res<CurrentMap>,
+    state: Res<PlayState>,
     player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
+    mut roll: ResMut<ViewRoll>,
 ) {
     let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
-    eye_h.0 = ease_toward(
-        eye_h.0,
-        body.0.height - EYE_BELOW_TOP,
-        EYE_EASE_RATE,
-        frame_time.delta_secs(),
-    );
+    let (eye_target, roll_target) = view_targets(*state, body.0.height - EYE_BELOW_TOP);
+    let dt = frame_time.delta_secs();
+    eye_h.0 = ease_toward(eye_h.0, eye_target, EYE_EASE_RATE, dt);
+    roll.0 = ease_toward(roll.0, roll_target, EYE_EASE_RATE, dt);
     let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
     eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
     let eye = feet + Vec3::Z * eye_h.0;
@@ -262,7 +359,7 @@ fn update_camera(
         EulerRot::YXZ,
         core_angle_to_yaw(look.angle),
         look.pitch,
-        0.0,
+        roll.0,
     );
 }
 
@@ -281,6 +378,13 @@ mod tests {
     }
 
     #[test]
+    fn dead_view_drops_the_eye_and_rolls() {
+        assert_eq!(view_targets(PlayState::Playing, 1.65), (1.65, 0.0));
+        assert_eq!(view_targets(PlayState::Complete, 1.65), (1.65, 0.0));
+        assert_eq!(view_targets(PlayState::Dead, 1.65), (DEATH_EYE, DEATH_ROLL));
+    }
+
+    #[test]
     fn eye_eases_without_overshoot_and_is_frame_rate_independent() {
         assert_eq!(ease_toward(1.65, 0.95, EYE_EASE_RATE, 0.0), 1.65);
         let one = ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0 / 30.0);
@@ -293,6 +397,24 @@ mod tests {
         assert!((one - two).abs() < 1e-5);
         assert!(one < 1.65 && one > 0.95);
         assert!((ease_toward(1.65, 0.95, EYE_EASE_RATE, 1.0) - 0.95).abs() < 1e-3);
+    }
+
+    #[test]
+    fn held_fire_disarms_only_while_play_is_over() {
+        let mut armed = true;
+        disarm_while_over(true, true, &mut armed);
+        assert!(armed, "playing: holding fire keeps shooting");
+        disarm_while_over(false, false, &mut armed);
+        assert!(
+            armed,
+            "over but released: still armed, so the restart click registers"
+        );
+        disarm_while_over(false, true, &mut armed);
+        assert!(!armed, "over and held: disarmed");
+        // After the restart the held button does not fire; a release re-arms.
+        assert!(!fire_gate(true, true, &mut armed));
+        assert!(!fire_gate(true, false, &mut armed));
+        assert!(fire_gate(true, true, &mut armed));
     }
 
     #[test]

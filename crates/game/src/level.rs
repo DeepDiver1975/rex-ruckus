@@ -1,6 +1,7 @@
 //! Loads the map and spawns its meshes, materials and lights.
 
 use crate::coords::{to_bevy, to_bevy_arr};
+use crate::flow::{LevelEntity, SpawnLevel};
 use crate::mechanics::DirtySectors;
 use crate::paths::assets_dir;
 use crate::textures;
@@ -74,7 +75,7 @@ impl Plugin for LevelRenderPlugin {
                 ..default()
             })
             .init_resource::<DirtySectors>()
-            .add_systems(Startup, spawn_level)
+            .add_systems(SpawnLevel, spawn_level)
             .add_systems(Update, rebuild_dirty_sectors);
     }
 }
@@ -93,6 +94,7 @@ fn spawn_sector(
                     Mesh3d(meshes.add(to_bevy_mesh(&sub.mesh))),
                     MeshMaterial3d(mats[sub.material].clone()),
                     SectorMesh(s),
+                    LevelEntity,
                 ));
                 if map.materials[sub.material] == "sky" {
                     e.insert(NotShadowCaster);
@@ -129,32 +131,41 @@ pub fn rebuild_dirty_sectors(
     }
 }
 
+/// Sector meshes and lights (in [`SpawnLevel`]). The materials are generated on the first spawn
+/// and reused by restarts of the same level.
 fn spawn_level(
     mut commands: Commands,
     map: Res<CurrentMap>,
+    existing: Option<Res<LevelMaterials>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let map = &map.0;
-    let mats: Vec<Handle<StandardMaterial>> = map
-        .materials
-        .iter()
-        .map(|name| {
-            let texture = images.add(textures::generate(name));
-            materials.add(StandardMaterial {
-                base_color_texture: Some(texture),
-                perceptual_roughness: 0.9,
-                unlit: name == "sky",
-                ..default()
-            })
-        })
-        .collect();
+    let mats: Vec<Handle<StandardMaterial>> = match existing {
+        Some(m) => m.0.clone(),
+        None => {
+            let mats: Vec<_> = map
+                .materials
+                .iter()
+                .map(|name| {
+                    let texture = images.add(textures::generate(name));
+                    materials.add(StandardMaterial {
+                        base_color_texture: Some(texture),
+                        perceptual_roughness: 0.9,
+                        unlit: name == "sky",
+                        ..default()
+                    })
+                })
+                .collect();
+            commands.insert_resource(LevelMaterials(mats.clone()));
+            mats
+        }
+    };
 
     for s in 0..map.sectors.len() {
         spawn_sector(&mut commands, &mut meshes, map, &mats, s);
     }
-    commands.insert_resource(LevelMaterials(mats));
 
     for l in &map.lights {
         commands.spawn((
@@ -166,6 +177,7 @@ fn spawn_level(
                 ..default()
             },
             Transform::from_translation(to_bevy(Vec3::new(l.pos.0, l.pos.1, l.pos.2))),
+            LevelEntity,
         ));
     }
 
@@ -176,6 +188,7 @@ fn spawn_level(
             ..default()
         },
         Transform::from_xyz(0.0, 10.0, 0.0).looking_at(Vec3::new(0.4, 0.0, -0.3), Vec3::Y),
+        LevelEntity,
     ));
 }
 

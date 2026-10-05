@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rr_core::fixtures::pillar_room;
+use rr_game::flow::FlowPlugin;
 use rr_game::level::CurrentMap;
 use rr_game::player::{PendingInput, PlayerBody, PlayerSimPlugin};
 
@@ -7,7 +8,7 @@ fn app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .insert_resource(CurrentMap(pillar_room()))
-        .add_plugins(PlayerSimPlugin);
+        .add_plugins((FlowPlugin, PlayerSimPlugin));
     app.update(); // runs Startup → spawns the player
     app
 }

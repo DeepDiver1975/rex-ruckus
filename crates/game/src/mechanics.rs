@@ -1,11 +1,14 @@
 //! Doors, lifts, switches and keycards: core `Mechanics` driven from FixedUpdate.
 
+use crate::combat::{CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerHealth};
+use crate::flow::{LevelSource, PlayState};
 use crate::level::CurrentMap;
 use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
 use bevy::prelude::*;
 use rr_core::interact::use_target;
-use rr_core::map::{ItemKind, Map, SectorId};
+use rr_core::map::{Map, SectorId};
 use rr_core::mechanics::{Mechanics, UseOutcome, UseTarget};
+use rr_core::pickups::{Loadout, apply_pickup};
 use std::collections::BTreeSet;
 
 /// How long a HUD message stays up, in seconds.
@@ -35,17 +38,23 @@ impl HudMessage {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct LevelComplete(pub bool);
-
-/// Inserts the map and its mechanics; this puts the level into its start pose (doors closed).
-pub fn insert_level(app: &mut App, mut map: Map) {
+/// The live map and its mechanics for an authored map, in the start pose (doors closed).
+pub fn fresh_level(mut map: Map) -> (CurrentMap, LevelMechanics) {
     let mech = Mechanics::new(&mut map);
-    app.insert_resource(CurrentMap(map))
-        .insert_resource(LevelMechanics(mech));
+    (CurrentMap(map), LevelMechanics(mech))
 }
 
-/// Simulation only: safe to run headless. Needs `insert_level` and `PlayerSimPlugin`.
+/// Inserts the map and its mechanics in their start pose, and keeps the authored map in
+/// [`LevelSource`] for restarts.
+pub fn insert_level(app: &mut App, map: Map) {
+    let (live, mech) = fresh_level(map.clone());
+    app.insert_resource(LevelSource(map))
+        .insert_resource(live)
+        .insert_resource(mech);
+}
+
+/// Simulation only: safe to run headless. Needs `insert_level`, `PlayerSimPlugin` and
+/// `CombatSimPlugin` (movers carry actors; pickups feed the player's health and arsenal).
 pub struct MechanicsSimPlugin;
 
 impl Plugin for MechanicsSimPlugin {
@@ -53,12 +62,22 @@ impl Plugin for MechanicsSimPlugin {
         app.init_resource::<DirtySectors>()
             .init_resource::<UsePrompt>()
             .init_resource::<HudMessage>()
-            .init_resource::<LevelComplete>()
+            .init_resource::<PlayState>()
             .add_systems(
                 FixedUpdate,
                 (
-                    use_key.before(PlayerSimSet),
-                    (tick_movers, pickup_items).chain().after(PlayerSimSet),
+                    use_key
+                        .before(PlayerSimSet)
+                        .run_if(resource_equals(PlayState::Playing)),
+                    // Gated one by one (not as a group) so a state change earlier in the tick
+                    // stops every later system of the same tick.
+                    (
+                        tick_movers.run_if(resource_equals(PlayState::Playing)),
+                        pickup_items.run_if(resource_equals(PlayState::Playing)),
+                    )
+                        .chain()
+                        .after(PlayerSimSet)
+                        .after(CombatSet),
                 ),
             );
     }
@@ -69,7 +88,7 @@ fn use_key(
     mut mech: ResMut<LevelMechanics>,
     mut prompt: ResMut<UsePrompt>,
     mut msg: ResMut<HudMessage>,
-    mut done: ResMut<LevelComplete>,
+    mut state: ResMut<PlayState>,
     mut q: Query<(&PlayerBody, &Look, &Inventory, &mut PendingInput), With<Player>>,
 ) {
     for (body, look, inv, mut input) in &mut q {
@@ -83,41 +102,64 @@ fn use_key(
             UseOutcome::Activated => {}
             UseOutcome::NeedKey(k) => msg.show(format!("You need the {} keycard", k.name())),
             UseOutcome::Exit => {
-                done.0 = true;
+                *state = PlayState::Complete;
                 msg.show("Level complete!");
             }
         }
     }
 }
 
+/// Moves doors and lifts; the player and every living actor ride lifts and block doors.
 fn tick_movers(
     time: Res<Time<Fixed>>,
     mut map: ResMut<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
+    mut combat: ResMut<LevelCombat>,
     mut dirty: ResMut<DirtySectors>,
     mut q: Query<&mut PlayerBody>,
 ) {
+    // Bodies slice: players first, then the living actors.
     let mut bodies: Vec<_> = q.iter().map(|b| b.0).collect();
+    let players = bodies.len();
+    let (idx, actors) = combat.0.living_bodies();
+    bodies.extend(actors);
     let changed = mech
         .0
         .tick(&mut map.0, &mut bodies, time.timestep().as_secs_f32());
-    for (mut b, moved) in q.iter_mut().zip(bodies) {
-        b.0 = moved;
+    for (mut b, moved) in q.iter_mut().zip(&bodies) {
+        b.0 = *moved;
     }
+    combat.0.write_back(&idx, &bodies[players..]);
     dirty.0.extend(changed);
 }
 
-fn pickup_items(
+/// Walking over items: `apply_pickup` decides, and a refused item stays in the world.
+/// The dead pick nothing up.
+pub fn pickup_items(
     map: Res<CurrentMap>,
+    defs: Res<GameDefs>,
     mut mech: ResMut<LevelMechanics>,
     mut msg: ResMut<HudMessage>,
-    mut q: Query<(&PlayerBody, &mut Inventory)>,
+    mut q: Query<(
+        &PlayerBody,
+        &mut Inventory,
+        &mut PlayerHealth,
+        &mut PlayerArsenal,
+    )>,
 ) {
-    for (body, mut inv) in &mut q {
-        for i in mech.0.pickup(&map.0, &body.0) {
-            let ItemKind::Key(k) = map.0.items[i].kind;
-            inv.keys.insert(k);
-            msg.show(format!("Picked up the {} keycard", k.name()));
+    for (body, mut inv, mut health, mut arsenal) in &mut q {
+        if !health.0.alive() {
+            continue;
         }
+        let mut loadout = Loadout {
+            health: &mut health.0,
+            arsenal: &mut arsenal.0,
+            keys: &mut inv.keys,
+        };
+        mech.0.pickup(&map.0, &body.0, |kind| {
+            apply_pickup(&defs.0, kind, &mut loadout)
+                .map(|text| msg.show(text))
+                .is_some()
+        });
     }
 }

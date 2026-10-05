@@ -1,0 +1,30 @@
+// Weapon and ammo tuning. Starting values, to be adjusted in playtests.
+(
+    ammo: [
+        (kind: Bullets, max: 200, start: 48, pickup: 12),
+        (kind: Shells, max: 50, start: 0, pickup: 8),
+    ],
+    weapons: [
+        (
+            id: Boot, name: "Boot",
+            attack: Melee(range: 1.4, damage: 12),
+            refire: 0.45, ammo: None, clip: None, reload: 0.0,
+            switch_time: 0.3, noise: 4.0, pickup_ammo: 0,
+        ),
+        (
+            id: Pistol, name: "Pistol",
+            attack: Hitscan(damage: 12, pellets: 1, spread_deg: 0.8, range: 200.0),
+            refire: 0.18, ammo: Some(Bullets), clip: Some(12), reload: 1.2,
+            switch_time: 0.3, noise: 25.0, pickup_ammo: 0,
+        ),
+        (
+            id: Shotgun, name: "Shotgun",
+            attack: Hitscan(damage: 8, pellets: 7, spread_deg: 6.0, range: 200.0),
+            refire: 0.9, ammo: Some(Shells), clip: None, reload: 0.0,
+            switch_time: 0.3, noise: 30.0, pickup_ammo: 10,
+        ),
+    ],
+    start_weapons: [Boot, Pistol],
+    kick: Melee(range: 1.4, damage: 12),
+    kick_refire: 0.6,
+)

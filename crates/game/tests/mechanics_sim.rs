@@ -1,10 +1,13 @@
 use bevy::prelude::*;
+use rr_core::defs::Defs;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{Key, Map};
 use rr_core::mechanics::Motion;
+use rr_game::combat::{CombatSimPlugin, insert_defs};
+use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
-    DirtySectors, HudMessage, LevelComplete, LevelMechanics, MechanicsSimPlugin, insert_level,
+    DirtySectors, HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level,
 };
 use rr_game::player::{Inventory, PendingInput, PlayerBody, PlayerSimPlugin};
 
@@ -12,7 +15,13 @@ fn app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     insert_level(&mut app, map);
-    app.add_plugins((PlayerSimPlugin, MechanicsSimPlugin));
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+    ));
     app.update();
     app
 }
@@ -134,5 +143,5 @@ fn exit_switch_completes_the_level() {
     }
     input(&mut app).use_pressed = true;
     ticks(&mut app, 1);
-    assert!(app.world().resource::<LevelComplete>().0);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Complete);
 }

@@ -4,7 +4,7 @@ use rr_game::GamePlugin;
 fn main() {
     let level = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "mechanics_lab.ron".into());
+        .unwrap_or_else(|| "combat_arena.ron".into());
     App::new()
         .add_plugins(
             DefaultPlugins

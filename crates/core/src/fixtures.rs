@@ -91,3 +91,40 @@ pub fn wedge(h: f32) -> Map {
     ))
     .expect("wedge fixture is valid")
 }
+
+/// The shipped weapon and enemy defs.
+pub fn defs() -> crate::defs::Defs {
+    crate::defs::Defs::builtin()
+}
+
+/// The M3 shooting range: a 12×8 m main room (sector 0, floor 0, ceiling 4) with a 2×2 m pillar
+/// hole at x,y∈[3,5]; a 0.5 m step (sector 1, x∈[8,12], y∈[0,3], floor 0.5); a soffit (sector 2,
+/// x∈[8,12], y∈[5,8], ceiling 2.5); a 0.5 m door (sector 3, x∈[12,12.5], y∈[3,5], open height 3,
+/// `face_mat` 3) leading to room B (sector 4, x∈[12.5,16.5], y∈[0,8], floor 0, ceiling 4).
+/// Materials: 0 wall, 1 floor, 2 ceiling, 3 door. Start (1.5,1.5) facing east. Doors are open as
+/// authored; `Mechanics::new` closes them.
+pub fn combat_room() -> Map {
+    Map::from_ron(
+        r#"(
+        name: "combat room",
+        materials: ["wall", "floor", "ceiling", "door"],
+        vertices: [
+            (0.0, 0.0), (8.0, 0.0), (8.0, 3.0), (12.0, 3.0), (12.0, 5.0), (8.0, 5.0), (8.0, 8.0), (0.0, 8.0),
+            (3.0, 3.0), (3.0, 5.0), (5.0, 5.0), (5.0, 3.0),
+            (12.0, 0.0), (12.0, 8.0),
+            (12.5, 3.0), (12.5, 5.0),
+            (12.5, 0.0), (16.5, 0.0), (16.5, 8.0), (12.5, 8.0),
+        ],
+        sectors: [
+            (loops: [[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[1, 12, 3, 2]], floor_z: 0.5, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[5, 4, 13, 6]], floor_z: 0.0, ceil_z: 2.5, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[3, 14, 15, 4]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0,
+             face_mat: Some(3), mover: Some((kind: Door))),
+            (loops: [[16, 17, 18, 19, 15, 14]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+        ],
+        player_start: (pos: (1.5, 1.5), angle_deg: 0.0),
+    )"#,
+    )
+    .expect("combat_room fixture is valid")
+}
