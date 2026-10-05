@@ -2,8 +2,10 @@
 //! The pure event-to-cue mapping lives in `cues`; the game looks each cue up in its sound bank.
 
 mod cues;
+mod footsteps;
 
 pub use cues::{combat_cues, inv_cues, mech_cues, weapon_cues};
+pub use footsteps::Footsteps;
 
 use crate::defs::WeaponId;
 use crate::map::{ActorKind, ItemKind};
