@@ -3,9 +3,14 @@
 
 mod cues;
 mod footsteps;
+mod quips;
 
 pub use cues::{combat_cues, inv_cues, mech_cues, weapon_cues};
 pub use footsteps::Footsteps;
+pub use quips::{
+    COOLDOWN, KILL_CHANCE, LOW_HEALTH, LowHealthWatch, MULTI_KILL_WINDOW, Quip, QuipDirector,
+    QuipError, QuipOn, QuipTable, QuipTrigger, REARM_HEALTH,
+};
 
 use crate::defs::WeaponId;
 use crate::map::{ActorKind, ItemKind};
