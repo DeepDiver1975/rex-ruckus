@@ -61,9 +61,11 @@ impl Combat {
     /// (`BLAST_NOISE`) wakes sleepers.
     ///
     /// World effects of a blast hook in here. Glass it reaches (`walls_in_reach`) shatters
-    /// after the splash is dealt, so an intact pane still shields what is behind it from this
-    /// blast; the bang then carries through the broken panes. Crack walls it reaches
-    /// (`sectors_in_reach`) start opening and report `CrackOpened`. Breakable lights whose fixture it sees within its radius break (`LightBroken`).
+    /// after the splash is dealt and after the crack walls and lights in reach are found, so an
+    /// intact pane still shields what is behind it from this blast; the bang then carries
+    /// through the broken panes. Crack walls it reaches (`sectors_in_reach`) start opening and
+    /// report `CrackOpened`. Breakable lights whose fixture it sees within its radius break
+    /// (`LightBroken`).
     fn apply_blast(
         &mut self,
         map: &mut Map,
@@ -94,19 +96,21 @@ impl Combat {
                 out.extend(self.damage_actor(defs, hit.body - 1, hit.damage));
             }
         }
+        // Everything the blast reaches is found before any pane breaks, so a pane shields what
+        // is behind it from the blast that breaks it.
+        let cracks = sectors_in_reach(map, blast);
+        let lights =
+            self.destruct
+                .lights_in_reach(map, blast.center, blast.sector, blast.splash.radius);
         for w in walls_in_reach(map, blast) {
             self.break_glass(map, w, out);
         }
-        for s in sectors_in_reach(map, blast) {
+        for s in cracks {
             if self.destruct.open_crack(mech, s) {
                 out.push(CombatEvent::CrackOpened(s));
             }
         }
-        let reach = blast.splash.radius;
-        for i in self
-            .destruct
-            .lights_in_reach(map, blast.center, blast.sector, reach)
-        {
+        for i in lights {
             if self.destruct.break_light(map, i) {
                 out.push(CombatEvent::LightBroken(i));
             }

@@ -167,3 +167,21 @@ fn broken_light_stays_broken() {
     let ev = explode(&mut c, &mut map, b);
     assert!(broken(&ev).is_empty(), "{ev:?}");
 }
+
+#[test]
+fn pane_shields_light_from_the_blast_that_breaks_it() {
+    // A light in the booth right behind the pane; the blast in the hall shatters the pane.
+    let (mut map, mut c, _) = setup(vec![light((11.0, 5.0, 1.5), true)]);
+    let b = blast(&map, Vec3::new(9.0, 5.0, 1.5), 4.0);
+    let ev = explode(&mut c, &mut map, b);
+    assert!(
+        ev.iter()
+            .any(|e| matches!(e, CombatEvent::GlassBroken { .. })),
+        "the pane breaks: {ev:?}"
+    );
+    assert!(broken(&ev).is_empty(), "the pane took this blast: {ev:?}");
+    // The next blast reaches it through the empty frame.
+    let b = blast(&map, Vec3::new(9.0, 5.0, 1.5), 4.0);
+    let ev = explode(&mut c, &mut map, b);
+    assert_eq!(broken(&ev), vec![0], "{ev:?}");
+}
