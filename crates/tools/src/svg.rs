@@ -131,14 +131,15 @@ pub fn render_svg(map: &Map) -> String {
     }
 
     for item in &map.items {
-        let ItemKind::Key(k) = item.kind;
+        let color = match item.kind {
+            ItemKind::Key(k) => key_color(k),
+            _ => "#888",
+        };
         let p = px(item.pos);
         writeln!(
             o,
             r##"<circle class="item" cx="{:.1}" cy="{:.1}" r="6" fill="{}" stroke="#fff"/>"##,
-            p.x,
-            p.y,
-            key_color(k)
+            p.x, p.y, color
         )
         .unwrap();
     }

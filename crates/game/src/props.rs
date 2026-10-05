@@ -74,7 +74,10 @@ fn spawn_props(
     }
     let cube = meshes.add(Cuboid::new(0.3, 0.3, 0.3));
     for (i, item) in map.items.iter().enumerate() {
-        let ItemKind::Key(k) = item.kind;
+        // Temporary: only keys get props until per-kind item styles land.
+        let ItemKind::Key(k) = item.kind else {
+            continue;
+        };
         let floor = map
             .find_sector(item.pos, None)
             .map_or(0.0, |s| map.sectors[s].floor_z);

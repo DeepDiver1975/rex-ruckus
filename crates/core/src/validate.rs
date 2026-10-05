@@ -289,7 +289,9 @@ fn check_reachability(map: &Map, r: &mut Report) {
         let reached = flood(map, start, keys, &fired, &t);
         let mut changed = false;
         for item in &map.items {
-            let ItemKind::Key(k) = item.kind;
+            let ItemKind::Key(k) = item.kind else {
+                continue;
+            };
             if map.find_sector(item.pos, None).is_some_and(|s| reached[s]) && !keys.contains(k) {
                 keys.insert(k);
                 changed = true;

@@ -47,8 +47,9 @@ impl Run {
         self.mech.tick(&mut self.map, &mut bodies, DT);
         self.body = bodies[0];
         for i in self.mech.pickup(&self.map, &self.body) {
-            let ItemKind::Key(k) = self.map.items[i].kind;
-            self.keys.insert(k);
+            if let ItemKind::Key(k) = self.map.items[i].kind {
+                self.keys.insert(k);
+            }
         }
     }
 

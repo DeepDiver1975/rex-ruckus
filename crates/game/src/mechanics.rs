@@ -115,9 +115,11 @@ fn pickup_items(
 ) {
     for (body, mut inv) in &mut q {
         for i in mech.0.pickup(&map.0, &body.0) {
-            let ItemKind::Key(k) = map.0.items[i].kind;
-            inv.keys.insert(k);
-            msg.show(format!("Picked up the {} keycard", k.name()));
+            // Temporary: non-key items are ignored until the combat pickup system lands.
+            if let ItemKind::Key(k) = map.0.items[i].kind {
+                inv.keys.insert(k);
+                msg.show(format!("Picked up the {} keycard", k.name()));
+            }
         }
     }
 }

@@ -26,6 +26,8 @@ pub struct RawLevel {
     pub switches: Vec<RawSwitch>,
     #[serde(default)]
     pub items: Vec<RawItem>,
+    #[serde(default)]
+    pub actors: Vec<RawActor>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -142,6 +144,38 @@ pub struct RawSwitch {
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub enum ItemKind {
     Key(Key),
+    PistolAmmo,
+    ShotgunShells,
+    Shotgun,
+    HealthSmall,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+pub enum ActorKind {
+    Grunt,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct RawActor {
+    pub kind: ActorKind,
+    pub pos: (f32, f32),
+    #[serde(default)]
+    pub angle_deg: f32,
+    #[serde(default = "yes")]
+    pub asleep: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ActorSpawn {
+    pub kind: ActorKind,
+    pub pos: Vec2,
+    /// Heading in radians (0 = +x, counter-clockwise).
+    pub angle: f32,
+    pub asleep: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -209,6 +243,7 @@ pub struct Map {
     pub lights: Vec<RawLight>,
     pub switches: Vec<Switch>,
     pub items: Vec<Item>,
+    pub actors: Vec<ActorSpawn>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -243,6 +278,8 @@ pub enum MapError {
         sector: SectorId,
         reason: &'static str,
     },
+    #[error("actor {index}: {reason}")]
+    BadActor { index: usize, reason: &'static str },
 }
 
 impl Map {
@@ -353,6 +390,31 @@ impl Map {
                 pos: Vec2::new(i.pos.0, i.pos.1),
             })
             .collect();
+        let actors = raw
+            .actors
+            .iter()
+            .enumerate()
+            .map(|(index, a)| {
+                if !(a.pos.0.is_finite() && a.pos.1.is_finite()) {
+                    return Err(MapError::BadActor {
+                        index,
+                        reason: "position must be finite",
+                    });
+                }
+                if !a.angle_deg.is_finite() {
+                    return Err(MapError::BadActor {
+                        index,
+                        reason: "angle must be finite",
+                    });
+                }
+                Ok(ActorSpawn {
+                    kind: a.kind,
+                    pos: Vec2::new(a.pos.0, a.pos.1),
+                    angle: a.angle_deg.to_radians(),
+                    asleep: a.asleep,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Map {
             name: raw.name,
@@ -363,6 +425,7 @@ impl Map {
             lights: raw.lights,
             switches,
             items,
+            actors,
         })
     }
 }
@@ -586,6 +649,64 @@ mod tests {
                 .kind,
             MoverKind::Lift { to: 2.0 }
         );
+    }
+
+    #[test]
+    fn parses_new_item_kinds() {
+        let map = door_rooms(
+            "(kind: Door)",
+            "items: [(kind: PistolAmmo, pos: (1.0, 1.0)), (kind: ShotgunShells, pos: (1.0, 2.0)),
+                     (kind: Shotgun, pos: (1.0, 3.0)), (kind: HealthSmall, pos: (2.0, 1.0))],",
+        );
+        let kinds: Vec<_> = map.items.iter().map(|i| i.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ItemKind::PistolAmmo,
+                ItemKind::ShotgunShells,
+                ItemKind::Shotgun,
+                ItemKind::HealthSmall
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_actors_with_defaults() {
+        let map = door_rooms(
+            "(kind: Door)",
+            "actors: [(kind: Grunt, pos: (1.0, 2.0)),
+                      (kind: Grunt, pos: (3.0, 1.0), angle_deg: 90.0, asleep: false)],",
+        );
+        assert_eq!(map.actors.len(), 2);
+        let a = map.actors[0];
+        assert_eq!(
+            (a.kind, a.pos, a.angle, a.asleep),
+            (ActorKind::Grunt, Vec2::new(1.0, 2.0), 0.0, true)
+        );
+        let b = map.actors[1];
+        assert!((b.angle - std::f32::consts::FRAC_PI_2).abs() < 1e-6 && !b.asleep);
+    }
+
+    #[test]
+    fn rejects_non_finite_actor() {
+        let mut raw: RawLevel = ron::from_str(include_str!("../../../assets/levels/test_yard.ron"))
+            .expect("shipped level parses");
+        raw.actors.push(RawActor {
+            kind: ActorKind::Grunt,
+            pos: (f32::NAN, 0.0),
+            angle_deg: 0.0,
+            asleep: true,
+        });
+        assert!(matches!(
+            Map::from_raw(raw.clone()),
+            Err(MapError::BadActor { index: 0, .. })
+        ));
+        raw.actors[0].pos = (0.0, 0.0);
+        raw.actors[0].angle_deg = f32::INFINITY;
+        assert!(matches!(
+            Map::from_raw(raw),
+            Err(MapError::BadActor { index: 0, .. })
+        ));
     }
 
     #[test]
