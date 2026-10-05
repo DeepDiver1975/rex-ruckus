@@ -64,6 +64,10 @@ fn main() {
         .add_plugins(
             DefaultPlugins
                 .set(ImagePlugin::default_nearest())
+                .set(AssetPlugin {
+                    file_path: rr_game::paths::assets_dir().to_string_lossy().into_owned(),
+                    ..default()
+                })
                 .set(WindowPlugin {
                     primary_window: Some(window),
                     ..default()

@@ -9,7 +9,7 @@ name = "rex-ruckus"
 path = "src/main.rs"
 
 [dependencies]
-bevy = "0.19"
+bevy = { version = "0.19", features = ["wav"] }
 rr-core = { path = "../core" }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }

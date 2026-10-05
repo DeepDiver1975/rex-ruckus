@@ -1,9 +1,10 @@
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use rr_core::defs::Defs;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{Key, Map};
-use rr_core::mechanics::Motion;
-use rr_game::combat::{CombatSimPlugin, insert_defs};
+use rr_core::mechanics::{MechEvent, Motion};
+use rr_game::combat::{CombatSimPlugin, FxQueue, clear_fx, insert_defs};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
@@ -144,4 +145,36 @@ fn exit_switch_completes_the_level() {
     input(&mut app).use_pressed = true;
     ticks(&mut app, 1);
     assert_eq!(*app.world().resource::<PlayState>(), PlayState::Complete);
+}
+
+#[test]
+fn using_a_door_queues_mover_started_until_clear_fx() {
+    let mut app = app(door_rooms("(kind: Door)", ""));
+    walk_to_door(&mut app);
+    assert!(app.world().resource::<FxQueue>().mech.is_empty());
+    input(&mut app).use_pressed = true;
+    ticks(&mut app, 1);
+    let mech = &app.world().resource::<FxQueue>().mech;
+    assert!(
+        mech.iter()
+            .any(|e| matches!(e, MechEvent::MoverStarted { .. })),
+        "{mech:?}"
+    );
+    app.world_mut().run_system_once(clear_fx).unwrap();
+    assert!(app.world().resource::<FxQueue>().mech.is_empty());
+}
+
+#[test]
+fn picking_up_an_item_queues_item_taken() {
+    let mut app = app(door_rooms(
+        "(kind: Door)",
+        "items: [(kind: Key(Red), pos: (2.3, 2.0))],",
+    ));
+    ticks(&mut app, 1);
+    let mech = &app.world().resource::<FxQueue>().mech;
+    assert!(
+        mech.iter()
+            .any(|e| matches!(e, MechEvent::ItemTaken { .. })),
+        "{mech:?}"
+    );
 }

@@ -1,7 +1,7 @@
 //! Doors, lifts, switches and keycards: core `Mechanics` driven from FixedUpdate.
 
 use crate::combat::{
-    CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+    CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
 };
 use crate::flow::{LevelSource, PlayState};
 use crate::level::CurrentMap;
@@ -107,6 +107,9 @@ impl Plugin for MechanicsSimPlugin {
                     (
                         tick_movers.run_if(resource_equals(PlayState::Playing)),
                         pickup_items.run_if(resource_equals(PlayState::Playing)),
+                        // Ungated: drains events from every mechanics call this tick, including
+                        // `use_key` (before the player) and combat (cracks, channel fire).
+                        forward_mech_events,
                     )
                         .chain()
                         .after(PlayerSimSet)
@@ -164,6 +167,11 @@ fn tick_movers(
     }
     combat.0.write_back(&idx, &bodies[players..]);
     dirty.0.extend(changed);
+}
+
+/// Moves the events core `Mechanics` collected this tick into [`FxQueue`] for the frame loop.
+fn forward_mech_events(mut mech: ResMut<LevelMechanics>, mut fx: ResMut<FxQueue>) {
+    fx.mech.extend(mech.0.drain_events());
 }
 
 /// Walking over items: `apply_pickup` decides, and a refused item stays in the world.
