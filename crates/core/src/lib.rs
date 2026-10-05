@@ -10,6 +10,7 @@ pub mod fixtures;
 pub mod geom;
 pub mod health;
 pub mod interact;
+pub mod inventory;
 pub mod map;
 pub mod mechanics;
 pub mod movement;
