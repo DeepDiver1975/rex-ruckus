@@ -91,3 +91,8 @@ pub fn wedge(h: f32) -> Map {
     ))
     .expect("wedge fixture is valid")
 }
+
+/// The shipped weapon and enemy defs.
+pub fn defs() -> crate::defs::Defs {
+    crate::defs::Defs::builtin()
+}

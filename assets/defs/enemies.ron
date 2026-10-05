@@ -1,0 +1,11 @@
+// Enemy tuning. Starting values, to be adjusted in playtests.
+[
+    (
+        kind: Grunt,
+        health: 30, radius: 0.35, height: 1.75, speed: 3.5,
+        sight_range: 30.0, fov_deg: 120.0, reaction: 0.4,
+        attack_range: 20.0, attack_refire: 1.6, burst: 2, burst_gap: 0.25, aim_error_deg: 3.0,
+        projectile: (speed: 15.0, damage: 8, radius: 0.12, life: 4.0),
+        pain_chance: 0.5, pain_time: 0.35, death_time: 0.8, strafe: true,
+    ),
+]

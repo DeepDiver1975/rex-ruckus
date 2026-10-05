@@ -2,13 +2,16 @@
 //! Coordinates are right-handed, Z-up, in metres (x = east, y = north).
 
 pub mod collide;
+pub mod defs;
 pub mod extrude;
 pub mod fixtures;
 pub mod geom;
+pub mod health;
 pub mod interact;
 pub mod map;
 pub mod mechanics;
 pub mod movement;
+pub mod rng;
 pub mod validate;
 
 pub use glam;
