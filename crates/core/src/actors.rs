@@ -295,6 +295,32 @@ fn shoot(a: &mut Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng, left: u32
     aim(a, def, p, rng)
 }
 
+/// Where this actor's shots really start: its muzzle, unless a wall lies between the eye and
+/// the muzzle (flush against a wall or jamb, the offset can poke through it). Then the start is
+/// the wall hit pulled back 5 cm toward the eye. Returns the point and the sector it is in.
+pub fn effective_muzzle(map: &Map, a: &Actor) -> (Vec3, SectorId) {
+    let (eye, muzzle) = (a.eye(), a.muzzle());
+    let reach = muzzle.distance(eye);
+    let mut at = muzzle;
+    if let Some(dir) = (muzzle - eye).try_normalize() {
+        let ray = Ray {
+            origin: eye,
+            dir,
+            sector: a.body.sector,
+            max: reach,
+        };
+        if let Some(h) = crate::trace::trace_world(map, &ray)
+            && h.dist <= reach
+        {
+            at = eye + dir * (h.dist - 0.05).max(0.0);
+        }
+    }
+    let sector = map
+        .find_sector(at.truncate(), Some(a.body.sector))
+        .unwrap_or(a.body.sector);
+    (at, sector)
+}
+
 /// Result of an enemy hitscan volley.
 #[derive(Debug, Default, PartialEq)]
 pub struct Volley {
@@ -327,10 +353,7 @@ pub fn volley(
     else {
         return Volley::default();
     };
-    let origin = a.muzzle();
-    let sector = map
-        .find_sector(origin.truncate(), Some(a.body.sector))
-        .unwrap_or(a.body.sector);
+    let (origin, sector) = effective_muzzle(map, a);
     let skip = |i: usize| i != 0 && (i - 1 == shooter || !alive(i - 1));
     let mut out = Volley::default();
     for d in crate::weapons::spread_dirs(dir, pellets, spread_deg, rng) {

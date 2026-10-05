@@ -7,9 +7,11 @@
 //! `Mechanics::tick` and copies them back with [`Combat::write_back`]. Because player attacks
 //! run first, an actor killed by the player this tick never fires.
 
-use crate::actors::{Actor, AiState, Perception, hurt, swipe_reaches, think, tuning, volley, wake};
+use crate::actors::{
+    Actor, AiState, Perception, effective_muzzle, hurt, swipe_reaches, think, tuning, volley, wake,
+};
 use crate::collide::{Body, clip_move, z_range};
-use crate::defs::{Attack, Defs, EnemyAttack, ProjectileDef, WeaponId};
+use crate::defs::{Attack, Defs, EnemyAttack, Locomotion, ProjectileDef, WeaponId};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{Map, SectorId};
 use crate::movement::{Tuning, step_player};
@@ -300,7 +302,7 @@ impl Combat {
                                 .map(|(point, normal)| CombatEvent::Impact { point, normal }),
                         );
                         if v.player_damage > 0 {
-                            let from = self.actors[i].muzzle();
+                            let from = effective_muzzle(map, &self.actors[i]).0;
                             hurt_player(player, v.player_damage, from, &mut out);
                         }
                     }
@@ -327,15 +329,13 @@ impl Combat {
     /// Spawns actor `i`'s bolt at its muzzle, flying along `dir`.
     fn spawn_bolt(&mut self, map: &Map, i: usize, dir: Vec3, pd: ProjectileDef) {
         let a = &self.actors[i];
-        let muzzle = a.muzzle();
+        let (muzzle, sector) = effective_muzzle(map, a);
         self.projectiles.push(Projectile {
             id: self.next_id,
             pos: muzzle,
             prev: muzzle,
             vel: dir * pd.speed,
-            sector: map
-                .find_sector(muzzle.truncate(), Some(a.body.sector))
-                .unwrap_or(a.body.sector),
+            sector,
             radius: pd.radius,
             damage: pd.damage,
             owner: Shooter::Actor(i),
@@ -365,6 +365,11 @@ impl Combat {
                 continue;
             }
             let n = (pa - pp).try_normalize().unwrap_or(Vec2::X);
+            if a.locomotion == Locomotion::Static {
+                // Immovable: the player takes the whole push.
+                clip_move(map, player, -n * (reach - dist), step);
+                continue;
+            }
             let push = n * (reach - dist) * 0.5;
             clip_move(map, b, push, step);
             clip_move(map, player, -push, step);
@@ -431,6 +436,7 @@ mod tests {
     use crate::health::PLAYER_MAX_HEALTH;
     use crate::map::{ActorKind, ActorSpawn};
     use crate::mechanics::{Mechanics, Motion};
+    use crate::movement::MoveInput;
     use std::f32::consts::PI;
 
     const DT: f32 = 1.0 / 60.0;
@@ -1217,5 +1223,73 @@ mod tests {
             p.tick(&mut c, &map, &d);
         }
         assert_eq!(c.actors[0].state, AiState::Dead);
+    }
+
+    #[test]
+    fn player_cannot_shove_a_barrel() {
+        let mut map = combat_room();
+        spawn_kind(&mut map, ActorKind::Barrel, 4.0, 1.5, 0.0, true);
+        let d = defs();
+        let mut c = Combat::spawn(&map, &d, 2);
+        let barrel_at = c.actors[0].body.pos;
+        let mut p = Player::at(&map, 2.0, 1.5);
+        let walk = MoveInput {
+            wish: Vec2::X,
+            ..MoveInput::default()
+        };
+        for _ in 0..60 {
+            step_player(&map, &mut p.body, &walk, &Tuning::default(), DT);
+            p.tick(&mut c, &map, &d);
+            let reach = c.actors[0].body.radius + p.body.radius;
+            let dist = p.body.pos.truncate().distance(barrel_at.truncate());
+            assert!(dist >= reach - 1e-3, "player inside the barrel: {dist}");
+        }
+        assert_eq!(c.actors[0].body.pos, barrel_at, "the barrel never moves");
+        assert!(p.body.pos.x < barrel_at.x, "the player is stopped by it");
+    }
+
+    #[test]
+    fn muzzle_behind_a_wall_is_clipped_to_the_actor_side() {
+        // The pillar (x,y in [3,5]) has its east face at x = 5. A Grunt flush against it,
+        // facing it, has its muzzle 0.62 ahead, inside the pillar and past that face.
+        let mut map = combat_room();
+        spawn_at(&mut map, 5.36, 4.0, PI, false);
+        spawn_kind(&mut map, ActorKind::Enforcer, 5.36, 3.5, PI, false);
+        let d = defs();
+        let mut c = Combat::spawn(&map, &d, 1);
+        let p = Player::at(&map, 1.5, 4.0);
+        let a = &c.actors[0];
+        assert!(a.muzzle().x < 5.0, "setup: the raw muzzle is in the wall");
+        let (at, sector) = effective_muzzle(&map, a);
+        assert!(at.x >= 5.0, "clipped muzzle {at:?} is on the actor's side");
+        assert_eq!(sector, a.body.sector);
+
+        // A bolt starts there and dies on the pillar face.
+        let EnemyAttack::Bolts { proj, .. } = d.enemy(ActorKind::Grunt).attack else {
+            panic!("the Grunt shoots bolts")
+        };
+        c.spawn_bolt(&map, 0, Vec3::NEG_X, proj);
+        assert!(c.projectiles[0].prev.x >= 5.0);
+
+        // A hitscan volley from the Enforcer cannot reach the player behind the pillar either.
+        let e = &c.actors[1];
+        let bodies = [p.body, c.actors[0].body, e.body];
+        let mut rng = Rng::new(4);
+        let v = volley(
+            &map,
+            e,
+            1,
+            d.enemy(ActorKind::Enforcer),
+            Vec3::NEG_X,
+            &bodies,
+            |_| true,
+            &mut rng,
+        );
+        assert_eq!(v.player_damage, 0);
+        assert!(
+            v.impacts.iter().all(|(pt, _)| pt.x >= 4.99),
+            "{:?}",
+            v.impacts
+        );
     }
 }
