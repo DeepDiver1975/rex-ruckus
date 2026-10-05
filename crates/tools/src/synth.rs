@@ -403,6 +403,7 @@ pub fn synth_file(recipes: &Path, out_dir: &Path) -> Result<Vec<String>, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     const ONE_SHOT: &str = r#"[
         (name: "zap", layers: [
@@ -523,6 +524,78 @@ mod tests {
             let err = parse_recipes(src).unwrap_err();
             assert!(err.contains(needle), "{src}: {err}");
         }
+    }
+
+    fn real_recipes() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/sounds/synth.ron")
+    }
+
+    pub const NAMES: &[&str] = &[
+        "pistol",
+        "shotgun",
+        "chaingun",
+        "rocket_launch",
+        "bomb_throw",
+        "dry_fire",
+        "reload",
+        "weapon_switch",
+        "kick_swoosh",
+        "ricochet",
+        "impact",
+        "explosion",
+        "pickup_item",
+        "pickup_weapon",
+        "pickup_ammo",
+        "pickup_health",
+        "pickup_key",
+        "pickup_power",
+        "secret",
+        "switch_click",
+        "denied",
+        "nightvision_on",
+        "nightvision_off",
+        "enemy_bolt",
+        "drone_hum",
+        "glass_break",
+        "light_break",
+        "door_servo",
+        "door_stop",
+        "lift_hum",
+        "lift_stop",
+        "jetpack_loop",
+        "jetpack_start",
+        "jetpack_stop",
+        "footstep",
+        "land",
+        "player_hurt",
+        "player_death",
+        "enemy_wake",
+        "enemy_pain",
+        "enemy_death",
+        "level_complete",
+    ];
+
+    #[test]
+    fn shipped_recipes_parse_and_cover_every_name() {
+        let src = std::fs::read_to_string(real_recipes()).unwrap();
+        let recipes = parse_recipes(&src).unwrap();
+        for name in NAMES {
+            assert!(recipes.iter().any(|r| r.name == *name), "missing {name}");
+        }
+        let mut bytes = 0;
+        for r in &recipes {
+            let pcm = render(r);
+            bytes += wav_bytes(&pcm).len();
+            let secs = pcm.len() as f64 / SAMPLE_RATE as f64;
+            let max = if r.looped { 2.0 } else { 2.5 };
+            assert!(secs <= max + 1e-9, "{} is {secs} s", r.name);
+            let looped = ["drone_hum", "lift_hum", "jetpack_loop"].contains(&r.name.as_str());
+            assert_eq!(r.looped, looped, "{} loop flag", r.name);
+            if looped {
+                assert!(secs >= 1.0, "{} loop is {secs} s", r.name);
+            }
+        }
+        assert!(bytes <= 4 << 20, "{bytes} bytes of WAV");
     }
 
     #[test]
