@@ -157,9 +157,11 @@ pub(super) fn animate_enemies(
                     } else {
                         RepeatAnimation::Forever
                     };
-                    active
-                        .set_repeat(repeat)
-                        .set_speed(if own { cmd.speed } else { 1.0 });
+                    active.set_repeat(repeat);
+                    // Only on (re)start: a hold flip must not reset a clamped clip's speed.
+                    if started {
+                        active.set_speed(if own { cmd.speed } else { 1.0 });
+                    }
                 }
                 // A corpse seen for the first time (e.g. dead when the model became ready)
                 // jumps to the end; one that just finished dying already holds there.

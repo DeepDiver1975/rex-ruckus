@@ -234,16 +234,31 @@ fn a_hit_flashes_the_grunt_briefly() {
 fn pain_material_wins_over_the_hit_flash() {
     let mut app = app();
     fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    app.update();
+    let resting = grunt_materials(&mut app, 0);
+    // The Hit variant, seen on a grunt that is not in pain.
+    hurt(&mut app, 0);
+    app.update();
+    let hit = grunt_materials(&mut app, 0);
+    assert_ne!(hit, resting, "the flash differs from the resting look");
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(grunt_materials(&mut app, 0), resting);
     for a in &mut app.world_mut().resource_mut::<LevelCombat>().0.actors {
         a.state = AiState::Pain { t: 10.0 };
     }
+    app.update();
+    let pain = grunt_materials(&mut app, 1);
+    assert_ne!(pain, resting, "pain looks different from resting");
     hurt(&mut app, 0);
     app.update();
     assert_eq!(
         grunt_materials(&mut app, 0),
-        grunt_materials(&mut app, 1),
-        "a grunt in pain keeps its pain material"
+        pain,
+        "a grunt in pain keeps its pain material when hit"
     );
+    assert_ne!(grunt_materials(&mut app, 0), hit, "not the hit variant");
 }
 
 fn bomb(id: u32) -> Projectile {
@@ -651,6 +666,68 @@ fn the_grunt_holds_its_pistol_on_the_wrist() {
         .query_filtered::<&ChildOf, With<ModelSlot>>();
     let on_wrist = q.iter(app.world()).filter(|c| c.parent() == wrist).count();
     assert_eq!(on_wrist, 1, "attached only once");
+}
+
+/// A source material that has not loaded yet must not be recorded as tinted: the look is
+/// applied on a later frame, once the material is there.
+#[test]
+fn enemy_look_waits_for_its_material() {
+    let mut app = app_with(&[ActorKind::Grunt]);
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    let handle = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .reserve_handle();
+    let m = model_root(&mut app, 0);
+    let meshes = app.world().get::<ModelReady>(m).unwrap().meshes.clone();
+    for &e in &meshes {
+        app.world_mut()
+            .entity_mut(e)
+            .insert(MeshMaterial3d(handle.clone()));
+    }
+    let current = |app: &App| {
+        app.world()
+            .get::<MeshMaterial3d<StandardMaterial>>(meshes[0])
+            .unwrap()
+            .0
+            .id()
+    };
+    app.update();
+    assert_eq!(current(&app), handle.id(), "not swapped before it loads");
+    let _ = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .insert(handle.id(), StandardMaterial::default());
+    app.update();
+    assert_ne!(
+        current(&app),
+        handle.id(),
+        "looked once the material is there"
+    );
+}
+
+/// The bone sits in a x100 armature: the pistol must be scale-corrected in the very frame it is
+/// attached, not drawn 100x too big for one frame.
+#[test]
+fn the_pistol_is_scale_corrected_the_frame_it_attaches() {
+    let mut app = app_with(&[ActorKind::Grunt]);
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    let m = model_root(&mut app, 0);
+    let wrist = app.world().get::<ModelReady>(m).unwrap().nodes["Wrist.R"];
+    app.world_mut()
+        .entity_mut(wrist)
+        .insert(GlobalTransform::from(Transform::from_scale(Vec3::splat(
+            100.0,
+        ))));
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(&ChildOf, &Transform), With<ModelSlot>>();
+    let (_, t) = q
+        .iter(app.world())
+        .find(|(c, _)| c.parent() == wrist)
+        .expect("pistol attached");
+    assert!(t.scale.max_element() < 0.01, "{:?}", t.scale);
 }
 
 /// The Enforcer's tip glow sits on its `Gun_end` node and lights only after a shot.

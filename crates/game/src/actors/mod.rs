@@ -143,7 +143,11 @@ impl Plugin for ActorVisualsPlugin {
                         attach_tips,
                     )
                         .run_if(resource_exists::<ModelLibrary>),
-                    keep_world_scale,
+                    // After the spawns, so Bevy's sync point applies them and a fresh attachment
+                    // is corrected the same frame.
+                    keep_world_scale
+                        .after(humanoid::attach_scenes)
+                        .after(attach_tips),
                     projectiles::sync_projectiles,
                     projectiles::age_sparks,
                 )
@@ -417,6 +421,14 @@ fn tint_enemies(
                 .filter_map(|&e| mats.get(e).ok().map(|m| (e, m.0.clone())))
                 .collect()
         });
+        // Wait until every source material has loaded: `TintCache` hands back untinted sources
+        // otherwise, and the look would be recorded as applied without ever being retried.
+        if !originals
+            .iter()
+            .all(|(_, source)| materials.get(source).is_some())
+        {
+            continue;
+        }
         let tint = lib.enemy(model.kind).tint;
         for (e, source) in originals.iter() {
             if let Ok(mut m) = mats.get_mut(*e) {
