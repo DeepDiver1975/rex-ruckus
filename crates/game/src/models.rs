@@ -272,7 +272,7 @@ pub struct ModelReady {
     pub player: Option<Entity>,
     /// Every entity with a `MeshMaterial3d<StandardMaterial>` (for [`TintCache`] swaps).
     pub meshes: Vec<Entity>,
-    /// Descendants by glTF node `Name` (bones, `Gun_end`, ...).
+    /// Descendants by glTF node `Name` (bones, `Muzzle`, ...).
     pub nodes: HashMap<String, Entity>,
 }
 

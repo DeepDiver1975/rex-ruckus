@@ -442,7 +442,7 @@ fn model_root(app: &mut App, idx: usize) -> Entity {
 
 /// Stands in for a loaded glTF: gives `kind` an animation graph with `roles` and makes the
 /// model of every actor of that kind "ready", with a player bound to the graph, two meshes
-/// sharing one material (as glTF meshes do) and the `Wrist.R` and `Gun_end` nodes.
+/// sharing one material (as glTF meshes do) and the `Hand.R` and `Muzzle` nodes.
 fn fake_ready(
     app: &mut App,
     kind: ActorKind,
@@ -500,7 +500,7 @@ fn fake_ready(
             .map(|_| w.spawn((MeshMaterial3d(material.clone()), ChildOf(m))).id())
             .collect();
         let mut named = HashMap::new();
-        for name in ["Wrist.R", "Gun_end"] {
+        for name in ["Hand.R", "Muzzle"] {
             let e = w
                 .spawn((Name::new(name), Transform::default(), ChildOf(player)))
                 .id();
@@ -651,23 +651,23 @@ fn a_corpse_seen_late_holds_the_last_death_frame() {
 }
 
 #[test]
-fn the_grunt_holds_its_pistol_on_the_wrist() {
+fn the_grunt_holds_its_cannon_in_the_hand() {
     let mut app = app_with(&[ActorKind::Grunt]);
     fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
     app.update();
     let m = model_root(&mut app, 0);
-    let wrist = app.world().get::<ModelReady>(m).unwrap().nodes["Wrist.R"];
+    let hand = app.world().get::<ModelReady>(m).unwrap().nodes["Hand.R"];
     let mut q = app
         .world_mut()
         .query_filtered::<&ChildOf, With<ModelSlot>>();
-    let on_wrist = q.iter(app.world()).filter(|c| c.parent() == wrist).count();
-    assert_eq!(on_wrist, 1, "one pistol, parented to the bone");
+    let in_hand = q.iter(app.world()).filter(|c| c.parent() == hand).count();
+    assert_eq!(in_hand, 1, "one cannon, parented to the bone");
     app.update();
     let mut q = app
         .world_mut()
         .query_filtered::<&ChildOf, With<ModelSlot>>();
-    let on_wrist = q.iter(app.world()).filter(|c| c.parent() == wrist).count();
-    assert_eq!(on_wrist, 1, "attached only once");
+    let in_hand = q.iter(app.world()).filter(|c| c.parent() == hand).count();
+    assert_eq!(in_hand, 1, "attached only once");
 }
 
 /// A source material that has not loaded yet must not be recorded as tinted: the look is
@@ -708,16 +708,16 @@ fn enemy_look_waits_for_its_material() {
     );
 }
 
-/// The bone sits in a x100 armature: the pistol must be scale-corrected in the very frame it is
-/// attached, not drawn 100x too big for one frame.
+/// A bone in a scaled armature (Quaternius rigs carry x100): the attachment must be
+/// scale-corrected in the very frame it is attached, not drawn 100x too big for one frame.
 #[test]
-fn the_pistol_is_scale_corrected_the_frame_it_attaches() {
+fn the_attachment_is_scale_corrected_the_frame_it_attaches() {
     let mut app = app_with(&[ActorKind::Grunt]);
     fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
     let m = model_root(&mut app, 0);
-    let wrist = app.world().get::<ModelReady>(m).unwrap().nodes["Wrist.R"];
+    let hand = app.world().get::<ModelReady>(m).unwrap().nodes["Hand.R"];
     app.world_mut()
-        .entity_mut(wrist)
+        .entity_mut(hand)
         .insert(GlobalTransform::from(Transform::from_scale(Vec3::splat(
             100.0,
         ))));
@@ -727,29 +727,34 @@ fn the_pistol_is_scale_corrected_the_frame_it_attaches() {
         .query_filtered::<(&ChildOf, &Transform), With<ModelSlot>>();
     let (_, t) = q
         .iter(app.world())
-        .find(|(c, _)| c.parent() == wrist)
-        .expect("pistol attached");
-    assert!(t.scale.max_element() < 0.01, "{:?}", t.scale);
+        .find(|(c, _)| c.parent() == hand)
+        .expect("cannon attached");
+    // The cannon's attach scale is 1.0 world units, so under a x100 bone it is 1/100.
+    assert!(
+        t.scale.abs_diff_eq(Vec3::splat(0.01), 1e-5),
+        "{:?}",
+        t.scale
+    );
 }
 
-/// The Enforcer's tip glow sits on its `Gun_end` node and lights only after a shot.
+/// The Enforcer's tip glow sits on its `Muzzle` node and lights only after a shot.
 #[test]
 fn a_node_tip_glows_after_a_shot() {
     let mut app = app_with(&[ActorKind::Enforcer]);
     fake_ready(&mut app, ActorKind::Enforcer, &ClipRole::ALL);
     app.update();
     let m = model_root(&mut app, 0);
-    let gun_end = app.world().get::<ModelReady>(m).unwrap().nodes["Gun_end"];
+    let muzzle = app.world().get::<ModelReady>(m).unwrap().nodes["Muzzle"];
     let tip = |app: &mut App| -> Visibility {
         let mut q = app
             .world_mut()
             .query_filtered::<(&ChildOf, &Visibility), With<Mesh3d>>();
         let v: Vec<_> = q
             .iter(app.world())
-            .filter(|(c, _)| c.parent() == gun_end)
+            .filter(|(c, _)| c.parent() == muzzle)
             .map(|(_, v)| *v)
             .collect();
-        assert_eq!(v.len(), 1, "one tip sphere on Gun_end");
+        assert_eq!(v.len(), 1, "one tip sphere on Muzzle");
         v[0]
     };
     app.update();

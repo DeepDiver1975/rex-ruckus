@@ -1,5 +1,5 @@
-//! The Drone: a hovering gun robot on a glTF model with a gentle bob; a dying one rolls onto
-//! its side while core's gravity brings it down and its Dead clip plays.
+//! The Drone (the Peeper, a caged flying eyeball) with a gentle bob; a dying one rolls onto
+//! its side while core's gravity brings it down and its Death clip plays.
 
 use super::{ActorModel, ActorVisual, death_pitch};
 use crate::combat::{GameDefs, LevelCombat};

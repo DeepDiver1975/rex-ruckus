@@ -21,12 +21,12 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). |
 | `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons and pickups to models (scale, placement, clip names, muzzles). |
-| `assets/models/` | CC0 glTF (`.glb`) for enemies, viewmodel weapons and pickups. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
+| `assets/models/` | glTF (`.glb`) for enemies, viewmodel weapons and pickups: original models built from `scripts/models/`, the rest CC0. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
 | `assets/demo/*.ron` | Scripted demo runs (`--demo`). |
 | `assets/sounds/` | `bank.ron` (event to sound map), `synth.ron` recipes, `synth/` rendered output, `cc0/` curated CC0 recordings. |
 | `assets/music/` | Level music (OGG). |
 | `assets/quips/` | Hero voice quips (OGG) and `quips.ron` (texts). |
-| `scripts/` | `gen-quips.sh` + `quips_kokoro.py` (Kokoro voice quips), `import-sfx.sh` (CC0 import via sox), `import-models.sh` (CC0 model import; uses `blend_to_glb.py`, a Blender conversion for models shipped only as `.blend`), `record-demo.sh` (README demo). |
+| `scripts/` | `gen-quips.sh` + `quips_kokoro.py` (Kokoro voice quips), `import-sfx.sh` (CC0 import via sox), `import-models.sh` (CC0 model import; uses `blend_to_glb.py`, a Blender conversion for models shipped only as `.blend`), `build-models.sh` + `models/` (original models as headless-Blender Python scripts, sharing `models/rrkit.py`), `record-demo.sh` (README demo). |
 | `installer/` | Inno Setup script for the Windows installer. |
 
 Assets are found via `$RR_ASSETS`, else the workspace `assets/`, else `assets/` next to the exe.
@@ -56,10 +56,14 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   coverage, quip files, level music and `CREDITS.md` provenance. The quip voice is Kokoro-82M
   `am_onyx` at a pinned revision (a deliberate exception to CC0-only, see `CREDITS.md`); don't
   swap the model or voice without re-checking its licence.
-- Models are curated offline and committed (`scripts/import-models.sh`); don't edit the `.glb` files.
+- Models are curated or built offline and committed (`scripts/import-models.sh`,
+  `scripts/build-models.sh`); don't edit the `.glb` files. Original models are changed in their
+  `scripts/models/*.py` and rebuilt; pass `--preview DIR` for turnaround and per-clip contact
+  sheets to check them before running the game.
   `rr-tools validate` enforces model coverage, clip and bone names, the triangle budget and
   `CREDITS.md` provenance. glTF models may ship lights (they are despawned on load), and Quaternius
-  armatures carry a x100 scale, so attach placements in `models.ron` are in world units.
+  armatures carry a x100 scale, so attach placements in `models.ron` are in world units. The scripted
+  models are built at real size (`scale: 1.0`) with glTF joint frames equal to Blender's bone frames.
 - A full `cargo test --workspace` can run out of memory at default parallelism on small machines;
   cap it with `cargo test --workspace -j 4`.
 - Headless tests do not add `AudioPlugin`; audio systems are gated on the `SoundBank` resource,

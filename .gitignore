@@ -6,3 +6,4 @@ docs/superpowers/
 .claude/
 /installer/Output/
 dist/
+__pycache__/

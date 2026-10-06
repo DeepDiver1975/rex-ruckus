@@ -13,62 +13,72 @@
     enemies: [
         (
             kind: Grunt,
+            // The Goon, an original model built by scripts/models/goon.py (real size, metres).
             scene: "models/enemies/grunt.glb",
-            place: (scale: 0.936, yaw_deg: 180.0), // 1.75 / 1.87; glTF faces +Z
+            place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
             clips: (
-                idle: Some("CharacterArmature|Idle_Gun"),
-                walk: Some("CharacterArmature|Walk"),
-                run: Some("CharacterArmature|Run_Shoot"),
-                attack: Some("CharacterArmature|Idle_Gun_Shoot"),
-                pain: Some("CharacterArmature|HitRecieve"),
-                death: Some("CharacterArmature|Death"),
+                idle: Some("Idle"),
+                walk: Some("Walk"),
+                run: Some("Run"),
+                attack: Some("Attack"),
+                pain: Some("Pain"),
+                death: Some("Death"),
             ),
-            // The pistol muzzle in the Idle_Gun_Shoot pose (right hand, arm forward).
-            tip: Offset((0.15, 1.42, -0.69)),
+            // The `Muzzle` bone rides on Hand.R at the hand-cannon's muzzle.
+            tip: Node("Muzzle"),
             // Attach placement: scale and offset in world units, rotation relative to the bone.
-            // Wrist.R's +y runs along the hand and its -x is the back of the hand, so a 90° roll
-            // lays the barrel (+x) along the fingers with the sights up; the offset sits the
-            // grip in the palm.
-            attach: Some((bone: "Wrist.R", scene: "models/weapons/pistol.glb", place: (scale: 0.12, roll_deg: 90.0, offset: (-0.02, 0.07, 0.0)))),
+            // Hand.R's +y runs down the hand and its -z points forwards at rest; the cannon is
+            // authored barrel-forwards (+z) and sights-up (+y), so a 180° pitch lines it up and
+            // the offset puts its grip in the fist.
+            attach: Some((bone: "Hand.R", scene: "models/weapons/hand_cannon.glb", place: (pitch_deg: 180.0, offset: (0.0, 0.055, -0.01)))),
         ),
         (
             kind: Enforcer,
+            // The Bruiser, an original model built by scripts/models/bruiser.py.
             scene: "models/enemies/enforcer.glb",
-            place: (scale: 1.457, yaw_deg: 180.0), // 1.85 / 1.27
+            place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
             clips: (
-                idle: Some("CharacterArmature|Idle"),
-                walk: Some("CharacterArmature|Walk"),
-                run: Some("CharacterArmature|Run"),
-                attack: Some("CharacterArmature|Shoot"),
-                death: Some("CharacterArmature|Death"),
+                idle: Some("Idle"),
+                walk: Some("Walk"),
+                run: Some("Run"),
+                attack: Some("Attack"),
+                pain: Some("Pain"),
+                death: Some("Death"),
             ),
-            tip: Node("Gun_end"),
+            // The `Muzzle` bone at the end of the arm cannon's barrels.
+            tip: Node("Muzzle"),
         ),
         (
             kind: Slasher,
+            // The Gnasher, an original model built by scripts/models/gnasher.py.
             scene: "models/enemies/slasher.glb",
-            place: (scale: 0.493, yaw_deg: 180.0), // 1.5 / 3.04
+            place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
             clips: (
-                idle: Some("AlienArmature|Alien_Idle"),
-                walk: Some("AlienArmature|Alien_Walk"),
-                run: Some("AlienArmature|Alien_Run"),
-                attack: Some("AlienArmature|Alien_Punch"),
-                death: Some("AlienArmature|Alien_Death"),
+                idle: Some("Idle"),
+                walk: Some("Walk"),
+                run: Some("Run"),
+                attack: Some("Attack"),
+                pain: Some("Pain"),
+                death: Some("Death"),
             ),
-            tip: Offset((0.1, 0.55, -0.8)), // right fist at the peak of Alien_Punch (no glow: melee)
+            // The right claw tip at the end of the Attack rake (no glow: melee).
+            tip: Offset((0.35, 1.01, -0.98)),
         ),
         (
             kind: Drone,
+            // The Peeper, an original model built by scripts/models/peeper.py.
             scene: "models/enemies/drone.glb",
-            place: (scale: 0.652, yaw_deg: 180.0), // 0.6 / 0.92
+            place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
             clips: (
-                idle: Some("CharacterArmature|Idle"),
-                walk: Some("CharacterArmature|Walk"),
-                run: Some("CharacterArmature|Run"),
-                attack: Some("CharacterArmature|Shoot"),
-                death: Some("CharacterArmature|Dead"),
+                idle: Some("Idle"),
+                walk: Some("Walk"),
+                run: Some("Run"),
+                attack: Some("Attack"),
+                pain: Some("Pain"),
+                death: Some("Death"),
             ),
-            tip: Node("Gun_end"),
+            // The `Muzzle` bone on the gun slung under the eye.
+            tip: Node("Muzzle"),
         ),
         (
             kind: Barrel,
