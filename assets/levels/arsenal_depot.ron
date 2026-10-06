@@ -136,6 +136,7 @@
         (kind: Grunt, pos: (38.0, 0.5), angle_deg: 90.0),
     ],
     player_start: (pos: (6.0, 2.0), angle_deg: 90.0),
+    music: Some("depot"),
     lights: [
         (pos: (6.0, 5.0, 4.5), color: (1.0, 0.9, 0.75), intensity: 400000.0, range: 14.0),
         (pos: (6.0, 16.0, 5.5), color: (1.0, 0.8, 0.6), intensity: 500000.0, range: 16.0),

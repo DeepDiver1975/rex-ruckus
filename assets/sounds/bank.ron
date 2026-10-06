@@ -6,9 +6,10 @@
 // ± this), spatial [true] (false: centred on the player), looped [false] (only DoorStart,
 // LiftStart and JetpackLoop; the game starts and stops those).
 //
-// Every synth WAV is peak-normalised to -1 dBFS, so `volume` sets the mix. Cues without a
-// sound of their own reuse the closest one; enemy kinds share the enemy voices and differ in
-// pitch jitter.
+// Files in `sounds/synth/` are our procedural WAVs; files in `sounds/cc0/` are CC0 recordings
+// (see CREDITS.md) imported with scripts/import-sfx.sh. All are peak-normalised to -1 dBFS, so
+// `volume` sets the mix. Cues without a sound of their own reuse the closest one. Each enemy
+// kind has its own voice: different recordings or the same one pitched and distorted.
 {
     // Player weapons, centred on the player.
     Fire(Boot): (files: ["sounds/synth/kick_swoosh.wav"], volume: 0.6, pitch_jitter: 0.08, spatial: false),
@@ -23,46 +24,46 @@
     Kick: (files: ["sounds/synth/kick_swoosh.wav"], volume: 0.6, pitch_jitter: 0.08, max_voices: 2, spatial: false),
 
     // World hits and breakage.
-    Impact: (files: ["sounds/synth/impact.wav", "sounds/synth/ricochet.wav"], volume: 0.4, ref_dist: 3.0, max_dist: 30.0, max_voices: 6, pitch_jitter: 0.1),
-    Explosion: (files: ["sounds/synth/explosion.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, pitch_jitter: 0.05),
-    GlassBreak: (files: ["sounds/synth/glass_break.wav"], volume: 0.8, pitch_jitter: 0.06),
+    Impact: (files: ["sounds/cc0/impact_1.ogg", "sounds/cc0/impact_2.ogg", "sounds/cc0/impact_3.ogg", "sounds/synth/ricochet.wav"], volume: 0.4, ref_dist: 3.0, max_dist: 30.0, max_voices: 6, pitch_jitter: 0.1),
+    Explosion: (files: ["sounds/synth/explosion.wav", "sounds/cc0/explosion_1.ogg", "sounds/cc0/explosion_2.ogg"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, pitch_jitter: 0.05),
+    GlassBreak: (files: ["sounds/cc0/glass_break_1.ogg", "sounds/cc0/glass_break_2.ogg"], volume: 0.8, pitch_jitter: 0.06),
     LightBreak: (files: ["sounds/synth/light_break.wav"], volume: 0.6, pitch_jitter: 0.06),
     CrackOpen: (files: ["sounds/synth/explosion.wav"], volume: 0.8, ref_dist: 6.0, max_dist: 60.0, max_voices: 2, pitch_jitter: 0.1),
 
     // Enemies.
-    ActorWake(Grunt): (files: ["sounds/synth/enemy_wake.wav"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.05),
+    ActorWake(Grunt): (files: ["sounds/cc0/actor_wake_grunt.ogg"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.05),
     ActorFire(Grunt): (files: ["sounds/synth/enemy_bolt.wav"], volume: 0.6, pitch_jitter: 0.05),
-    ActorPain(Grunt): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.05),
-    ActorDeath(Grunt): (files: ["sounds/synth/enemy_death.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.05),
+    ActorPain(Grunt): (files: ["sounds/cc0/actor_pain_grunt.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.05),
+    ActorDeath(Grunt): (files: ["sounds/cc0/actor_death_grunt.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.05),
 
-    ActorWake(Enforcer): (files: ["sounds/synth/enemy_wake.wav"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.08),
+    ActorWake(Enforcer): (files: ["sounds/cc0/actor_wake_enforcer.ogg"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.08),
     ActorFire(Enforcer): (files: ["sounds/synth/enemy_bolt.wav"], volume: 0.6, pitch_jitter: 0.08),
-    ActorPain(Enforcer): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.08),
-    ActorDeath(Enforcer): (files: ["sounds/synth/enemy_death.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.08),
+    ActorPain(Enforcer): (files: ["sounds/cc0/actor_pain_enforcer.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.08),
+    ActorDeath(Enforcer): (files: ["sounds/cc0/actor_death_enforcer.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.08),
 
     // The Slasher's attack is a claw swipe, not a bolt.
-    ActorWake(Slasher): (files: ["sounds/synth/enemy_wake.wav"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.12),
+    ActorWake(Slasher): (files: ["sounds/cc0/actor_wake_slasher.ogg"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.12),
     ActorFire(Slasher): (files: ["sounds/synth/kick_swoosh.wav"], volume: 0.6, pitch_jitter: 0.12),
-    ActorPain(Slasher): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.12),
-    ActorDeath(Slasher): (files: ["sounds/synth/enemy_death.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.12),
+    ActorPain(Slasher): (files: ["sounds/cc0/actor_pain_slasher.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.12),
+    ActorDeath(Slasher): (files: ["sounds/cc0/actor_death_slasher.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.12),
 
-    ActorWake(Drone): (files: ["sounds/synth/enemy_wake.wav"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.15),
+    ActorWake(Drone): (files: ["sounds/cc0/actor_wake_drone.ogg"], volume: 0.7, ref_dist: 5.0, max_dist: 45.0, max_voices: 3, pitch_jitter: 0.15),
     ActorFire(Drone): (files: ["sounds/synth/enemy_bolt.wav"], volume: 0.6, pitch_jitter: 0.15),
-    ActorPain(Drone): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.15),
-    ActorDeath(Drone): (files: ["sounds/synth/enemy_death.wav"], volume: 0.7, max_voices: 3, pitch_jitter: 0.15),
+    ActorPain(Drone): (files: ["sounds/cc0/actor_pain_drone.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.15),
+    ActorDeath(Drone): (files: ["sounds/cc0/actor_death_drone.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.15),
 
     // A barrel's death is its blast.
     ActorDeath(Barrel): (files: ["sounds/synth/explosion.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, pitch_jitter: 0.05),
 
     // The player.
-    PlayerHurt: (files: ["sounds/synth/player_hurt.wav"], volume: 0.7, max_voices: 2, pitch_jitter: 0.06, spatial: false),
-    PlayerDeath: (files: ["sounds/synth/player_death.wav"], volume: 0.9, max_voices: 1, spatial: false),
+    PlayerHurt: (files: ["sounds/cc0/player_hurt_1.ogg", "sounds/cc0/player_hurt_2.ogg"], volume: 0.7, max_voices: 2, pitch_jitter: 0.06, spatial: false),
+    PlayerDeath: (files: ["sounds/cc0/player_death.ogg"], volume: 0.9, max_voices: 1, spatial: false),
 
     // Movers: the start cues are the loops while the sector moves.
-    DoorStart: (files: ["sounds/synth/door_servo.wav"], volume: 0.4, ref_dist: 3.0, max_dist: 30.0, looped: true),
-    DoorStop: (files: ["sounds/synth/door_stop.wav"], volume: 0.6, ref_dist: 3.0, max_dist: 30.0, pitch_jitter: 0.04),
-    LiftStart: (files: ["sounds/synth/lift_hum.wav"], volume: 0.4, ref_dist: 3.0, max_dist: 30.0, looped: true),
-    LiftStop: (files: ["sounds/synth/lift_stop.wav"], volume: 0.6, ref_dist: 3.0, max_dist: 30.0, pitch_jitter: 0.04),
+    DoorStart: (files: ["sounds/cc0/door_start.ogg"], volume: 0.4, ref_dist: 3.0, max_dist: 30.0, looped: true),
+    DoorStop: (files: ["sounds/cc0/door_stop.ogg"], volume: 0.6, ref_dist: 3.0, max_dist: 30.0, pitch_jitter: 0.04),
+    LiftStart: (files: ["sounds/cc0/lift_start.ogg"], volume: 0.4, ref_dist: 3.0, max_dist: 30.0, looped: true),
+    LiftStop: (files: ["sounds/cc0/lift_stop.ogg"], volume: 0.6, ref_dist: 3.0, max_dist: 30.0, pitch_jitter: 0.04),
     SwitchUse: (files: ["sounds/synth/switch_click.wav"], volume: 0.5, max_voices: 2),
     Denied: (files: ["sounds/synth/denied.wav"], volume: 0.5, max_voices: 1, spatial: false),
 
@@ -78,12 +79,12 @@
 
     // Powers.
     JetpackStart: (files: ["sounds/synth/jetpack_start.wav"], volume: 0.5, max_voices: 1, spatial: false),
-    JetpackLoop: (files: ["sounds/synth/jetpack_loop.wav"], volume: 0.4, max_voices: 1, spatial: false, looped: true),
+    JetpackLoop: (files: ["sounds/cc0/jetpack_loop.ogg"], volume: 0.4, max_voices: 1, spatial: false, looped: true),
     JetpackStop: (files: ["sounds/synth/jetpack_stop.wav"], volume: 0.5, max_voices: 1, spatial: false),
     NightVisionOn: (files: ["sounds/synth/nightvision_on.wav"], volume: 0.5, max_voices: 1, spatial: false),
     NightVisionOff: (files: ["sounds/synth/nightvision_off.wav"], volume: 0.5, max_voices: 1, spatial: false),
 
     // Movement.
-    Footstep: (files: ["sounds/synth/footstep.wav"], volume: 0.25, max_voices: 2, pitch_jitter: 0.1, spatial: false),
-    Land: (files: ["sounds/synth/land.wav"], volume: 0.4, max_voices: 1, pitch_jitter: 0.05, spatial: false),
+    Footstep: (files: ["sounds/cc0/footstep_1.ogg", "sounds/cc0/footstep_2.ogg", "sounds/cc0/footstep_3.ogg", "sounds/cc0/footstep_4.ogg"], volume: 0.25, max_voices: 2, pitch_jitter: 0.1, spatial: false),
+    Land: (files: ["sounds/cc0/land.ogg"], volume: 0.4, max_voices: 1, pitch_jitter: 0.05, spatial: false),
 }
