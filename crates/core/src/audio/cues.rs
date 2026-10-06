@@ -99,6 +99,8 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
         }
         MechEvent::NeedKey(_) => out.push((Cue::Denied, None)),
         MechEvent::Exit => out.push((Cue::LevelComplete, None)),
+        // Sounds for these come later.
+        MechEvent::TriggerFired(_) | MechEvent::QuakeStarted { .. } => {}
         MechEvent::ItemTaken { item, kind } => {
             if let Some(it) = map.items.get(item) {
                 let z = map
@@ -389,6 +391,11 @@ mod tests {
                 item: 1,
                 kind: ItemKind::Key(Key::Red),
             },
+            MechEvent::TriggerFired(0),
+            MechEvent::QuakeStarted {
+                strength: 0.5,
+                duration: 1.0,
+            },
         ];
         for e in &evs {
             match e {
@@ -397,7 +404,9 @@ mod tests {
                 | MechEvent::SwitchUsed(_)
                 | MechEvent::NeedKey(_)
                 | MechEvent::Exit
-                | MechEvent::ItemTaken { .. } => {}
+                | MechEvent::ItemTaken { .. }
+                | MechEvent::TriggerFired(_)
+                | MechEvent::QuakeStarted { .. } => {}
             }
         }
         evs
@@ -425,6 +434,8 @@ mod tests {
             vec![(Cue::Denied, None)],
             vec![(Cue::LevelComplete, None)],
             vec![(Cue::Pickup(PickupClass::Key), key_pos)],
+            vec![],
+            vec![],
         ];
         for (e, want) in all_mech_events().iter().zip(expected) {
             let mut out = Vec::new();

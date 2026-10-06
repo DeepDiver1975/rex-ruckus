@@ -4,7 +4,7 @@
 
 use crate::collide::{Body, touches_sector, z_range};
 use crate::map::{
-    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, SectorId, SwitchAction,
+    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawQuake, SectorId, SwitchAction,
 };
 
 /// Feet within this distance of a lift floor ride along with it.
@@ -13,6 +13,20 @@ const CARRY_EPS: f32 = 0.01;
 pub const PICKUP_REACH: f32 = 0.6;
 /// Items more than this far above or below the feet stay put.
 const PICKUP_HEIGHT: f32 = 1.0;
+/// Fraction of a quake's duration over which it fades out.
+const QUAKE_FADE: f32 = 0.3;
+
+/// Strength multiplier of a quake `elapsed` seconds into `duration`: 1, then linear to 0 over
+/// the last `QUAKE_FADE` of it.
+pub fn quake_fade(elapsed: f32, duration: f32) -> f32 {
+    let left = duration - elapsed;
+    let fade = QUAKE_FADE * duration;
+    if left >= fade {
+        1.0
+    } else {
+        (left / fade).clamp(0.0, 1.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Motion {
@@ -70,6 +84,13 @@ pub enum MechEvent {
         item: usize,
         kind: ItemKind,
     },
+    /// Index into `map.triggers`; follows the trigger's own action.
+    TriggerFired(usize),
+    /// A quake on a fired channel began.
+    QuakeStarted {
+        strength: f32,
+        duration: f32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +100,12 @@ pub struct Mechanics {
     pub switch_on: Vec<bool>,
     /// Per item: already picked up.
     pub taken: Vec<bool>,
+    /// Per trigger: a `once` trigger that already ran.
+    trig_done: Vec<bool>,
+    /// The sector `enter` last saw the player in (`None` before the first call).
+    inside: Option<SectorId>,
+    /// Each authored quake with its elapsed time while it runs.
+    quakes: Vec<(RawQuake, Option<f32>)>,
     mover_of: Vec<Option<usize>>,
     events: Vec<MechEvent>,
 }
@@ -130,6 +157,9 @@ impl Mechanics {
             movers,
             switch_on: vec![false; map.switches.len()],
             taken: vec![false; map.items.len()],
+            trig_done: vec![false; map.triggers.len()],
+            inside: None,
+            quakes: map.quakes.iter().map(|&q| (q, None)).collect(),
             mover_of,
             events: Vec::new(),
         }
@@ -157,7 +187,8 @@ impl Mechanics {
     /// this: only `Destruct::open_crack` moves it.
     pub fn toggle(&mut self, m: usize) {
         let mv = &mut self.movers[m];
-        if mv.def.kind == MoverKind::Crack {
+        // A crack wall only opens to a blast; a one-shot mover only ever leaves its start once.
+        if mv.def.kind == MoverKind::Crack || (mv.def.one_shot && mv.motion != Motion::AtStart) {
             return;
         }
         let at_rest = matches!(mv.motion, Motion::AtStart | Motion::AtEnd { .. });
@@ -172,6 +203,15 @@ impl Mechanics {
 
     /// The channel bus: toggles every mover listening on `ch`. Returns how many reacted.
     pub fn fire(&mut self, ch: Channel) -> usize {
+        for (q, t) in &mut self.quakes {
+            if q.channel == ch {
+                *t = Some(0.0);
+                self.events.push(MechEvent::QuakeStarted {
+                    strength: q.strength,
+                    duration: q.duration,
+                });
+            }
+        }
         let hits: Vec<usize> = (0..self.movers.len())
             .filter(|&m| self.movers[m].def.channel == Some(ch))
             .filter(|&m| self.movers[m].def.kind != MoverKind::Crack)
@@ -180,6 +220,50 @@ impl Mechanics {
             self.toggle(m);
         }
         hits.len()
+    }
+
+    /// Runs an action that does not come from a switch (a trigger or a death): fires the
+    /// channel, or queues `Exit` and returns true.
+    pub fn apply(&mut self, action: SwitchAction) -> bool {
+        match action {
+            SwitchAction::Channel(ch) => {
+                self.fire(ch);
+                false
+            }
+            SwitchAction::Exit => {
+                self.events.push(MechEvent::Exit);
+                true
+            }
+        }
+    }
+
+    /// The player is in `sector` this tick. On entering it (a different sector from the last
+    /// call, or the first call) each of its triggers that may still run applies its action and
+    /// then reports `TriggerFired(i)`. Being carried by a lift never changes the sector, so it
+    /// never re-fires. Returns true when an exit trigger ran.
+    pub fn enter(&mut self, map: &Map, sector: SectorId) -> bool {
+        if self.inside == Some(sector) {
+            return false;
+        }
+        self.inside = Some(sector);
+        let mut exit = false;
+        for (i, t) in map.triggers.iter().enumerate() {
+            if t.sector != sector || self.trig_done[i] {
+                continue;
+            }
+            self.trig_done[i] = t.once;
+            exit |= self.apply(t.action);
+            self.events.push(MechEvent::TriggerFired(i));
+        }
+        exit
+    }
+
+    /// Current screen-shake strength in 0..=1: the strongest running quake, faded.
+    pub fn quake_strength(&self) -> f32 {
+        self.quakes
+            .iter()
+            .filter_map(|(q, t)| t.map(|e| q.strength * quake_fade(e, q.duration)))
+            .fold(0.0, f32::max)
     }
 
     /// The first lock key (in mover order) that `keys` lacks among the movers listening on `ch`.
@@ -234,6 +318,14 @@ impl Mechanics {
     /// would squeeze a body against a ceiling reverses instead. Returns the sectors whose heights changed.
     pub fn tick(&mut self, map: &mut Map, bodies: &mut [Body], dt: f32) -> Vec<SectorId> {
         let mut changed = Vec::new();
+        for (q, t) in &mut self.quakes {
+            if let Some(e) = t {
+                *e += dt;
+                if *e >= q.duration {
+                    *t = None;
+                }
+            }
+        }
         for mv in &mut self.movers {
             let goal = match &mut mv.motion {
                 Motion::AtStart => continue,
@@ -366,7 +458,7 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
 mod tests {
     use super::*;
     use crate::collide::clip_move;
-    use crate::fixtures::{door_rooms, lift_shaft};
+    use crate::fixtures::{door_rooms, engine_room, lift_shaft};
     use glam::Vec2;
 
     const DT: f32 = 1.0 / 60.0;
@@ -777,5 +869,122 @@ mod tests {
         ));
         assert_eq!(mech.fire(1), 1);
         assert_eq!(mech.movers[0].motion, Motion::ToEnd);
+    }
+
+    #[test]
+    fn trigger_fires_its_channel_and_quake_once_on_entry() {
+        let (map, mut mech) = setup(engine_room(""));
+        assert!(!mech.enter(&map, 0));
+        assert_eq!(mech.movers[0].motion, Motion::AtStart);
+        assert!(!mech.enter(&map, 1));
+        assert_eq!(mech.movers[0].motion, Motion::ToEnd);
+        let ev = mech.drain_events();
+        assert!(ev.contains(&MechEvent::QuakeStarted {
+            strength: 0.8,
+            duration: 2.0
+        }));
+        assert_eq!(ev.last(), Some(&MechEvent::TriggerFired(0)));
+        mech.enter(&map, 0);
+        mech.enter(&map, 1);
+        assert!(mech.drain_events().is_empty(), "a once trigger stays spent");
+    }
+
+    #[test]
+    fn repeating_trigger_fires_on_every_entry() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(2))",
+            "triggers: [(sector: 2, action: Channel(2), once: false)],",
+        ));
+        mech.enter(&map, 2);
+        mech.enter(&map, 0);
+        mech.enter(&map, 2);
+        let fired = mech
+            .drain_events()
+            .iter()
+            .filter(|e| matches!(e, MechEvent::TriggerFired(0)))
+            .count();
+        assert_eq!(fired, 2);
+        assert_eq!(
+            mech.movers[0].motion,
+            Motion::ToStart,
+            "toggled twice: reversed mid-travel"
+        );
+    }
+
+    #[test]
+    fn exit_trigger_reports_exit() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door)",
+            "triggers: [(sector: 2, action: Exit)],",
+        ));
+        assert!(!mech.enter(&map, 0));
+        assert!(mech.enter(&map, 2));
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::Exit, MechEvent::TriggerFired(0)]
+        );
+    }
+
+    #[test]
+    fn trigger_on_a_lift_fires_once_while_its_rider_is_carried() {
+        // The trigger sits on the lift it moves.
+        let mut map = lift_shaft(
+            "(kind: Lift(to: 2.0), channel: Some(5))",
+            "triggers: [(sector: 1, action: Channel(5))],",
+        );
+        let mut mech = Mechanics::new(&mut map);
+        let mut bodies = [body_at(&map, 5.0, 2.0)];
+        for _ in 0..120 {
+            mech.enter(&map, bodies[0].sector);
+            mech.tick(&mut map, &mut bodies, DT);
+        }
+        assert_eq!(
+            map.sectors[1].floor_z, 2.0,
+            "carried to the top, never re-toggled"
+        );
+        assert_eq!(bodies[0].pos.z, 2.0);
+        let fired = mech
+            .drain_events()
+            .iter()
+            .filter(|e| matches!(e, MechEvent::TriggerFired(_)))
+            .count();
+        assert_eq!(fired, 1);
+    }
+
+    #[test]
+    fn one_shot_mover_stays_at_its_end() {
+        let (mut map, mut mech) = setup(engine_room(""));
+        mech.fire(7);
+        mech.toggle(0);
+        assert_eq!(
+            mech.movers[0].motion,
+            Motion::ToEnd,
+            "mid-travel toggles are ignored"
+        );
+        run(&mut map, &mut mech, &mut [], 150);
+        assert_eq!(map.sectors[2].floor_z, -2.0);
+        mech.fire(7);
+        mech.toggle(0);
+        assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
+        run(&mut map, &mut mech, &mut [], 600);
+        assert_eq!(map.sectors[2].floor_z, -2.0, "never comes back");
+    }
+
+    #[test]
+    fn quake_holds_then_fades_over_the_last_30_percent() {
+        let (mut map, mut mech) = setup(engine_room(""));
+        assert_eq!(mech.quake_strength(), 0.0);
+        mech.fire(7);
+        assert_eq!(mech.quake_strength(), 0.8);
+        run(&mut map, &mut mech, &mut [], 60); // 1.0 s of 2.0
+        assert_eq!(mech.quake_strength(), 0.8);
+        run(&mut map, &mut mech, &mut [], 48); // 1.8 s: 0.2 s left of the 0.6 s fade
+        assert!(
+            (mech.quake_strength() - 0.8 / 3.0).abs() < 0.02,
+            "{}",
+            mech.quake_strength()
+        );
+        run(&mut map, &mut mech, &mut [], 30);
+        assert_eq!(mech.quake_strength(), 0.0);
     }
 }
