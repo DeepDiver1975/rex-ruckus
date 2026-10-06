@@ -15,6 +15,7 @@ use rr_core::combat::{Combat, CombatEvent, PlayerTarget, level_seed};
 use rr_core::defs::Defs;
 use rr_core::inventory::Inventory as CoreInventory;
 use rr_core::map::Map;
+use rr_core::mechanics::MechEvent;
 use rr_core::rng::Rng;
 use rr_core::vitals::Vitals;
 use rr_core::weapons::{Arsenal, WeaponEvent, WeaponInput};
@@ -30,12 +31,14 @@ pub struct GameDefs(pub Defs);
 #[derive(Resource)]
 pub struct LevelCombat(pub Combat);
 
-/// Core events produced by the fixed tick, waiting for frame-loop systems to drain them.
+/// Core events produced by the fixed tick, waiting for frame-loop systems to read them
+/// (`mech` is forwarded from core `Mechanics` once per tick by `forward_mech_events`).
 /// A plain resource (not Bevy messages) so hand-driven `FixedUpdate` runs never lose events.
 #[derive(Resource, Default)]
 pub struct FxQueue {
     pub combat: Vec<CombatEvent>,
     pub weapon: Vec<WeaponEvent>,
+    pub mech: Vec<MechEvent>,
 }
 
 /// Randomness for the player's weapons (shot spread), seeded from the level.
@@ -138,6 +141,7 @@ impl Plugin for CombatSimPlugin {
 pub fn clear_fx(mut fx: ResMut<FxQueue>) {
     fx.combat.clear();
     fx.weapon.clear();
+    fx.mech.clear();
 }
 
 /// Inserts the level's [`LevelCombat`] and [`PlayRng`] and the player's loadout.

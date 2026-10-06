@@ -1,11 +1,12 @@
 //! HUD: bottom status bar (health, ammo, weapon slots, keycards), crosshair, damage flash,
-//! death and level-complete overlays, plus the M2 use prompt and message line.
+//! death and level-complete overlays, plus the M2 use prompt, the message line and the
+//! subtitle line for the hero's quips.
 //! Spawned once at startup; it is not a `LevelEntity`, so it persists across restarts.
 
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
-use crate::mechanics::{HudMessage, LevelMechanics, UsePrompt};
+use crate::mechanics::{HudMessage, HudSubtitle, LevelMechanics, UsePrompt};
 use crate::player::{Inventory, Player};
 use crate::props::key_color;
 use bevy::prelude::*;
@@ -31,6 +32,8 @@ const INACTIVE: Color = Color::srgba(1.0, 1.0, 1.0, 0.45);
 struct PromptText;
 #[derive(Component)]
 struct MessageText;
+#[derive(Component)]
+struct SubtitleText;
 /// One text cell of the status bar.
 #[derive(Component, Clone, Copy)]
 enum StatusCell {
@@ -132,12 +135,14 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DamageFlash>()
+            .init_resource::<HudSubtitle>()
             .add_systems(Startup, spawn_hud)
             .add_systems(
                 Update,
                 (
                     update_prompt,
                     update_message,
+                    update_subtitle,
                     update_status,
                     update_keycards,
                     read_hurt.in_set(FxReaders),
@@ -196,6 +201,15 @@ fn spawn_hud(mut commands: Commands) {
             font(28.0),
             TextColor(Color::srgb(1.0, 0.85, 0.2)),
             MessageText,
+        ));
+    });
+    // Subtitles sit low, above the status bar, out of the way of the prompt and messages.
+    commands.spawn(row(Val::Percent(74.0))).with_children(|p| {
+        p.spawn((
+            Text::new(""),
+            font(20.0),
+            TextColor(Color::srgb(0.85, 0.9, 1.0)),
+            SubtitleText,
         ));
     });
 
@@ -347,6 +361,20 @@ fn update_message(
     msg.remaining = (msg.remaining - time.delta_secs()).max(0.0);
     let s = if msg.remaining > 0.0 {
         msg.text.as_str()
+    } else {
+        ""
+    };
+    set(&mut text, s);
+}
+
+fn update_subtitle(
+    time: Res<Time>,
+    mut sub: ResMut<HudSubtitle>,
+    mut text: Single<&mut Text, With<SubtitleText>>,
+) {
+    sub.remaining = (sub.remaining - time.delta_secs()).max(0.0);
+    let s = if sub.remaining > 0.0 {
+        sub.text.as_str()
     } else {
         ""
     };

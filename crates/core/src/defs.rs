@@ -2,9 +2,9 @@
 
 use crate::map::ActorKind;
 use crate::movement::Tuning;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WeaponId {
     Boot,
     Pistol,

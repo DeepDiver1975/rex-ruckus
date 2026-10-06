@@ -2,6 +2,7 @@
 //! Coordinates are right-handed, Z-up, in metres (x = east, y = north).
 
 pub mod actors;
+pub mod audio;
 pub mod collide;
 pub mod combat;
 pub mod defs;

@@ -1,6 +1,7 @@
 //! Bevy front-end for Rex Ruckus: Meltdown.
 
 pub mod actors;
+pub mod audio;
 pub mod breakables;
 pub mod combat;
 pub mod coords;
@@ -26,6 +27,8 @@ pub struct GamePlugin {
     pub level: String,
     /// Replay this demo script instead of reading the keyboard and mouse.
     pub demo: Option<demo::DemoPlugin>,
+    /// Start muted, play music (see `audio::AudioOptions`).
+    pub audio: audio::AudioOptions,
 }
 
 impl Plugin for GamePlugin {
@@ -49,6 +52,10 @@ impl Plugin for GamePlugin {
             inventory::NightVisionPlugin,
             hud::HudPlugin,
             viewmodel::ViewModelPlugin,
+            audio::AudioFxPlugin {
+                options: self.audio,
+                scripted: self.demo.is_some(),
+            },
         ));
         if let Some(demo) = &self.demo {
             app.add_plugins(demo::DemoPlugin {

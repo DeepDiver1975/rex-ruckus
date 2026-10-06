@@ -68,6 +68,7 @@ impl Destruct {
         mv.def.speed = CRACK_SPEED;
         mv.def.auto_return = None;
         mv.motion = Motion::ToEnd;
+        mech.emit_started(m);
         true
     }
 
@@ -204,6 +205,34 @@ mod tests {
             asleep: true,
         });
         Combat::spawn(map, d, 1)
+    }
+
+    #[test]
+    fn open_crack_emits_started_then_stopped() {
+        use crate::fixtures::door_rooms;
+        use crate::map::MoverKind;
+        use crate::mechanics::{MechEvent, Mechanics};
+        let mut map = door_rooms("(kind: Crack)", "");
+        let mut mech = Mechanics::new(&mut map);
+        let mut dest = Destruct::new(&map);
+        assert!(dest.open_crack(&mut mech, 1));
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::MoverStarted {
+                sector: 1,
+                kind: MoverKind::Crack
+            }]
+        );
+        for _ in 0..600 {
+            mech.tick(&mut map, &mut [], 0.05);
+        }
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::MoverStopped {
+                sector: 1,
+                kind: MoverKind::Crack
+            }]
+        );
     }
 
     #[test]

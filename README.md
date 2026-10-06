@@ -40,7 +40,24 @@ GPL-3.0-or-later — see `LICENSE`.
 
 ## Controls
 
-Click to capture the mouse (that first click does not fire) · Esc releases it · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision
+Click to capture the mouse (that first click does not fire) · Esc releases it · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
+
+## Audio
+
+Sound effects are a mix of synthesised sounds (recipes in `assets/sounds/synth.ron`, rendered to
+`assets/sounds/synth/`) and curated CC0 recordings (`assets/sounds/cc0/`); `assets/sounds/bank.ron`
+maps game events to them. Rex's voice quips are generated with Kokoro-82M (voice `am_onyx`,
+`assets/quips/`) and shown as a subtitle on their own HUD line. Each level can
+name a music track (`assets/music/`). Pass `--mute` to start silent; `--record` is always silent
+and skips music. The outputs are committed, so you only regenerate them after changing a recipe
+or a quip:
+
+    cargo run -p rr-tools -- synth assets/sounds/synth.ron -o assets/sounds/synth
+    scripts/gen-quips.sh                       # needs Python 3.10-3.12, sox, espeak-ng
+    scripts/import-sfx.sh SRC DEST             # imports a CC0 recording (sox)
+
+`import-sfx.sh` honours `LOOP="START LEN"`, `CHANNELS=2` and `NO_TRIM=1`; see the script header.
+`rr-tools quips-list` prints the quip texts that `gen-quips.sh` voices.
 
 ## Pickups, death and level complete
 
@@ -52,6 +69,8 @@ The default level is `arsenal_depot.ron`, the M4a showcase: rockets and explodin
 
     cargo run -p rr-game --release -- test_yard.ron
 
+Add `--mute` to start with the sound off (`M` toggles it in game).
+
 ## Tuning
 
 Weapon and enemy stats live in `assets/defs/weapons.ron` and `assets/defs/enemies.ron`; edit them and restart.
@@ -60,6 +79,8 @@ Weapon and enemy stats live in `assets/defs/weapons.ron` and `assets/defs/enemie
 
     cargo run -p rr-tools -- validate assets/levels/*.ron
     cargo run -p rr-tools -- render-svg assets/levels/arsenal_depot.ron -o depot.svg
+
+`validate` also checks that the sound bank covers every event, that quip files exist, that level music files exist and that every third-party audio file is listed in `CREDITS.md`.
 
 In the SVG, glass panes are dashed cyan, crack walls hatched and secret sectors starred.
 

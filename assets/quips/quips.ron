@@ -1,0 +1,45 @@
+// Rex's one-liners. Audio lives next to this file as <id>.ogg; `text` is the HUD subtitle.
+// `on` is one of: LevelStart, Kill, MultiKill, BigKill, LowHealth, NewWeapon, Secret,
+// NeedKey, LevelComplete, Respawn.
+[
+    (id: "start_shift", on: LevelStart, text: "Shift starts now."),
+    (id: "start_cleanup", on: LevelStart, text: "Time to clean house."),
+    (id: "start_meltdown", on: LevelStart, text: "Meltdown? Cute."),
+
+    (id: "recycling_day", on: Kill, text: "Recycling day."),
+    (id: "next", on: Kill, text: "Next."),
+    (id: "needed_that", on: Kill, text: "I needed that."),
+    (id: "aisle_you", on: Kill, text: "Clean-up on aisle you."),
+    (id: "filed_under_done", on: Kill, text: "Filed under done."),
+    (id: "wasnt_scheduled", on: Kill, text: "Not on my schedule."),
+
+    (id: "multi_bulk", on: MultiKill, text: "Bulk discount."),
+    (id: "multi_assembly", on: MultiKill, text: "Assembly line's moving."),
+    (id: "multi_pile", on: MultiKill, text: "Stack them up."),
+
+    (id: "big_overtime", on: BigKill, text: "Overtime it is."),
+    (id: "big_hazard", on: BigKill, text: "That was a hazard."),
+    (id: "big_fall", on: BigKill, text: "They fall hard."),
+
+    (id: "low_scratch", on: LowHealth, text: "Just a scratch."),
+    (id: "low_hurt", on: LowHealth, text: "Okay, that hurt."),
+    (id: "low_medic", on: LowHealth, text: "Where's the medic?"),
+    (id: "low_hell", on: LowHealth, text: "Hell of a shift."),
+
+    (id: "weapon_talking", on: NewWeapon, text: "Now we're talking."),
+    (id: "weapon_upgrade", on: NewWeapon, text: "Upgrade approved."),
+    (id: "weapon_tools", on: NewWeapon, text: "Right tool, right job."),
+
+    (id: "secret_bonus", on: Secret, text: "Found the bonus."),
+    (id: "secret_hidden", on: Secret, text: "Nothing stays hidden."),
+
+    (id: "key_locked", on: NeedKey, text: "Locked. Rude."),
+    (id: "key_where", on: NeedKey, text: "Needs a key. Somewhere."),
+
+    (id: "done_clocking", on: LevelComplete, text: "Clocking out."),
+    (id: "done_site", on: LevelComplete, text: "Site's clear."),
+    (id: "done_invoice", on: LevelComplete, text: "Send the invoice."),
+
+    (id: "respawn_again", on: Respawn, text: "Round two."),
+    (id: "respawn_walked", on: Respawn, text: "Walked that off."),
+]
