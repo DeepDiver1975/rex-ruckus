@@ -1,12 +1,14 @@
 //! Player: core movement in a 60 Hz FixedUpdate, input gathered every frame,
 //! and the camera interpolated between ticks.
 
+use crate::bindings::{Action, Bindings};
 use crate::combat::PlayerInventory;
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, use_key};
+use crate::menu::MenuScreen;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
@@ -52,9 +54,18 @@ pub fn clamp_eye(eye: f32, feet_z: f32, ceil: f32) -> f32 {
 #[derive(Component)]
 pub struct EyeHeight(pub f32);
 
-/// Cursor grab decision: Some(true) grab, Some(false) release, None keep.
-fn grab_change(focused: bool, clicked: bool, escape: bool, grabbed: bool) -> Option<bool> {
-    if grabbed && (escape || !focused) {
+/// Cursor grab decision: Some(true) grab, Some(false) release, None keep. `allowed` is false
+/// while a menu is open: the cursor is then released and never grabbed.
+fn grab_change(
+    focused: bool,
+    clicked: bool,
+    escape: bool,
+    grabbed: bool,
+    allowed: bool,
+) -> Option<bool> {
+    if !allowed {
+        grabbed.then_some(false)
+    } else if grabbed && (escape || !focused) {
         Some(false)
     } else if !grabbed && clicked && focused {
         Some(true)
@@ -109,6 +120,22 @@ pub struct PendingInput {
     pub toggle_nv: bool,
 }
 
+impl PendingInput {
+    /// Drops every latched tap and the held fire (movement is re-read each frame anyway).
+    pub fn clear_taps(&mut self) {
+        self.use_pressed = false;
+        self.fire = false;
+        self.fire_pressed = false;
+        self.reload = false;
+        self.kick = false;
+        self.select = None;
+        self.cycle = 0;
+        self.use_medkit = false;
+        self.toggle_jetpack = false;
+        self.toggle_nv = false;
+    }
+}
+
 /// Whether a held fire button may shoot. Fire is armed only after the button was seen released
 /// while the cursor is grabbed, so the click that grabs the cursor never fires. Losing the
 /// grab disarms.
@@ -145,8 +172,23 @@ pub struct PlayerCamera;
 #[derive(Resource, Default)]
 pub struct PlayerTuning(pub Tuning);
 
-#[derive(Resource)]
-pub struct MouseSensitivity(pub f32);
+/// Mouse look settings.
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
+pub struct LookSettings {
+    /// Radians per pixel of mouse motion.
+    pub sensitivity: f32,
+    /// Moving the mouse up looks down.
+    pub invert_y: bool,
+}
+
+impl Default for LookSettings {
+    fn default() -> Self {
+        LookSettings {
+            sensitivity: 0.0025,
+            invert_y: false,
+        }
+    }
+}
 
 /// Current camera roll (radians), eased toward [`view_targets`]'s roll. A resource so
 /// `restart_level` can snap it upright together with the eye.
@@ -248,15 +290,25 @@ pub struct PlayerControlPlugin {
 
 impl Plugin for PlayerControlPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(MouseSensitivity(0.0025))
-            .init_resource::<ViewRoll>()
+        // Only if absent: the settings plugin inserts the saved values first.
+        if !app.world().contains_resource::<Bindings>() {
+            app.init_resource::<Bindings>();
+        }
+        if !app.world().contains_resource::<LookSettings>() {
+            app.init_resource::<LookSettings>();
+        }
+        app.init_resource::<ViewRoll>()
             .add_systems(Startup, spawn_camera)
             .add_systems(
                 RunFixedMainLoop,
                 update_camera.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
             );
         if !self.scripted {
-            app.add_systems(Update, grab_cursor).add_systems(
+            app.add_systems(
+                Update,
+                (pause_on_escape, pause_on_focus_loss, grab_cursor).chain(),
+            )
+            .add_systems(
                 RunFixedMainLoop,
                 read_input.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
             );
@@ -285,18 +337,33 @@ pub fn spawn_camera(mut commands: Commands) {
     ));
 }
 
-fn grab_cursor(
+/// Whether the cursor may be grabbed in `state`: not under a menu. An episode's level-complete
+/// state shows the stats screen, whose Continue button needs the pointer.
+fn grab_allowed(state: PlayState, has_episode: bool) -> bool {
+    match state {
+        PlayState::Playing | PlayState::Dead => true,
+        PlayState::Complete => !has_episode,
+        PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd => false,
+    }
+}
+
+/// Grabs and releases the cursor (see [`grab_change`]).
+pub fn grab_cursor(
     mut cursor: Single<&mut CursorOptions>,
     window: Single<&Window>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
+    state: Res<PlayState>,
+    episode: Option<Res<crate::episode::Episode>>,
 ) {
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
+    let allowed = grab_allowed(*state, episode.is_some());
     match grab_change(
         window.focused,
         mouse.just_pressed(MouseButton::Left),
         keys.just_pressed(KeyCode::Escape),
         grabbed,
+        allowed,
     ) {
         Some(true) => {
             cursor.visible = false;
@@ -310,6 +377,49 @@ fn grab_cursor(
     }
 }
 
+/// Losing the window focus while playing opens the pause menu.
+pub fn pause_on_focus_loss(
+    window: Single<&Window>,
+    mut was_focused: Local<Option<bool>>,
+    mut state: ResMut<PlayState>,
+) {
+    let focused = window.focused;
+    if *was_focused == Some(true) && !focused && *state == PlayState::Playing {
+        *state = PlayState::Paused;
+    }
+    *was_focused = Some(focused);
+}
+
+/// The pause binding toggles between playing and the pause menu.
+pub(crate) fn pause_on_escape(
+    bindings: Res<Bindings>,
+    keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    screen: Option<Res<MenuScreen>>,
+    capture: Option<Res<crate::menu::Capture>>,
+    mut state: ResMut<PlayState>,
+) {
+    // Esc cancels a key capture instead.
+    if capture.is_some_and(|c| c.0.is_some()) {
+        return;
+    }
+    if !bindings.just_pressed(Action::Pause, &keys, &buttons) {
+        return;
+    }
+    // On a sub-screen (options, controls) the key goes back a screen instead.
+    if screen
+        .and_then(|s| s.0)
+        .is_some_and(|s| s.back(*state).is_some())
+    {
+        return;
+    }
+    match *state {
+        PlayState::Playing => *state = PlayState::Paused,
+        PlayState::Paused => *state = PlayState::Playing,
+        _ => {}
+    }
+}
+
 /// Gathers keyboard and mouse input into the player's [`PendingInput`] and [`Look`] every frame.
 #[allow(clippy::too_many_arguments)]
 pub fn read_input(
@@ -317,7 +427,8 @@ pub fn read_input(
     buttons: Res<ButtonInput<MouseButton>>,
     mouse: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
-    sensitivity: Res<MouseSensitivity>,
+    bindings: Res<Bindings>,
+    look_settings: Res<LookSettings>,
     cursor: Single<&CursorOptions>,
     state: Res<PlayState>,
     player: Single<(&mut PendingInput, &mut Look), With<Player>>,
@@ -329,40 +440,46 @@ pub fn read_input(
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
     // The view is frozen once play is over (the death camera takes over).
     if grabbed && playing {
-        look.angle -= mouse.delta.x * sensitivity.0;
-        look.pitch = (look.pitch - mouse.delta.y * sensitivity.0).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+        let sens = look_settings.sensitivity;
+        let dy = if look_settings.invert_y {
+            -mouse.delta.y
+        } else {
+            mouse.delta.y
+        };
+        look.angle -= mouse.delta.x * sens;
+        look.pitch = (look.pitch - dy * sens).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
-    let axis = |pos: KeyCode, neg: KeyCode| {
-        keys.pressed(pos) as i32 as f32 - keys.pressed(neg) as i32 as f32
-    };
-    input.forward = axis(KeyCode::KeyW, KeyCode::KeyS);
-    input.strafe = axis(KeyCode::KeyD, KeyCode::KeyA);
-    input.jump = keys.pressed(KeyCode::Space);
-    input.crouch = keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft);
-    input.use_pressed |= keys.just_pressed(KeyCode::KeyE);
+    let pressed = |a: Action| bindings.pressed(a, &keys, &buttons);
+    let just = |a: Action| bindings.just_pressed(a, &keys, &buttons);
+    let axis = |pos: Action, neg: Action| pressed(pos) as i32 as f32 - pressed(neg) as i32 as f32;
+    input.forward = axis(Action::Forward, Action::Back);
+    input.strafe = axis(Action::StrafeRight, Action::StrafeLeft);
+    input.jump = pressed(Action::Jump);
+    input.crouch = pressed(Action::Crouch);
+    input.use_pressed |= just(Action::Use);
 
-    let held = buttons.pressed(MouseButton::Left);
+    let held = pressed(Action::Fire);
     let fire = fire_gate(grabbed, held, &mut fire_armed);
     input.fire = fire;
     // `*fire_armed` rather than `fire`: a press and release within one frame still counts.
     // While play is over this edge is what `restart_on_press` reads.
-    input.fire_pressed |= grabbed && *fire_armed && buttons.just_pressed(MouseButton::Left);
+    input.fire_pressed |= grabbed && *fire_armed && just(Action::Fire);
     disarm_while_over(playing, held, &mut fire_armed);
     if grabbed {
-        input.reload |= keys.just_pressed(KeyCode::KeyR);
-        input.kick |= keys.just_pressed(KeyCode::KeyF);
-        input.use_medkit |= keys.just_pressed(KeyCode::KeyQ);
-        input.toggle_jetpack |= keys.just_pressed(KeyCode::KeyJ);
-        input.toggle_nv |= keys.just_pressed(KeyCode::KeyN);
-        for (key, w) in [
-            (KeyCode::Digit1, WeaponId::Boot),
-            (KeyCode::Digit2, WeaponId::Pistol),
-            (KeyCode::Digit3, WeaponId::Shotgun),
-            (KeyCode::Digit4, WeaponId::Chaingun),
-            (KeyCode::Digit5, WeaponId::Rockets),
-            (KeyCode::Digit6, WeaponId::PipeBombs),
+        input.reload |= just(Action::Reload);
+        input.kick |= just(Action::Kick);
+        input.use_medkit |= just(Action::Medkit);
+        input.toggle_jetpack |= just(Action::Jetpack);
+        input.toggle_nv |= just(Action::NightVision);
+        for (action, w) in [
+            (Action::Weapon1, WeaponId::Boot),
+            (Action::Weapon2, WeaponId::Pistol),
+            (Action::Weapon3, WeaponId::Shotgun),
+            (Action::Weapon4, WeaponId::Chaingun),
+            (Action::Weapon5, WeaponId::Rockets),
+            (Action::Weapon6, WeaponId::PipeBombs),
         ] {
-            if keys.just_pressed(key) {
+            if just(action) {
                 input.select = Some(w);
             }
         }
@@ -370,6 +487,18 @@ pub fn read_input(
         if scroll.delta.y != 0.0 {
             input.cycle += scroll.delta.y.signum() as i32;
         }
+    }
+    // A menu is up: nothing reads these latches, so a tap would otherwise fire on the resume.
+    if matches!(
+        *state,
+        PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd
+    ) {
+        input.clear_taps();
+        // Space chooses a menu button and is also Jump: the choice must not jump on resume.
+        input.forward = 0.0;
+        input.strafe = 0.0;
+        input.jump = false;
+        input.crouch = false;
     }
 }
 
@@ -403,6 +532,17 @@ pub(crate) fn update_camera(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stats_screen_frees_the_cursor() {
+        assert!(grab_allowed(PlayState::Playing, true));
+        assert!(grab_allowed(PlayState::Dead, true));
+        assert!(grab_allowed(PlayState::Complete, false));
+        assert!(!grab_allowed(PlayState::Complete, true));
+        assert!(!grab_allowed(PlayState::Paused, false));
+        assert!(!grab_allowed(PlayState::Menu, false));
+        assert!(!grab_allowed(PlayState::EpisodeEnd, true));
+    }
 
     #[test]
     fn eye_is_clamped_below_the_ceiling() {
@@ -455,19 +595,27 @@ mod tests {
     }
 
     #[test]
+    fn no_grab_while_a_menu_is_open() {
+        // focused, clicked, escape, grabbed, allowed
+        assert_eq!(grab_change(true, true, false, false, false), None);
+        assert_eq!(grab_change(true, false, false, true, false), Some(false));
+        assert_eq!(grab_change(true, true, false, false, true), Some(true));
+    }
+
+    #[test]
     fn grab_follows_click_escape_and_focus() {
-        assert_eq!(grab_change(true, true, false, false), Some(true));
+        assert_eq!(grab_change(true, true, false, false, true), Some(true));
         assert_eq!(
-            grab_change(false, true, false, false),
+            grab_change(false, true, false, false, true),
             None,
             "no grab while unfocused"
         );
-        assert_eq!(grab_change(true, false, true, true), Some(false));
+        assert_eq!(grab_change(true, false, true, true, true), Some(false));
         assert_eq!(
-            grab_change(false, false, false, true),
+            grab_change(false, false, false, true, true),
             Some(false),
             "focus lost releases"
         );
-        assert_eq!(grab_change(true, false, false, true), None);
+        assert_eq!(grab_change(true, false, false, true, true), None);
     }
 }

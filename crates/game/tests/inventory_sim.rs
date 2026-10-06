@@ -3,6 +3,7 @@
 use bevy::light::GlobalAmbientLight;
 use bevy::prelude::*;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
 use rr_game::combat::{CombatSimPlugin, PlayerInventory, PlayerVitals, insert_defs};
 use rr_game::flow::FlowPlugin;
@@ -14,7 +15,7 @@ use rr_game::player::{PendingInput, PlayerBody, PlayerSimPlugin};
 fn app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    insert_level(&mut app, combat_room());
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.insert_resource(GlobalAmbientLight {
         brightness: 250.0,

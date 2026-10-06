@@ -5,3 +5,4 @@ docs/superpowers/
 .vscode/
 .claude/
 /installer/Output/
+dist/

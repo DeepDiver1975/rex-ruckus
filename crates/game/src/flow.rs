@@ -6,12 +6,14 @@
 //! runs it again. The camera and the HUD are spawned outside it and persist across restarts.
 
 use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerVitals};
+use crate::episode::Episode;
 use crate::mechanics::{
     DirtySectors, HudMessage, HudSubtitle, UsePrompt, fresh_level, pickup_items,
 };
 use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
+use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
 
 /// Seconds a death or completion screen stays up before a press may restart.
@@ -20,10 +22,17 @@ pub const RESTART_DELAY: f32 = 1.0;
 /// Whether the simulation runs. Every fixed-tick sim system is gated on `Playing`.
 #[derive(Resource, PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum PlayState {
+    /// Main menu over the frozen first level.
+    Menu,
     #[default]
     Playing,
+    /// Pause menu.
+    Paused,
     Dead,
+    /// Stats screen after a level.
     Complete,
+    /// Episode totals after the last level.
+    EpisodeEnd,
 }
 
 /// Seconds since `PlayState` last changed; counts only while not `Playing`.
@@ -34,9 +43,18 @@ pub struct StateAge(pub f32);
 #[derive(Resource, Default, PartialEq, Eq, Debug)]
 pub struct RestartRequested(pub bool);
 
+/// Set by [`restart_on_press`] for a completed level of an episode; [`advance_level`] runs while
+/// it is true.
+#[derive(Resource, Default, PartialEq, Eq, Debug)]
+pub struct AdvanceRequested(pub bool);
+
 /// The level as authored (doors open), kept so a restart can rebuild it.
 #[derive(Resource)]
 pub struct LevelSource(pub Map);
+
+/// The skill the level is played on; applied when the level is (re)built.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LevelDifficulty(pub Difficulty);
 
 /// Marks every entity that belongs to the current level run; a restart despawns them all.
 #[derive(Component, Default)]
@@ -53,7 +71,9 @@ pub fn restart_requested(
     use_pressed: bool,
     fire_pressed: bool,
 ) -> bool {
-    state != PlayState::Playing && age >= RESTART_DELAY && (use_pressed || fire_pressed)
+    matches!(state, PlayState::Dead | PlayState::Complete)
+        && age >= RESTART_DELAY
+        && (use_pressed || fire_pressed)
 }
 
 /// Owns the play state, the level-spawn schedule and restarts. Needs `insert_level`; the sim
@@ -65,6 +85,8 @@ impl Plugin for FlowPlugin {
         app.init_resource::<PlayState>()
             .init_resource::<StateAge>()
             .init_resource::<RestartRequested>()
+            .init_resource::<AdvanceRequested>()
+            .init_resource::<LevelDifficulty>()
             .init_schedule(SpawnLevel)
             .add_systems(Startup, run_spawn_level)
             .add_systems(
@@ -83,8 +105,11 @@ impl Plugin for FlowPlugin {
                         .after(CombatSet)
                         .after(pickup_items),
                     tick_state_age,
-                    restart_on_press.run_if(not(resource_equals(PlayState::Playing))),
+                    restart_on_press.run_if(|s: Res<PlayState>| {
+                        matches!(*s, PlayState::Dead | PlayState::Complete)
+                    }),
                     restart_level.run_if(resource_equals(RestartRequested(true))),
+                    advance_level.run_if(resource_equals(AdvanceRequested(true))),
                 )
                     .chain(),
             );
@@ -145,15 +170,46 @@ fn restart_on_press(
     state: Res<PlayState>,
     age: Res<StateAge>,
     mut request: ResMut<RestartRequested>,
+    mut advance: ResMut<AdvanceRequested>,
+    episode: Option<Res<Episode>>,
     mut q: Query<&mut PendingInput, With<Player>>,
 ) {
     for mut input in &mut q {
         let use_pressed = std::mem::take(&mut input.use_pressed);
         let fire_pressed = std::mem::take(&mut input.fire_pressed);
         if restart_requested(*state, age.0, use_pressed, fire_pressed) {
-            request.0 = true;
+            // A completed level of an episode moves on; anything else restarts the level.
+            if *state == PlayState::Complete && episode.is_some() {
+                advance.0 = true;
+            } else {
+                request.0 = true;
+            }
         }
     }
+}
+
+/// Swaps in another level and starts it (the stats and loadout systems see a fresh spawn).
+pub fn load_level(world: &mut World, map: Map) {
+    world.insert_resource(LevelSource(map));
+    restart_level(world);
+}
+
+/// Moves the episode on after a completed level.
+fn advance_level(world: &mut World) {
+    world.resource_mut::<AdvanceRequested>().0 = false;
+    crate::episode::advance(world);
+}
+
+/// The authored [`LevelSource`] as played on the current [`LevelDifficulty`].
+pub fn play_map(world: &World) -> Map {
+    let difficulty = world
+        .get_resource::<LevelDifficulty>()
+        .copied()
+        .unwrap_or_default();
+    world
+        .resource::<LevelSource>()
+        .0
+        .for_difficulty(difficulty.0)
 }
 
 /// Rebuilds the level from [`LevelSource`]: despawns every [`LevelEntity`], resets the map,
@@ -169,7 +225,7 @@ pub fn restart_level(world: &mut World) {
             world.despawn(e);
         }
     }
-    let (map, mech) = fresh_level(world.resource::<LevelSource>().0.clone());
+    let (map, mech) = fresh_level(play_map(world));
     world.insert_resource(map);
     world.insert_resource(mech);
     world.insert_resource(DirtySectors::default());
@@ -204,4 +260,23 @@ pub fn restart_level(world: &mut World) {
     world.resource_mut::<StateAge>().0 = 0.0;
     world.resource_mut::<RestartRequested>().0 = false;
     world.run_schedule(SpawnLevel);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_dead_or_complete_restart() {
+        for s in [
+            PlayState::Menu,
+            PlayState::Playing,
+            PlayState::Paused,
+            PlayState::EpisodeEnd,
+        ] {
+            assert!(!restart_requested(s, 5.0, true, true), "{s:?}");
+        }
+        assert!(restart_requested(PlayState::Dead, 5.0, false, true));
+        assert!(restart_requested(PlayState::Complete, 5.0, true, false));
+    }
 }

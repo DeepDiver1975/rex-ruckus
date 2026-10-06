@@ -4,6 +4,7 @@ use proptest::prelude::*;
 use rr_core::collide::{Body, z_range};
 use rr_core::combat::{Combat, PlayerTarget, level_seed};
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, glass_rooms, pillar_room, two_rooms};
 use rr_core::glam::{Vec2, Vec3};
 use rr_core::map::{ActorKind, ActorSpawn, Map};
@@ -48,7 +49,7 @@ proptest! {
         let mut map = fixture(map_id);
         let at = point(&map, start.0, start.1);
         prop_assume!(map.find_sector(at, None).is_some());
-        map.actors.push(ActorSpawn { kind: ActorKind::Drone, pos: at, angle: 0.0, asleep: false });
+        map.actors.push(ActorSpawn { kind: ActorKind::Drone, pos: at, angle: 0.0, asleep: false, skill: Difficulty::Easy });
         let defs = Defs::builtin();
         let mut combat = Combat::spawn(&map, &defs, level_seed(&map.name) ^ seed);
         prop_assume!(combat.actors.len() == 1);

@@ -15,3 +15,9 @@ opt-level = 1
 opt-level = 3
 # Dependencies carry no debuginfo: keeps debug test binaries small.
 debug = false
+
+# Shipped binaries: thin LTO, one codegen unit, stripped.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

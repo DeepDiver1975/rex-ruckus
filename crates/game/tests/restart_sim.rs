@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
 use rr_core::mechanics::Motion;
 use rr_core::projectile::{Projectile, Shooter, Targets};
@@ -58,7 +59,7 @@ fn app() -> App {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             100,
         )));
-    insert_level(&mut app, destructible_level());
+    insert_level(&mut app, destructible_level(), Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.insert_resource(GlobalAmbientLight {
         brightness: 250.0,

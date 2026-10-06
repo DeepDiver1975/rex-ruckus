@@ -3,6 +3,7 @@
 //! from `Map::from_raw`, doors open), never on a live one.
 
 use crate::defs::Defs;
+use crate::difficulty::Difficulty;
 use crate::geom::closest_point_on_segment;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
@@ -177,6 +178,13 @@ fn check_wiring(map: &Map, r: &mut Report) {
         Some(_) => {}
     }
     let has_key = |k: Key| map.items.iter().any(|i| i.kind == ItemKind::Key(k));
+    for (i, item) in map.items.iter().enumerate() {
+        if matches!(item.kind, ItemKind::Key(_)) && item.skill != Difficulty::Easy {
+            r.error(format!(
+                "item {i}: keycard must appear on every skill (skill: Easy)"
+            ));
+        }
+    }
     for (s, sec) in map.sectors.iter().enumerate() {
         let Some(def) = sec.mover else { continue };
         if def.kind == MoverKind::Crack && !sec.walls().any(|w| map.walls[w].next_sector.is_some())
@@ -406,6 +414,7 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::difficulty::Difficulty;
     use crate::fixtures::{combat_room, door_rooms, lift_shaft, pillar_room, two_rooms};
     use crate::map::{ActorKind, ActorSpawn};
 
@@ -536,6 +545,17 @@ mod tests {
             )),
             "blue"
         ));
+    }
+
+    #[test]
+    fn skill_gated_keycard_is_an_error() {
+        let map = door_rooms(
+            "(kind: Door, lock: Some(Blue))",
+            "switches: [(wall: (3, 4), action: Exit)], \
+             items: [(kind: Key(Blue), pos: (2.0, 3.0), skill: Normal)],",
+        );
+        let errs = errors(&map);
+        assert!(has(&errs, "keycard") && has(&errs, "Easy"), "{errs:?}");
     }
 
     #[test]
@@ -758,6 +778,7 @@ mod tests {
             pos: Vec2::new(x, y),
             angle: 0.0,
             asleep: true,
+            skill: Difficulty::Easy,
         };
         // Pillar occupies x 4..6, y 4..6: 0.2 m from its west face is inside the 0.35 m radius.
         map.actors = vec![spawn(3.8, 5.0), spawn(3.0, 5.0)];

@@ -7,16 +7,20 @@ Original code and content; CC0 assets credited in `CREDITS.md`.
 
 ▶ [Full-quality demo video (MP4)](docs/media/demo.mp4)
 
-Run: `cargo run -p rr-game --release`
+Run: `cargo run -p rr-game --release` (starts at the main menu)
 Test: `cargo test --workspace`
 
-## Download (Windows)
+## Download
 
-Grab `rex-ruckus-<version>-windows-x64-setup.exe` from the
-[latest release](https://github.com/DeepDiver1975/rex-ruckus/releases/latest). It installs the
-game with a Start Menu entry and an uninstaller. Every pull request and push to `main` also
-builds the installer; it is attached to the run of the *Windows installer* workflow as an
-artifact.
+Grab the latest build from the [latest release](https://github.com/DeepDiver1975/rex-ruckus/releases/latest).
+
+- **Windows:** `rex-ruckus-<version>-windows-x64-setup.exe` installs the game with a Start Menu
+  entry and an uninstaller.
+- **Linux:** unpack `rex-ruckus-<version>-linux-x86_64.tar.gz` and run `./rex-ruckus.sh` from the
+  unpacked folder (it needs ALSA and a Wayland or X11 session).
+
+Every pull request and push to `main` also builds both; they are attached to the run of the
+*Release builds* workflow as artifacts.
 
 ## Building
 
@@ -31,16 +35,40 @@ then:
     cargo build -p rr-game --release
     iscc /DAppVersion=0.1.0 installer\rex-ruckus.iss
 
-The installer is written to `installer\Output\`. Pushing a `v*` tag publishes it as a GitHub
-release.
+The installer is written to `installer\Output\`. To build the Linux tarball locally, run
+`scripts/package-linux.sh 0.1.0` after the release build; it lands in `dist/`. Pushing a `v*` tag
+publishes the installer and the tarball as a GitHub release.
 
 ## License
 
 GPL-3.0-or-later — see `LICENSE`.
 
+## Menus, difficulty and settings
+
+The game opens on the main menu. **New Game** asks for a difficulty (Easy, Normal or Hard) and then
+plays the episode (`assets/episode.ron`) level by level, carrying health, armour, weapons and ammo
+over; an end-of-level stats screen follows each level. **Esc** pauses (resume, options, restart level,
+quit to menu). **Options** has mouse sensitivity, invert Y, field of view, the master, effects,
+voice and music volumes, a *Low-res mode* (640x360) toggle for a chunky retro look, and **Controls**, where you pick an
+action and press the new key or mouse button to rebind it (each action keeps up to two bindings,
+Esc always opens the menu and cannot be rebound, Esc while capturing cancels).
+
+`--difficulty easy|normal|hard` sets the difficulty for runs that skip the menu.
+
+Settings (volumes, sensitivity, low-res, bindings) are saved to `settings.ron` in the OS config
+directory:
+
+- Linux: `~/.config/rex-ruckus/settings.ron` (or under `$XDG_CONFIG_HOME`)
+- Windows: `%APPDATA%\rex-ruckus\config\settings.ron`
+- macOS: `~/Library/Application Support/rex-ruckus/settings.ron`
+
+Set `$RR_SETTINGS` to use another file. A missing file means defaults. Running a level directly
+(`rex-ruckus LEVEL`) or a demo (`--demo`) skips the menu, uses default settings and never reads or
+writes the settings file.
+
 ## Controls
 
-Click to capture the mouse (that first click does not fire) · Esc releases it · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
+Defaults (the actions are rebindable under Options, except Esc; the M, `[` and `]` sound keys are fixed, and yield to any action bound to them). Click to capture the mouse (that first click does not fire) · Esc pauses and releases the mouse · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
 
 ## Audio
 

@@ -24,9 +24,10 @@ pub struct CurrentMap(pub Map);
 #[derive(Component)]
 pub struct SectorMesh(pub SectorId);
 
-/// Material handles indexed like `Map::materials`, kept so moving sectors can be re-extruded.
+/// Material handles indexed like `Map::materials`, kept so moving sectors can be re-extruded,
+/// with the material names they were made for (another level needs its own table).
 #[derive(Resource)]
-pub struct LevelMaterials(pub Vec<Handle<StandardMaterial>>);
+pub struct LevelMaterials(pub Vec<Handle<StandardMaterial>>, pub Vec<String>);
 
 /// A level argument is either an existing file path or a file name under `assets/levels/`.
 pub fn level_path(arg: &str, assets: &Path) -> PathBuf {
@@ -163,7 +164,8 @@ fn level_material(name: &str, texture: Handle<Image>) -> StandardMaterial {
 }
 
 /// Sector meshes and lights (in [`SpawnLevel`]). The materials are generated on the first spawn
-/// and reused by restarts of the same level.
+/// and reused by restarts of the same level; a level with other materials (the next level of an
+/// episode) gets a fresh table.
 fn spawn_level(
     mut commands: Commands,
     map: Res<CurrentMap>,
@@ -175,8 +177,8 @@ fn spawn_level(
 ) {
     let map = &map.0;
     let mats: Vec<Handle<StandardMaterial>> = match existing {
-        Some(m) => m.0.clone(),
-        None => {
+        Some(m) if m.1 == map.materials => m.0.clone(),
+        _ => {
             let mats: Vec<_> = map
                 .materials
                 .iter()
@@ -185,7 +187,7 @@ fn spawn_level(
                     materials.add(level_material(name, texture))
                 })
                 .collect();
-            commands.insert_resource(LevelMaterials(mats.clone()));
+            commands.insert_resource(LevelMaterials(mats.clone(), map.materials.clone()));
             mats
         }
     };

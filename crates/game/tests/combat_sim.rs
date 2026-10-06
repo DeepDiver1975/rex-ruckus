@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rr_core::defs::{Defs, WeaponId};
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, door_rooms, glass_rooms, lift_shaft};
 use rr_core::map::{ActorKind, ActorSpawn, Map};
 use rr_core::mechanics::Motion;
@@ -19,7 +20,7 @@ use rr_game::player::{
 fn app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,
@@ -206,6 +207,7 @@ fn pistol_kills_grunt_headless() {
         pos: Vec2::new(10.0, 1.5),
         angle: std::f32::consts::PI,
         asleep: true,
+        skill: Difficulty::Easy,
     });
     let mut app = app(map);
     input(&mut app).fire = true;

@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use rr_core::difficulty::Difficulty;
 use rr_core::extrude::extrude_sector;
 use rr_core::fixtures::door_rooms;
 use rr_game::level::{LevelMaterials, SectorMesh, rebuild_dirty_sectors};
@@ -16,9 +17,9 @@ fn rebuild_replaces_meshes_of_changed_sector_and_neighbours() {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
         .init_resource::<DirtySectors>()
-        .insert_resource(LevelMaterials(vec![Handle::default(); 4]))
+        .insert_resource(LevelMaterials(vec![Handle::default(); 4], Vec::new()))
         .add_systems(Update, rebuild_dirty_sectors);
-    insert_level(&mut app, door_rooms("(kind: Door)", ""));
+    insert_level(&mut app, door_rooms("(kind: Door)", ""), Difficulty::Normal);
     app.world_mut().resource_mut::<DirtySectors>().0.insert(1);
     app.update();
     // Expected counts come from the live map (door closed), one entity per material sub-mesh.
@@ -53,9 +54,9 @@ fn rebuild_despawns_old_meshes_and_spares_unaffected_sectors() {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
         .init_resource::<DirtySectors>()
-        .insert_resource(LevelMaterials(vec![Handle::default(); 4]))
+        .insert_resource(LevelMaterials(vec![Handle::default(); 4], Vec::new()))
         .add_systems(Update, rebuild_dirty_sectors);
-    insert_level(&mut app, door_rooms("(kind: Door)", ""));
+    insert_level(&mut app, door_rooms("(kind: Door)", ""), Difficulty::Normal);
     app.world_mut()
         .resource_mut::<DirtySectors>()
         .0
@@ -110,7 +111,7 @@ mod world {
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 100,
             )));
-        insert_level(&mut app, map);
+        insert_level(&mut app, map, Difficulty::Normal);
         insert_defs(&mut app, Defs::builtin());
         app.add_plugins((
             FlowPlugin,
@@ -234,7 +235,11 @@ mod world {
 #[test]
 fn crack_sectors_use_the_cracked_material() {
     let mut app = App::new();
-    insert_level(&mut app, door_rooms("(kind: Crack)", ""));
+    insert_level(
+        &mut app,
+        door_rooms("(kind: Crack)", ""),
+        Difficulty::Normal,
+    );
     let map = &app.world().resource::<rr_game::level::CurrentMap>().0;
     let id = map.materials.iter().position(|m| m == "cracked").unwrap();
     assert_eq!(map.sectors[1].face_mat, Some(id));

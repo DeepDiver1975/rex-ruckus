@@ -10,6 +10,7 @@ use bevy::world_serialization::WorldAsset;
 use rr_core::actors::AiState;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
 use rr_core::map::{ActorKind, ActorSpawn};
 use rr_core::projectile::{Projectile, Shooter, Targets};
@@ -38,6 +39,7 @@ fn app_with(kinds: &[ActorKind]) -> App {
             pos: Vec2::new(5.0 + i as f32, 1.5),
             angle: std::f32::consts::PI,
             asleep: true,
+            skill: Difficulty::Easy,
         });
     }
     let mut app = App::new();
@@ -52,7 +54,7 @@ fn app_with(kinds: &[ActorKind]) -> App {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             50,
         )));
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         ModelsPlugin,

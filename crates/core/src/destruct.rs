@@ -174,6 +174,7 @@ mod tests {
     use crate::collide::{Body, clip_move};
     use crate::combat::Combat;
     use crate::defs::Defs;
+    use crate::difficulty::Difficulty;
     use crate::fixtures::{defs, glass_rooms};
     use crate::map::{ActorKind, ActorSpawn};
     use crate::movement::{Pass, Tuning};
@@ -203,6 +204,7 @@ mod tests {
             pos: Vec2::new(12.0, 5.0),
             angle: 0.0,
             asleep: true,
+            skill: Difficulty::Easy,
         });
         Combat::spawn(map, d, 1)
     }

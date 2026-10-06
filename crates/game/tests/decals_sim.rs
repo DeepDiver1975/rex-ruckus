@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::door_rooms;
 use rr_game::combat::{CombatSimPlugin, FxQueue, insert_defs};
 use rr_game::decals::{Decal, DecalRing, DecalsPlugin, RING_CAP};
@@ -22,7 +23,7 @@ fn app() -> App {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             100,
         )));
-    insert_level(&mut app, door_rooms("(kind: Door)", ""));
+    insert_level(&mut app, door_rooms("(kind: Door)", ""), Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,

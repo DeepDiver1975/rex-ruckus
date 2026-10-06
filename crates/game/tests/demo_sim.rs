@@ -4,6 +4,7 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
 use rr_game::combat::{CombatSimPlugin, insert_defs};
 use rr_game::demo::{DemoPlugin, DemoScript};
@@ -36,7 +37,7 @@ fn script_walks_turns_and_exits() {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             50,
         )));
-    insert_level(&mut app, hall());
+    insert_level(&mut app, hall(), Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,
