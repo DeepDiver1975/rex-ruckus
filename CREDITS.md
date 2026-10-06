@@ -1,8 +1,8 @@
 # Credits
 
 All code and procedural content (including the synthesised sounds) are original.
-Textures are generated procedurally at runtime; effects, switch panels, the boot and the
-kick leg are built from Bevy primitives at runtime. The third-party CC0 models, the CC0
+Textures are generated procedurally at runtime; effects, switch panels, the boot, the
+kick leg and the pipe-bomb fist are built from Bevy primitives at runtime. The third-party CC0 models, the CC0
 recordings for sound effects and music, and the text-to-speech model used to generate the
 quips are listed below with their source URL and licence.
 

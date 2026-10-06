@@ -19,7 +19,7 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | `crates/tools` (`rr-tools`) | `validate` and `render-svg` for level files. |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). |
 | `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons and pickups to models (scale, placement, clip names, muzzles). |
-| `assets/models/` | CC0 glTF (`.glb`) for enemies, viewmodel weapons and pickups. The boot, kick leg and switch panels stay code-built. |
+| `assets/models/` | CC0 glTF (`.glb`) for enemies, viewmodel weapons and pickups. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
 | `assets/demo/*.ron` | Scripted demo runs (`--demo`). |
 | `assets/sounds/` | `bank.ron` (event to sound map), `synth.ron` recipes, `synth/` rendered output, `cc0/` curated CC0 recordings. |
 | `assets/music/` | Level music (OGG). |

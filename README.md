@@ -75,7 +75,7 @@ Add `--mute` to start with the sound off (`M` toggles it in game).
 
 Enemies, viewmodel weapons and pickups are CC0 glTF models in `assets/models/`, mapped to the game
 by `assets/defs/models.ron` and imported with `scripts/import-models.sh` (sources in `CREDITS.md`).
-The boot, kick leg and switch panels are built from primitives at runtime.
+The boot, kick leg, pipe-bomb fist and switch panels are built from primitives at runtime.
 
 ## Tuning
 
