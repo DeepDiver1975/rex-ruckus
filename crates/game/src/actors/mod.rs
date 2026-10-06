@@ -4,9 +4,9 @@
 //! Purely presentational: every system here only reads the simulation ([`LevelCombat`],
 //! [`FxQueue`]) and writes transforms, materials, animation players and visual-only entities.
 //! Every actor gets an [`ActorVisual`] root plus the marker of its kind, with its model spawned
-//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher, Boss) and
-//! attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks and
-//! plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
+//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher, Boss)
+//! and attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks
+//! and plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
 
 mod anim;
 mod barrel;
@@ -172,7 +172,7 @@ pub fn death_pitch(t_left: f32, death_time: f32) -> f32 {
 fn has_gun(kind: ActorKind) -> bool {
     matches!(
         kind,
-        ActorKind::Grunt | ActorKind::Enforcer | ActorKind::Drone
+        ActorKind::Grunt | ActorKind::Enforcer | ActorKind::Drone | ActorKind::Boss
     )
 }
 
@@ -395,9 +395,24 @@ fn pose(kind: ActorKind, state: AiState) -> Look {
     }
 }
 
+/// Pulses per second of the phase-2 glow.
+const PULSE_HZ: f32 = 4.0;
+
+/// A boss past its first phase pulses with the hit glow (half of each 1/4 s period), unless it
+/// shows pain or is flashing anyway.
+pub fn phase_look(look: Look, phase: u8, t: f32) -> Look {
+    if phase > 0 && look == Look::Normal && (t * PULSE_HZ).fract() < 0.5 {
+        Look::Hit
+    } else {
+        look
+    }
+}
+
 /// Swaps every mesh of each ready model to the [`TintCache`] variant of its original material
 /// for the actor's look, only when the look changes. The enemy's `tint` colours `Normal`/`Dim`.
+#[allow(clippy::too_many_arguments)]
 fn tint_enemies(
+    time: Res<Time>,
     combat: Res<LevelCombat>,
     lib: Res<ModelLibrary>,
     mut cache: ResMut<TintCache>,
@@ -410,7 +425,11 @@ fn tint_enemies(
         let (Some(actor), Ok(ready)) = (combat.0.actors.get(g.0), ready.get(model.root)) else {
             continue;
         };
-        let want = skin_look(pose(model.kind, actor.state), actor.alive(), hit.0);
+        let want = phase_look(
+            skin_look(pose(model.kind, actor.state), actor.alive(), hit.0),
+            actor.phase,
+            time.elapsed_secs(),
+        );
         if look.current == Some(want) {
             continue;
         }
@@ -453,6 +472,15 @@ fn place_walker(t: &mut Transform, actor: &Actor, alpha: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phase_two_pulses_between_normal_and_hit() {
+        assert_eq!(phase_look(Look::Normal, 0, 0.1), Look::Normal);
+        assert_eq!(phase_look(Look::Normal, 1, 0.05), Look::Hit);
+        assert_eq!(phase_look(Look::Normal, 1, 0.2), Look::Normal);
+        assert_eq!(phase_look(Look::Pain, 1, 0.05), Look::Pain, "pain wins");
+        assert!(has_gun(ActorKind::Boss));
+    }
 
     #[test]
     fn death_pitch_is_monotonic_and_clamped() {

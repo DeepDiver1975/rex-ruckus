@@ -4,7 +4,9 @@
 //! Spawned once at startup; it is not a `LevelEntity`, so it persists across restarts.
 
 use crate::bindings::{Action, Bindings};
-use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
+use crate::combat::{
+    FxQueue, FxReaders, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, HudSubtitle, LevelMechanics, UsePrompt};
@@ -40,6 +42,12 @@ struct PromptText;
 struct MessageText;
 #[derive(Component)]
 struct SubtitleText;
+/// The boss health bar's frame; hidden unless a boss lives.
+#[derive(Component)]
+struct BossBar;
+/// The red fill inside the [`BossBar`].
+#[derive(Component)]
+struct BossBarFill;
 /// One text cell of the status bar.
 #[derive(Component, Clone, Copy)]
 enum StatusCell {
@@ -180,6 +188,7 @@ impl Plugin for HudPlugin {
                     update_prompt,
                     update_message,
                     update_subtitle,
+                    update_boss_bar,
                     update_status,
                     update_keycards,
                     read_hurt.in_set(FxReaders),
@@ -234,7 +243,56 @@ fn row(top: Val) -> Node {
     }
 }
 
+/// The boss bar's fill percent for the boss's health fraction; `None` when no boss lives.
+pub fn boss_bar_percent(frac: Option<f32>) -> Option<f32> {
+    frac.map(|f| f.clamp(0.0, 1.0) * 100.0)
+}
+
+fn update_boss_bar(
+    combat: Option<Res<LevelCombat>>,
+    mut bar: Single<&mut Visibility, With<BossBar>>,
+    mut fill: Single<&mut Node, With<BossBarFill>>,
+) {
+    match boss_bar_percent(combat.and_then(|c| c.0.boss_health())) {
+        Some(p) => {
+            bar.set_if_neq(Visibility::Inherited);
+            if fill.width != Val::Percent(p) {
+                fill.width = Val::Percent(p);
+            }
+        }
+        None => {
+            bar.set_if_neq(Visibility::Hidden);
+        }
+    }
+}
+
 fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
+    // The boss bar sits under the message row.
+    commands
+        .spawn((row(Val::Px(56.0)), HudRoot))
+        .with_children(|p| {
+            p.spawn((
+                Node {
+                    width: Val::Percent(40.0),
+                    height: Val::Px(12.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+                Visibility::Hidden,
+                BossBar,
+            ))
+            .with_children(|b| {
+                b.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.85, 0.1, 0.05)),
+                    BossBarFill,
+                ));
+            });
+        });
     commands
         .spawn((row(Val::Percent(60.0)), HudRoot))
         .with_children(|p| {
@@ -564,6 +622,13 @@ fn update_overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boss_bar_follows_the_boss() {
+        assert_eq!(boss_bar_percent(None), None);
+        assert_eq!(boss_bar_percent(Some(0.5)), Some(50.0));
+        assert_eq!(boss_bar_percent(Some(-0.2)), Some(0.0));
+    }
     use rr_core::fixtures::{door_rooms, lift_shaft};
 
     #[test]

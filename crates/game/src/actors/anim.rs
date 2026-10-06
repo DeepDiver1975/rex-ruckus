@@ -97,6 +97,14 @@ pub(super) struct EnemyAnim {
     hold: bool,
 }
 
+/// Attack clip speed-up in the boss's later phases.
+pub const PHASE_ATTACK_SPEED: f32 = 1.6;
+
+/// The attack clip's speed multiplier for a boss phase.
+pub fn attack_speed(phase: u8) -> f32 {
+    if phase > 0 { PHASE_ATTACK_SPEED } else { 1.0 }
+}
+
 /// Plays each ready enemy model's clip for its AI state: cross-fades when the role changes and
 /// restarts the attack clip on every shot. An [`FxReaders`](crate::combat::FxReaders) system
 /// (reads `ActorFired`).
@@ -137,6 +145,14 @@ pub(super) fn animate_enemies(
         };
         let death_secs = secs(ClipRole::Death).unwrap_or(def.death_time);
         let cmd = anim_for(&actor.state, speed_frac, def.death_time, death_secs);
+        let cmd = if cmd.role == ClipRole::Attack {
+            AnimCmd {
+                speed: cmd.speed * attack_speed(actor.phase),
+                ..cmd
+            }
+        } else {
+            cmd
+        };
         let Some(role) = pick_role(cmd.role, |r| graph.nodes.contains_key(&r), anim.role) else {
             continue;
         };
@@ -180,6 +196,8 @@ pub(super) fn animate_enemies(
             && let Some(active) = player.animation_mut(node)
         {
             active.replay();
+            // A boss that crossed into a later phase mid-attack speeds up on the next shot.
+            active.set_speed(cmd.speed);
         }
     }
 }
@@ -197,6 +215,12 @@ mod tests {
         AiState::Pain { t: 0.1 },
         AiState::Dying { t: 0.4 },
     ];
+
+    #[test]
+    fn phase_two_attacks_faster() {
+        assert_eq!(attack_speed(0), 1.0);
+        assert_eq!(attack_speed(1), 1.6);
+    }
 
     #[test]
     fn sleep_idles_slowly() {
