@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod fonts;
+pub mod info;
 pub mod models;
 pub mod svg;
 pub mod synth;

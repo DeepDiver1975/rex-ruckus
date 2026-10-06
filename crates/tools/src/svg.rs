@@ -1,7 +1,8 @@
 //! Top-down SVG of a level for authoring and review. North is up; 1 m = 20 px.
 
 use rr_core::glam::Vec2;
-use rr_core::map::{ItemKind, Key, Map, MoverKind, SwitchAction};
+use rr_core::hazard::HazardKind;
+use rr_core::map::{ActorKind, ItemKind, Key, Map, MoverKind, SwitchAction};
 use rr_core::movement::Tuning;
 use std::fmt::Write;
 
@@ -42,7 +43,38 @@ fn star(c: Vec2, r: f32) -> String {
         .join(" ")
 }
 
+/// Extras for [`render_svg_with`].
+#[derive(Default)]
+pub struct SvgOptions<'a> {
+    /// Label every vertex with its index; the slice is the level's raw vertex list.
+    pub vertices: Option<&'a [(f32, f32)]>,
+}
+
 pub fn render_svg(map: &Map) -> String {
+    render_svg_with(map, &SvgOptions::default())
+}
+
+/// The SVG path data of a sector's loops.
+fn outline(map: &Map, loops: &[Vec<usize>], px: impl Fn(Vec2) -> Vec2) -> String {
+    let mut d = String::new();
+    for lp in loops {
+        for (i, &w) in lp.iter().enumerate() {
+            let p = px(map.walls[w].a);
+            write!(
+                d,
+                "{}{:.1} {:.1} ",
+                if i == 0 { "M" } else { "L" },
+                p.x,
+                p.y
+            )
+            .unwrap();
+        }
+        d.push_str("Z ");
+    }
+    d
+}
+
+pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
     let pts = map.walls.iter().flat_map(|w| [w.a, w.b]);
     let (min, max) = pts.fold(
         (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)),
@@ -64,29 +96,25 @@ pub fn render_svg(map: &Map) -> String {
     writeln!(o, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{:.0}" height="{:.0}" font-family="monospace" font-size="10">"#, size.x, size.y).unwrap();
     writeln!(o, r##"<rect width="100%" height="100%" fill="#1d1f24"/><text x="6" y="14" fill="#ddd">{}</text>"##, esc(&map.name)).unwrap();
     // Crack walls are hatched: diagonal soot lines over brick red.
-    o.push_str(r##"<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#b5523b"/><line x1="0" y1="0" x2="0" y2="6" stroke="#2b1a14" stroke-width="3"/></pattern></defs>"##);
+    // Slime is green with a dark diagonal; electric floors are blue with a yellow zigzag.
+    o.push_str(r##"<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#b5523b"/><line x1="0" y1="0" x2="0" y2="6" stroke="#2b1a14" stroke-width="3"/></pattern>"##);
+    o.push_str(r##"<pattern id="slime" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#3fae2a"/><line x1="0" y1="8" x2="8" y2="0" stroke="#1d4d14" stroke-width="2"/></pattern>"##);
+    o.push_str(r##"<pattern id="electric" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#2a6fd6"/><polyline points="0,6 2,2 4,6 6,2 8,6" style="fill:none" stroke="#ffe14d" stroke-width="1.5"/></pattern></defs>"##);
     o.push('\n');
 
     for (s, sec) in map.sectors.iter().enumerate() {
-        let mut d = String::new();
-        for lp in &sec.loops {
-            for (i, &w) in lp.iter().enumerate() {
-                let p = px(map.walls[w].a);
-                write!(
-                    d,
-                    "{}{:.1} {:.1} ",
-                    if i == 0 { "M" } else { "L" },
-                    p.x,
-                    p.y
-                )
-                .unwrap();
-            }
-            d.push_str("Z ");
-        }
+        let d = outline(map, &sec.loops, px);
         let (class, fill) = match sec.mover.map(|m| m.kind) {
             Some(MoverKind::Door) => ("sector door", "#e8a33d".to_string()),
             Some(MoverKind::Lift { .. }) => ("sector lift", "#5aa0e0".to_string()),
             Some(MoverKind::Crack) => ("sector crack", "url(#hatch)".to_string()),
+            None if sec.hazard.is_some() => {
+                let url = match sec.hazard.map(|h| h.kind) {
+                    Some(HazardKind::Electric) => "url(#electric)",
+                    _ => "url(#slime)",
+                };
+                ("sector hazard", url.to_string())
+            }
             None => {
                 let t = if hi > lo {
                     (sec.floor_z - lo) / (hi - lo)
@@ -217,6 +245,93 @@ pub fn render_svg(map: &Map) -> String {
         .unwrap();
     }
 
+    for (i, l) in map.lights.iter().enumerate() {
+        let p = px(Vec2::new(l.pos.0, l.pos.1));
+        let c = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        writeln!(
+            o,
+            r##"<circle class="light" cx="{:.1}" cy="{:.1}" r="4" fill="rgb({},{},{})" stroke="#000"><title>light {i}</title></circle>"##,
+            p.x, p.y, c(l.color.0), c(l.color.1), c(l.color.2)
+        )
+        .unwrap();
+    }
+
+    for p in &map.props {
+        let pts = p
+            .corners()
+            .map(|c| {
+                let q = px(c);
+                format!("{:.1},{:.1}", q.x, q.y)
+            })
+            .join(" ");
+        let (c, f) = (
+            px(p.pos),
+            px(p.pos + Vec2::from_angle(p.angle) * p.kind.half_extents().x * 1.5),
+        );
+        writeln!(
+            o,
+            r##"<polygon class="prop" points="{pts}" fill="#c8a2c8" stroke="#000"><title>{:?}</title></polygon><line x1="{:.1}" y1="{:.1}" x2="{:.1}" y2="{:.1}" stroke="#000" stroke-width="2"/>"##,
+            p.kind, c.x, c.y, f.x, f.y
+        )
+        .unwrap();
+    }
+
+    for t in &map.triggers {
+        let sec = &map.sectors[t.sector];
+        let outer = &sec.loops[0];
+        let c = px(outer.iter().map(|&w| map.walls[w].a).sum::<Vec2>() / outer.len() as f32);
+        let label = match t.action {
+            SwitchAction::Exit => "EXIT".to_string(),
+            SwitchAction::Channel(ch) => format!("ch{ch}"),
+        };
+        writeln!(
+            o,
+            r##"<path class="trigger" d="{}" fill="none" stroke="#ff00ff" stroke-dasharray="5 3" stroke-width="2"/><text x="{:.1}" y="{:.1}" fill="#ff00ff" text-anchor="middle">{label}</text>"##,
+            outline(map, &sec.loops, px),
+            c.x,
+            c.y + 12.0
+        )
+        .unwrap();
+    }
+
+    for a in &map.actors {
+        let p = px(a.pos);
+        if a.kind == ActorKind::Boss {
+            writeln!(
+                o,
+                r##"<circle class="boss" cx="{:.1}" cy="{:.1}" r="12" fill="none" stroke="#ff00ff" stroke-width="3"/>"##,
+                p.x, p.y
+            )
+            .unwrap();
+        }
+        if let Some(action) = a.on_death {
+            let what = match action {
+                SwitchAction::Exit => "EXIT".to_string(),
+                SwitchAction::Channel(c) => format!("ch{c}"),
+            };
+            writeln!(
+                o,
+                r##"<text x="{:.1}" y="{:.1}" fill="#ff00ff">on_death: {what}</text>"##,
+                p.x + 14.0,
+                p.y + 4.0
+            )
+            .unwrap();
+        }
+    }
+
+    if let Some(verts) = opts.vertices {
+        for (i, &(x, y)) in verts.iter().enumerate() {
+            let p = px(Vec2::new(x, y));
+            writeln!(
+                o,
+                r##"<text class="vid" x="{:.1}" y="{:.1}" fill="#8f8" font-size="8">{i}</text>"##,
+                p.x + 2.0,
+                p.y - 2.0
+            )
+            .unwrap();
+        }
+    }
+
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
     let a = map.player_start.angle_deg.to_radians();
     let (s, tip) = (px(start), px(start + Vec2::new(a.cos(), a.sin())));
@@ -301,6 +416,33 @@ mod tests {
         // The plain map has none of them.
         let plain = render_svg(&two_rooms(0.0, 3.0));
         assert!(!plain.contains("class=\"glass\"") && !plain.contains("class=\"secret\""));
+    }
+
+    #[test]
+    fn draws_engine_overlays() {
+        let map = rr_core::fixtures::engine_room(
+            "lights: [(pos: (3.0, 2.0, 3.5), color: (1.0, 1.0, 1.0), intensity: 500.0, range: 6.0)],
+            actors: [(kind: Boss, pos: (3.0, 2.0), on_death: Some(Exit))],",
+        );
+        let svg = render_svg(&map);
+        assert_eq!(svg.matches("class=\"sector hazard\"").count(), 1);
+        assert_eq!(svg.matches("class=\"prop\"").count(), 3);
+        assert_eq!(svg.matches("class=\"trigger\"").count(), 1);
+        assert!(
+            svg.contains(">ch7<")
+                && svg.contains("class=\"boss\"")
+                && svg.contains("on_death: EXIT")
+        );
+        assert_eq!(svg.matches("class=\"light\"").count(), 1);
+        assert_eq!(svg.matches("class=\"vid\"").count(), 0);
+        let verts = [(0.0, 0.0), (6.0, 0.0)];
+        let ids = render_svg_with(
+            &map,
+            &SvgOptions {
+                vertices: Some(&verts),
+            },
+        );
+        assert_eq!(ids.matches("class=\"vid\"").count(), 2);
     }
 
     #[test]
