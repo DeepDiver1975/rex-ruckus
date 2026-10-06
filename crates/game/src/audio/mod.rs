@@ -155,13 +155,18 @@ pub struct AudioFxPlugin {
 impl Plugin for AudioFxPlugin {
     fn build(&self, app: &mut App) {
         let has_bank = resource_exists::<SoundBank>;
+        // The settings plugin may have set the saved mix already; the command line owns `muted`.
+        if let Some(mut v) = app.world_mut().get_resource_mut::<AudioVolumes>() {
+            v.muted = self.options.muted;
+        } else {
+            app.insert_resource(AudioVolumes {
+                muted: self.options.muted,
+                ..default()
+            });
+        }
         app.init_resource::<GameCues>()
             .insert_resource(SfxRng(Rng::new(SFX_SEED)))
             .insert_resource(self.options)
-            .insert_resource(AudioVolumes {
-                muted: self.options.muted,
-                ..default()
-            })
             // Loaded before the first level spawn, whose audio systems are gated on the bank.
             .add_systems(
                 Startup,

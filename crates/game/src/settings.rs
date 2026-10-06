@@ -145,7 +145,15 @@ impl Plugin for SettingsPlugin {
         if let Some(w) = warning {
             warn!("{w}");
         }
-        app.insert_resource(LookSettings {
+        // The saved mix is the initial one, so startup spawns (level music) already use it.
+        app.insert_resource(AudioVolumes {
+            master: settings.master,
+            sfx: settings.sfx,
+            voice: settings.voice,
+            music: settings.music,
+            muted: false,
+        })
+        .insert_resource(LookSettings {
             sensitivity: settings.mouse_sensitivity,
             invert_y: settings.invert_y,
         })
@@ -349,5 +357,48 @@ mod tests {
         app.world_mut().resource_mut::<SaveSettings>().0 = true;
         app.update();
         assert!(!app.world().resource::<SaveSettings>().0);
+    }
+
+    #[test]
+    fn saved_volumes_are_the_initial_mix_and_mute_stays_with_the_audio_plugin() {
+        let dir = tempdir();
+        let p = dir.join("settings.ron");
+        Settings {
+            music: 0.15,
+            ..Default::default()
+        }
+        .save_to(&p)
+        .unwrap();
+        let mut app = App::new();
+        app.add_plugins(SettingsPlugin { path: Some(p) });
+        assert_eq!(app.world().resource::<AudioVolumes>().music, 0.15);
+        app.add_plugins(crate::audio::AudioFxPlugin {
+            options: crate::audio::AudioOptions {
+                muted: true,
+                music: true,
+            },
+            scripted: true,
+        });
+        let v = app.world().resource::<AudioVolumes>();
+        assert_eq!((v.music, v.muted), (0.15, true));
+    }
+
+    #[test]
+    fn failed_save_clears_the_flag_without_panicking() {
+        let dir = tempdir();
+        let blocker = dir.join("file");
+        std::fs::write(&blocker, "x").unwrap();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_plugins(SettingsPlugin {
+            path: Some(blocker.join("settings.ron")),
+        });
+        app.init_resource::<HudMessage>();
+        app.world_mut().resource_mut::<SaveSettings>().0 = true;
+        app.update();
+        assert!(!app.world().resource::<SaveSettings>().0);
+        assert_eq!(
+            app.world().resource::<HudMessage>().text,
+            "Could not save settings"
+        );
     }
 }
