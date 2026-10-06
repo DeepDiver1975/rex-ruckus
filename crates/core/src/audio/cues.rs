@@ -35,7 +35,7 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
         CombatEvent::ActorHurt { actor, .. } => living(actor, Cue::ActorPain),
         CombatEvent::ActorWoke(i) => living(i, Cue::ActorWake),
         CombatEvent::ActorFired { actor } => living(actor, Cue::ActorFire),
-        CombatEvent::ActorKilled(i) => living(i, Cue::ActorDeath),
+        CombatEvent::ActorKilled { actor, .. } => living(actor, Cue::ActorDeath),
         CombatEvent::PlayerHurt { .. } => out.push((Cue::PlayerHurt, None)),
         CombatEvent::PlayerKilled => out.push((Cue::PlayerDeath, None)),
         CombatEvent::CrackOpened(s) => {
@@ -124,6 +124,7 @@ mod tests {
     use crate::difficulty::Difficulty;
     use crate::fixtures::{defs, door_rooms};
     use crate::map::{ActorSpawn, ItemKind, Key};
+    use crate::projectile::Shooter;
     use crate::props::{PropKind, PropOutcome};
     use glam::Vec2;
     use std::collections::HashSet;
@@ -158,7 +159,10 @@ mod tests {
                 actor: 0,
                 amount: 5,
             },
-            CombatEvent::ActorKilled(0),
+            CombatEvent::ActorKilled {
+                actor: 0,
+                by: Shooter::Player,
+            },
             CombatEvent::ActorWoke(0),
             CombatEvent::ActorFired { actor: 0 },
             CombatEvent::PlayerHurt { amount: 5, from: p },
@@ -189,7 +193,7 @@ mod tests {
         for e in &evs {
             match e {
                 CombatEvent::ActorHurt { .. }
-                | CombatEvent::ActorKilled(_)
+                | CombatEvent::ActorKilled { .. }
                 | CombatEvent::ActorWoke(_)
                 | CombatEvent::ActorFired { .. }
                 | CombatEvent::PlayerHurt { .. }
@@ -244,7 +248,17 @@ mod tests {
         }
         // A barrel's death is silent: its blast sounds as `Explosion` when the fuse ends.
         assert_eq!(c.actors[1].kind, ActorKind::Barrel);
-        assert_eq!(run_combat(&CombatEvent::ActorKilled(1), &c, &map), vec![]);
+        assert_eq!(
+            run_combat(
+                &CombatEvent::ActorKilled {
+                    actor: 1,
+                    by: Shooter::Player
+                },
+                &c,
+                &map
+            ),
+            vec![]
+        );
     }
 
     #[test]
@@ -276,7 +290,10 @@ mod tests {
             },
             CombatEvent::ActorWoke(1),
             CombatEvent::ActorFired { actor: 1 },
-            CombatEvent::ActorKilled(1),
+            CombatEvent::ActorKilled {
+                actor: 1,
+                by: Shooter::Player,
+            },
         ] {
             assert!(run_combat(&ev, &c, &map).is_empty(), "{ev:?}");
         }
@@ -290,7 +307,10 @@ mod tests {
                 actor: 99,
                 amount: 1,
             },
-            CombatEvent::ActorKilled(99),
+            CombatEvent::ActorKilled {
+                actor: 99,
+                by: Shooter::Player,
+            },
             CombatEvent::ActorWoke(99),
             CombatEvent::ActorFired { actor: 99 },
             CombatEvent::LightBroken(99),
@@ -497,7 +517,10 @@ mod tests {
                     actor: 0,
                     amount: 1,
                 },
-                CombatEvent::ActorKilled(0),
+                CombatEvent::ActorKilled {
+                    actor: 0,
+                    by: Shooter::Player,
+                },
                 CombatEvent::ActorWoke(0),
                 CombatEvent::ActorFired { actor: 0 },
             ] {

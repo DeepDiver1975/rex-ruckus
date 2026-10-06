@@ -98,7 +98,7 @@ impl Combat {
         }
         for (i, &n) in dealt.iter().enumerate() {
             if n > 0 {
-                out.extend(self.damage_actor(defs, i, n));
+                out.extend(self.damage_actor(defs, i, n, Shooter::Player));
             }
         }
         let woken = self.make_noise(map, eye, sector, noise);

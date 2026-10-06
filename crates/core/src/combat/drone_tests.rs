@@ -196,7 +196,7 @@ fn killed_drone_falls_to_the_floor() {
     let (mut map, mut c, mut p, d) = dogfight();
     p.tick(&mut c, &mut map, &d);
     assert!(c.actors[0].body.pos.z > 2.0);
-    c.damage_actor(&d, 0, 1000);
+    c.damage_actor(&d, 0, 1000, Shooter::Player);
     let mut last = c.actors[0].body.pos.z;
     let mut fell = false;
     for _ in 0..180 {

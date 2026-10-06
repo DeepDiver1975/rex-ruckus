@@ -34,8 +34,8 @@ impl LevelStats {
     /// Folds one tick's combat events into the tallies and refreshes the secrets found.
     pub fn record(&mut self, combat: &Combat, events: &[CombatEvent]) {
         for ev in events {
-            if let CombatEvent::ActorKilled(i) = ev
-                && combat.actors.get(*i).is_some_and(|a| counts(a.kind))
+            if let CombatEvent::ActorKilled { actor, .. } = ev
+                && combat.actors.get(*actor).is_some_and(|a| counts(a.kind))
             {
                 self.kills += 1;
             }
@@ -76,6 +76,7 @@ mod tests {
     use crate::difficulty::Difficulty;
     use crate::fixtures::{combat_room, defs};
     use crate::map::{ActorKind, ActorSpawn};
+    use crate::projectile::Shooter;
     use glam::Vec2;
 
     fn spawn(kind: ActorKind, x: f32) -> ActorSpawn {
@@ -110,10 +111,17 @@ mod tests {
         s.record(
             &combat,
             &[
-                CombatEvent::ActorKilled(barrel),
-                CombatEvent::ActorKilled(grunt),
+                CombatEvent::ActorKilled {
+                    actor: barrel,
+                    by: Shooter::Actor(grunt),
+                },
+                CombatEvent::ActorKilled {
+                    actor: grunt,
+                    by: Shooter::Player,
+                },
             ],
         );
+        // Every death counts, whoever the killer; barrels never do.
         assert_eq!(s.kills, 1);
     }
 
