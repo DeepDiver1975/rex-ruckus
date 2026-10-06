@@ -10,13 +10,17 @@ Original code and content; CC0 assets credited in `CREDITS.md`.
 Run: `cargo run -p rr-game --release`
 Test: `cargo test --workspace`
 
-## Download (Windows)
+## Download
 
-Grab `rex-ruckus-<version>-windows-x64-setup.exe` from the
-[latest release](https://github.com/DeepDiver1975/rex-ruckus/releases/latest). It installs the
-game with a Start Menu entry and an uninstaller. Every pull request and push to `main` also
-builds the installer; it is attached to the run of the *Windows installer* workflow as an
-artifact.
+Grab the latest build from the [latest release](https://github.com/DeepDiver1975/rex-ruckus/releases/latest).
+
+- **Windows:** `rex-ruckus-<version>-windows-x64-setup.exe` installs the game with a Start Menu
+  entry and an uninstaller.
+- **Linux:** unpack `rex-ruckus-<version>-linux-x86_64.tar.gz` and run `./rex-ruckus.sh` from the
+  unpacked folder (it needs ALSA and a Wayland or X11 session).
+
+Every pull request and push to `main` also builds both; they are attached to the run of the
+*Release builds* workflow as artifacts.
 
 ## Building
 
@@ -31,8 +35,9 @@ then:
     cargo build -p rr-game --release
     iscc /DAppVersion=0.1.0 installer\rex-ruckus.iss
 
-The installer is written to `installer\Output\`. Pushing a `v*` tag publishes it as a GitHub
-release.
+The installer is written to `installer\Output\`. To build the Linux tarball locally, run
+`scripts/package-linux.sh 0.1.0` after the release build; it lands in `dist/`. Pushing a `v*` tag
+publishes the installer and the tarball as a GitHub release.
 
 ## License
 

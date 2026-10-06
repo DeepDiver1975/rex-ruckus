@@ -40,7 +40,8 @@ Run all of these before opening a PR; CI runs the same:
     cargo run -p rr-tools -- validate assets/levels/*.ron
 
 CI uses the latest stable Rust, so its clippy can flag lints an older local toolchain misses.
-`.github/workflows/windows.yml` builds the Windows installer on every PR.
+`.github/workflows/release.yml` builds the Windows installer and the Linux tarball
+(`scripts/package-linux.sh`) on every PR, and publishes both on `v*` tags.
 
 ## Gotchas
 
