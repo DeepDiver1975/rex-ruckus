@@ -34,6 +34,12 @@ enum Cmd {
         #[arg(short, long)]
         out: PathBuf,
     },
+    /// Print one `id<TAB>text` line per hero quip (input for scripts/gen-quips.sh).
+    QuipsList {
+        /// Quip table (default: assets/quips/quips.ron).
+        #[arg(default_value = "assets/quips/quips.ron")]
+        quips: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -73,6 +79,23 @@ fn main() -> ExitCode {
                 None => print!("{svg}"),
             }
             ExitCode::SUCCESS
+        }
+        Cmd::QuipsList { quips } => {
+            match std::fs::read_to_string(&quips)
+                .map_err(|e| e.to_string())
+                .and_then(|src| rr_core::audio::QuipTable::parse(&src).map_err(|e| e.to_string()))
+            {
+                Ok(table) => {
+                    for q in table.quips {
+                        println!("{}\t{}", q.id, q.text);
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{}: error: {e}", quips.display());
+                    ExitCode::FAILURE
+                }
+            }
         }
         Cmd::Synth { recipes, out } => match synth_file(&recipes, &out) {
             Ok(lines) => {

@@ -19,14 +19,14 @@
 
     (id: "big_overtime", on: BigKill, text: "Overtime it is."),
     (id: "big_hazard", on: BigKill, text: "That was a hazard."),
-    (id: "big_tall", on: BigKill, text: "They fall hard."),
+    (id: "big_fall", on: BigKill, text: "They fall hard."),
 
     (id: "low_scratch", on: LowHealth, text: "Just a scratch."),
     (id: "low_hurt", on: LowHealth, text: "Okay, that hurt."),
     (id: "low_medic", on: LowHealth, text: "Where's the medic?"),
     (id: "low_hell", on: LowHealth, text: "Hell of a shift."),
 
-    (id: "weapon_toy", on: NewWeapon, text: "Now we're talking."),
+    (id: "weapon_talking", on: NewWeapon, text: "Now we're talking."),
     (id: "weapon_upgrade", on: NewWeapon, text: "Upgrade approved."),
     (id: "weapon_tools", on: NewWeapon, text: "Right tool, right job."),
 
@@ -41,5 +41,5 @@
     (id: "done_invoice", on: LevelComplete, text: "Send the invoice."),
 
     (id: "respawn_again", on: Respawn, text: "Round two."),
-    (id: "respawn_shake", on: Respawn, text: "Walked that off."),
+    (id: "respawn_walked", on: Respawn, text: "Walked that off."),
 ]
