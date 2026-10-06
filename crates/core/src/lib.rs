@@ -16,6 +16,7 @@ pub mod interact;
 pub mod inventory;
 pub mod map;
 pub mod mechanics;
+pub mod models;
 pub mod movement;
 pub mod pickups;
 pub mod projectile;

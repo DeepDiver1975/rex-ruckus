@@ -1,5 +1,8 @@
 use clap::{Parser, Subcommand};
-use rr_tools::{audio::validate_audio, svg::render_svg, synth::synth_file, validate_file};
+use rr_tools::{
+    audio::validate_audio, models::validate_models, svg::render_svg, synth::synth_file,
+    validate_file,
+};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -17,7 +20,7 @@ struct Cli {
 enum Cmd {
     /// Check levels and the audio content; exits non-zero if anything has an error.
     ///
-    /// The audio checks (bank, quips, music, provenance) run once, on the assets root taken as
+    /// The audio and model checks (bank, quips, music, glTF scenes, provenance) run once, on the assets root taken as
     /// the parent of the first level's directory (`assets/levels/x.ron` -> `assets/`).
     Validate {
         #[arg(required = true)]
@@ -65,6 +68,9 @@ fn main() -> ExitCode {
                 .filter_map(|m| m.music)
                 .collect();
             let (report, ok) = validate_audio(&assets, &music);
+            print!("{report}");
+            all_ok &= ok;
+            let (report, ok) = validate_models(&assets);
             print!("{report}");
             all_ok &= ok;
             if all_ok {

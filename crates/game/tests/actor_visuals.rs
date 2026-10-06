@@ -1,7 +1,12 @@
 //! Actor visuals headless: assets without a GPU, the sim frozen so only the frame loop runs.
+//! There is no glTF loader, so enemy models never load by themselves; tests that need a ready
+//! model install a fake one ([`fake_ready`]).
 
+use bevy::gltf::Gltf;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use bevy::world_serialization::WorldAsset;
 use rr_core::actors::AiState;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
@@ -16,6 +21,7 @@ use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::fx::{ExplosionFx, ExplosionLight, FxPlugin, ScreenShake};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
+use rr_game::models::{ClipRole, EnemyGraph, ModelLibrary, ModelReady, ModelSlot, ModelsPlugin};
 use rr_game::player::PlayerCamera;
 use rr_game::player::PlayerSimPlugin;
 use std::time::Duration;
@@ -38,12 +44,18 @@ fn app_with(kinds: &[ActorKind]) -> App {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
         .init_asset::<StandardMaterial>()
+        // The asset types ModelsPlugin loads (no loaders: loads just fail).
+        .init_asset::<WorldAsset>()
+        .init_asset::<Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>()
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             50,
         )));
     insert_level(&mut app, map);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
+        ModelsPlugin,
         FlowPlugin,
         PlayerSimPlugin,
         MechanicsSimPlugin,
@@ -163,7 +175,7 @@ fn impact_sparks_expire_and_fx_drains_after_readers() {
     assert_eq!(count::<Spark>(&mut app), 0);
 }
 
-/// Every material under Grunt `idx`'s visual (skin, visor, gun, tip), sorted.
+/// Every material under Grunt `idx`'s visual (model meshes and tip glow), sorted.
 fn grunt_materials(app: &mut App, idx: usize) -> Vec<AssetId<StandardMaterial>> {
     let root = {
         let mut q = app.world_mut().query::<(Entity, &GruntVisual)>();
@@ -201,6 +213,7 @@ fn hurt(app: &mut App, actor: usize) {
 #[test]
 fn a_hit_flashes_the_grunt_briefly() {
     let mut app = app();
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
     app.update();
     assert_eq!(grunt_materials(&mut app, 0), grunt_materials(&mut app, 1));
     hurt(&mut app, 0);
@@ -220,16 +233,32 @@ fn a_hit_flashes_the_grunt_briefly() {
 #[test]
 fn pain_material_wins_over_the_hit_flash() {
     let mut app = app();
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    app.update();
+    let resting = grunt_materials(&mut app, 0);
+    // The Hit variant, seen on a grunt that is not in pain.
+    hurt(&mut app, 0);
+    app.update();
+    let hit = grunt_materials(&mut app, 0);
+    assert_ne!(hit, resting, "the flash differs from the resting look");
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(grunt_materials(&mut app, 0), resting);
     for a in &mut app.world_mut().resource_mut::<LevelCombat>().0.actors {
         a.state = AiState::Pain { t: 10.0 };
     }
+    app.update();
+    let pain = grunt_materials(&mut app, 1);
+    assert_ne!(pain, resting, "pain looks different from resting");
     hurt(&mut app, 0);
     app.update();
     assert_eq!(
         grunt_materials(&mut app, 0),
-        grunt_materials(&mut app, 1),
-        "a grunt in pain keeps its pain material"
+        pain,
+        "a grunt in pain keeps its pain material when hit"
     );
+    assert_ne!(grunt_materials(&mut app, 0), hit, "not the hit variant");
 }
 
 fn bomb(id: u32) -> Projectile {
@@ -387,4 +416,350 @@ fn dying_drone_visual_follows_core_z() {
         .query_filtered::<&Transform, With<DroneVisual>>();
     let y = q.single(app.world()).unwrap().translation.y;
     assert!((y - 0.4).abs() < 1e-5, "visual y {y} equals core z");
+}
+
+/// Length of every clip in the fake graph (s).
+const FAKE_CLIP_SECS: f32 = 1.2;
+
+fn actor_root(app: &mut App, idx: usize) -> Entity {
+    let mut q = app.world_mut().query::<(Entity, &ActorVisual)>();
+    q.iter(app.world()).find(|(_, g)| g.0 == idx).unwrap().0
+}
+
+/// The glTF model root ([`ModelSlot`]) directly under actor `idx`'s visual.
+fn model_root(app: &mut App, idx: usize) -> Entity {
+    let root = actor_root(app, idx);
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(Entity, &ChildOf), With<ModelSlot>>();
+    q.iter(app.world())
+        .find(|(_, c)| c.parent() == root)
+        .expect("every actor has a model")
+        .0
+}
+
+/// Stands in for a loaded glTF: gives `kind` an animation graph with `roles` and makes the
+/// model of every actor of that kind "ready", with a player bound to the graph, two meshes
+/// sharing one material (as glTF meshes do) and the `Wrist.R` and `Gun_end` nodes.
+fn fake_ready(
+    app: &mut App,
+    kind: ActorKind,
+    roles: &[ClipRole],
+) -> HashMap<ClipRole, AnimationNodeIndex> {
+    let clips: Vec<Handle<AnimationClip>> = roles
+        .iter()
+        .map(|_| {
+            let mut clip = AnimationClip::default();
+            clip.set_duration(FAKE_CLIP_SECS);
+            app.world_mut()
+                .resource_mut::<Assets<AnimationClip>>()
+                .add(clip)
+        })
+        .collect();
+    let (graph, nodes) = AnimationGraph::from_clips(clips.iter().cloned());
+    let graph = app
+        .world_mut()
+        .resource_mut::<Assets<AnimationGraph>>()
+        .add(graph);
+    let nodes: HashMap<ClipRole, AnimationNodeIndex> = roles.iter().copied().zip(nodes).collect();
+    app.world_mut()
+        .resource_mut::<ModelLibrary>()
+        .enemy_mut(kind)
+        .graph = Some(EnemyGraph {
+        graph: graph.clone(),
+        nodes: nodes.clone(),
+        clips: roles.iter().copied().zip(clips).collect(),
+    });
+    let material = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .add(StandardMaterial {
+            base_color: Color::srgb(0.4, 0.5, 0.3),
+            ..default()
+        });
+    let indices: Vec<usize> = {
+        let combat = app.world().resource::<LevelCombat>();
+        (0..combat.0.actors.len())
+            .filter(|&i| combat.0.actors[i].kind == kind)
+            .collect()
+    };
+    for i in indices {
+        let m = model_root(app, i);
+        let w = app.world_mut();
+        let player = w
+            .spawn((
+                AnimationPlayer::default(),
+                AnimationTransitions::new(),
+                AnimationGraphHandle(graph.clone()),
+                ChildOf(m),
+            ))
+            .id();
+        let meshes = (0..2)
+            .map(|_| w.spawn((MeshMaterial3d(material.clone()), ChildOf(m))).id())
+            .collect();
+        let mut named = HashMap::new();
+        for name in ["Wrist.R", "Gun_end"] {
+            let e = w
+                .spawn((Name::new(name), Transform::default(), ChildOf(player)))
+                .id();
+            named.insert(name.to_owned(), e);
+        }
+        w.entity_mut(m).insert(ModelReady {
+            player: Some(player),
+            meshes,
+            nodes: named,
+        });
+    }
+    nodes
+}
+
+fn player_of(app: &mut App, idx: usize) -> Entity {
+    let m = model_root(app, idx);
+    app.world().get::<ModelReady>(m).unwrap().player.unwrap()
+}
+
+/// How the main clip plays.
+#[derive(Debug, Clone, Copy)]
+struct Playback {
+    speed: f32,
+    looped: bool,
+    paused: bool,
+    seek: f32,
+}
+
+/// The main clip of actor `idx` and its playback.
+fn playing(app: &mut App, idx: usize) -> (Option<AnimationNodeIndex>, Option<Playback>) {
+    let p = player_of(app, idx);
+    let main = app
+        .world()
+        .get::<AnimationTransitions>(p)
+        .unwrap()
+        .get_main_animation();
+    let active = main.and_then(|n| {
+        let a = app.world().get::<AnimationPlayer>(p)?.animation(n)?;
+        Some(Playback {
+            speed: a.speed(),
+            looped: a.repeat_mode() == bevy::animation::RepeatAnimation::Forever,
+            paused: a.is_paused(),
+            seek: a.seek_time(),
+        })
+    });
+    (main, active)
+}
+
+fn set_actor(app: &mut App, idx: usize, state: AiState, speed: f32) {
+    let mut c = app.world_mut().resource_mut::<LevelCombat>();
+    let a = &mut c.0.actors[idx];
+    a.state = state;
+    a.body.vel = Vec3::new(speed, 0.0, 0.0);
+}
+
+#[test]
+fn ai_state_drives_the_clip_of_a_ready_model() {
+    use ClipRole::*;
+    let mut app = app_with(&[ActorKind::Grunt]);
+    let nodes = fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    app.update();
+    let (main, active) = playing(&mut app, 0);
+    assert_eq!(main, Some(nodes[&Idle]), "asleep: idle");
+    assert_eq!(active.unwrap().speed, 0.3, "drowsy idle");
+
+    set_actor(&mut app, 0, AiState::Chase, 3.5);
+    app.update();
+    assert_eq!(playing(&mut app, 0).0, Some(nodes[&Run]), "full speed: run");
+    set_actor(&mut app, 0, AiState::Chase, 0.5);
+    app.update();
+    assert_eq!(playing(&mut app, 0).0, Some(nodes[&Walk]), "slow: walk");
+
+    set_actor(&mut app, 0, AiState::Attack { t: 0.3, left: 2 }, 0.0);
+    app.update();
+    assert_eq!(playing(&mut app, 0).0, Some(nodes[&Attack]));
+    // Each shot restarts the attack clip.
+    let p = player_of(&mut app, 0);
+    app.world_mut()
+        .get_mut::<AnimationPlayer>(p)
+        .unwrap()
+        .animation_mut(nodes[&Attack])
+        .unwrap()
+        .seek_to(0.6);
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .combat
+        .push(CombatEvent::ActorFired { actor: 0 });
+    app.update();
+    assert_eq!(
+        playing(&mut app, 0).1.unwrap().seek,
+        0.0,
+        "restarted by the shot"
+    );
+
+    set_actor(&mut app, 0, AiState::Pain { t: 0.3 }, 0.0);
+    app.update();
+    let (main, active) = playing(&mut app, 0);
+    assert_eq!(main, Some(nodes[&Pain]));
+    assert!(!active.unwrap().looped, "pain plays once");
+
+    set_actor(&mut app, 0, AiState::Dying { t: 0.8 }, 0.0);
+    app.update();
+    let (main, active) = playing(&mut app, 0);
+    assert_eq!(main, Some(nodes[&Death]));
+    let a = active.unwrap();
+    // Grunt death_time 0.8 s: a 1.2 s clip plays at 1.5x, once.
+    assert!((a.speed - 1.5).abs() < 1e-5, "{a:?}");
+    assert!(!a.looped && !a.paused);
+
+    set_actor(&mut app, 0, AiState::Dead, 0.0);
+    app.update();
+    let (main, active) = playing(&mut app, 0);
+    assert_eq!(main, Some(nodes[&Death]), "dead: the death clip stays");
+    assert!(
+        !active.unwrap().paused,
+        "a clip that just played out is not jumped"
+    );
+}
+
+#[test]
+fn a_model_without_pain_keeps_its_clip() {
+    use ClipRole::*;
+    let mut app = app_with(&[ActorKind::Enforcer]);
+    let nodes = fake_ready(
+        &mut app,
+        ActorKind::Enforcer,
+        &[Idle, Walk, Run, Attack, Death],
+    );
+    set_actor(&mut app, 0, AiState::Chase, 0.5);
+    app.update();
+    assert_eq!(playing(&mut app, 0).0, Some(nodes[&Walk]));
+    set_actor(&mut app, 0, AiState::Pain { t: 0.3 }, 0.0);
+    app.update();
+    assert_eq!(playing(&mut app, 0).0, Some(nodes[&Walk]), "no pain clip");
+}
+
+#[test]
+fn a_corpse_seen_late_holds_the_last_death_frame() {
+    let mut app = app_with(&[ActorKind::Grunt]);
+    set_actor(&mut app, 0, AiState::Dead, 0.0);
+    let nodes = fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    app.update();
+    let (main, active) = playing(&mut app, 0);
+    assert_eq!(main, Some(nodes[&ClipRole::Death]));
+    let a = active.unwrap();
+    assert!(!a.looped && a.paused);
+    assert_eq!(a.seek, FAKE_CLIP_SECS, "at the end");
+}
+
+#[test]
+fn the_grunt_holds_its_pistol_on_the_wrist() {
+    let mut app = app_with(&[ActorKind::Grunt]);
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    app.update();
+    let m = model_root(&mut app, 0);
+    let wrist = app.world().get::<ModelReady>(m).unwrap().nodes["Wrist.R"];
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&ChildOf, With<ModelSlot>>();
+    let on_wrist = q.iter(app.world()).filter(|c| c.parent() == wrist).count();
+    assert_eq!(on_wrist, 1, "one pistol, parented to the bone");
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&ChildOf, With<ModelSlot>>();
+    let on_wrist = q.iter(app.world()).filter(|c| c.parent() == wrist).count();
+    assert_eq!(on_wrist, 1, "attached only once");
+}
+
+/// A source material that has not loaded yet must not be recorded as tinted: the look is
+/// applied on a later frame, once the material is there.
+#[test]
+fn enemy_look_waits_for_its_material() {
+    let mut app = app_with(&[ActorKind::Grunt]);
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    let handle = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .reserve_handle();
+    let m = model_root(&mut app, 0);
+    let meshes = app.world().get::<ModelReady>(m).unwrap().meshes.clone();
+    for &e in &meshes {
+        app.world_mut()
+            .entity_mut(e)
+            .insert(MeshMaterial3d(handle.clone()));
+    }
+    let current = |app: &App| {
+        app.world()
+            .get::<MeshMaterial3d<StandardMaterial>>(meshes[0])
+            .unwrap()
+            .0
+            .id()
+    };
+    app.update();
+    assert_eq!(current(&app), handle.id(), "not swapped before it loads");
+    let _ = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .insert(handle.id(), StandardMaterial::default());
+    app.update();
+    assert_ne!(
+        current(&app),
+        handle.id(),
+        "looked once the material is there"
+    );
+}
+
+/// The bone sits in a x100 armature: the pistol must be scale-corrected in the very frame it is
+/// attached, not drawn 100x too big for one frame.
+#[test]
+fn the_pistol_is_scale_corrected_the_frame_it_attaches() {
+    let mut app = app_with(&[ActorKind::Grunt]);
+    fake_ready(&mut app, ActorKind::Grunt, &ClipRole::ALL);
+    let m = model_root(&mut app, 0);
+    let wrist = app.world().get::<ModelReady>(m).unwrap().nodes["Wrist.R"];
+    app.world_mut()
+        .entity_mut(wrist)
+        .insert(GlobalTransform::from(Transform::from_scale(Vec3::splat(
+            100.0,
+        ))));
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(&ChildOf, &Transform), With<ModelSlot>>();
+    let (_, t) = q
+        .iter(app.world())
+        .find(|(c, _)| c.parent() == wrist)
+        .expect("pistol attached");
+    assert!(t.scale.max_element() < 0.01, "{:?}", t.scale);
+}
+
+/// The Enforcer's tip glow sits on its `Gun_end` node and lights only after a shot.
+#[test]
+fn a_node_tip_glows_after_a_shot() {
+    let mut app = app_with(&[ActorKind::Enforcer]);
+    fake_ready(&mut app, ActorKind::Enforcer, &ClipRole::ALL);
+    app.update();
+    let m = model_root(&mut app, 0);
+    let gun_end = app.world().get::<ModelReady>(m).unwrap().nodes["Gun_end"];
+    let tip = |app: &mut App| -> Visibility {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(&ChildOf, &Visibility), With<Mesh3d>>();
+        let v: Vec<_> = q
+            .iter(app.world())
+            .filter(|(c, _)| c.parent() == gun_end)
+            .map(|(_, v)| *v)
+            .collect();
+        assert_eq!(v.len(), 1, "one tip sphere on Gun_end");
+        v[0]
+    };
+    app.update();
+    assert_eq!(tip(&mut app), Visibility::Hidden);
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .combat
+        .push(CombatEvent::ActorFired { actor: 0 });
+    app.update();
+    assert_eq!(tip(&mut app), Visibility::Inherited, "glows after the shot");
+    for _ in 0..4 {
+        app.update();
+    }
+    assert_eq!(tip(&mut app), Visibility::Hidden, "dark again");
 }

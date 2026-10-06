@@ -13,6 +13,7 @@ pub mod hud;
 pub mod inventory;
 pub mod level;
 pub mod mechanics;
+pub mod models;
 pub mod paths;
 pub mod player;
 pub mod props;
@@ -35,7 +36,8 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         mechanics::insert_level(app, load_map(&self.level));
         combat::insert_defs(app, combat::load_defs());
-        app.add_plugins((
+        // Models load before the plugins whose spawns use them.
+        app.add_plugins(models::ModelsPlugin).add_plugins((
             flow::FlowPlugin,
             LevelRenderPlugin,
             player::PlayerSimPlugin,

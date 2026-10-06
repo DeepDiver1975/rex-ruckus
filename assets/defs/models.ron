@@ -1,0 +1,111 @@
+// glTF model definitions (CC0 assets, see CREDITS.md). Read by rr_core::models.
+//
+// Coordinate conventions
+//   * `scene` paths are relative to the assets root.
+//   * Placement is in Bevy model space (y-up, -z forward, metres), applied to the scene
+//     root in this order: scale, then yaw/pitch/roll (degrees), then offset.
+//   * `scale` maps the glTF's native size to world metres: target size / measured size.
+//   * Clip names are the exact glTF animation names; omitted clips mean "no such clip".
+//   * `tip` is where the shot glow sits: a named node in the scene or an offset from the root.
+//   * Values were tuned by eye from rendered frames (`--demo assets/demo/m4c_showcase.ron`).
+//   * Enemy `tip` offsets and `enemies.ron` `muzzle` describe the same point; keep them in step.
+(
+    enemies: [
+        (
+            kind: Grunt,
+            scene: "models/enemies/grunt.glb",
+            place: (scale: 0.936, yaw_deg: 180.0), // 1.75 / 1.87; glTF faces +Z
+            clips: (
+                idle: Some("CharacterArmature|Idle_Gun"),
+                walk: Some("CharacterArmature|Walk"),
+                run: Some("CharacterArmature|Run_Shoot"),
+                attack: Some("CharacterArmature|Idle_Gun_Shoot"),
+                pain: Some("CharacterArmature|HitRecieve"),
+                death: Some("CharacterArmature|Death"),
+            ),
+            // The pistol muzzle in the Idle_Gun_Shoot pose (right hand, arm forward).
+            tip: Offset((0.15, 1.42, -0.69)),
+            // Attach placement: scale and offset in world units, rotation relative to the bone.
+            // Wrist.R's +y runs along the hand and its -x is the back of the hand, so a 90° roll
+            // lays the barrel (+x) along the fingers with the sights up; the offset sits the
+            // grip in the palm.
+            attach: Some((bone: "Wrist.R", scene: "models/weapons/pistol.glb", place: (scale: 0.12, roll_deg: 90.0, offset: (-0.02, 0.07, 0.0)))),
+        ),
+        (
+            kind: Enforcer,
+            scene: "models/enemies/enforcer.glb",
+            place: (scale: 1.457, yaw_deg: 180.0), // 1.85 / 1.27
+            clips: (
+                idle: Some("CharacterArmature|Idle"),
+                walk: Some("CharacterArmature|Walk"),
+                run: Some("CharacterArmature|Run"),
+                attack: Some("CharacterArmature|Shoot"),
+                death: Some("CharacterArmature|Death"),
+            ),
+            tip: Node("Gun_end"),
+        ),
+        (
+            kind: Slasher,
+            scene: "models/enemies/slasher.glb",
+            place: (scale: 0.493, yaw_deg: 180.0), // 1.5 / 3.04
+            clips: (
+                idle: Some("AlienArmature|Alien_Idle"),
+                walk: Some("AlienArmature|Alien_Walk"),
+                run: Some("AlienArmature|Alien_Run"),
+                attack: Some("AlienArmature|Alien_Punch"),
+                death: Some("AlienArmature|Alien_Death"),
+            ),
+            tip: Offset((0.1, 0.55, -0.8)), // right fist at the peak of Alien_Punch (no glow: melee)
+        ),
+        (
+            kind: Drone,
+            scene: "models/enemies/drone.glb",
+            place: (scale: 0.652, yaw_deg: 180.0), // 0.6 / 0.92
+            clips: (
+                idle: Some("CharacterArmature|Idle"),
+                walk: Some("CharacterArmature|Walk"),
+                run: Some("CharacterArmature|Run"),
+                attack: Some("CharacterArmature|Shoot"),
+                death: Some("CharacterArmature|Dead"),
+            ),
+            tip: Node("Gun_end"),
+        ),
+        (
+            kind: Barrel,
+            scene: "models/enemies/barrel.glb",
+            place: (scale: 0.98), // 1.0 / 1.02
+            tip: Offset((0.0, 0.5, 0.0)),
+        ),
+    ],
+    weapons: [
+        // Viewmodel guns, relative to the view rig (x right, y up, -z forward): about 0.2-0.45 m
+        // long. The pistol, shotgun and chaingun scenes lie along +x, so a 90° yaw points them
+        // forward; the launcher lies along z and is centred, so it is pushed forward. `muzzle`
+        // is the barrel tip (the flash).
+        (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.12, yaw_deg: 90.0, offset: (0.01, -0.015, 0.0)), muzzle: Some((0.01, 0.05, -0.18))), // 0.22 / 1.82
+        (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.27))), // 0.3 / 3.69
+        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.058, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.21))), // 0.3 / 5.17
+        (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.14, offset: (0.0, 0.02, -0.13)), muzzle: Some((0.0, 0.02, -0.35))), // 0.44 / 3.14
+    ],
+    items: [
+        // Pickups: about 0.35-0.5 m on the longest side.
+        (kind: PistolAmmo, scene: "models/pickups/pistol_ammo.glb", place: (scale: 0.44)), // 0.4 / 0.90
+        (kind: ShotgunShells, scene: "models/pickups/shotgun_shells.glb", place: (scale: 1.4, offset: (0.08, 0.03, -0.13))), // 0.4 / 0.28, centred
+        (kind: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.17)), // 0.63 / 3.69
+        (kind: HealthSmall, scene: "models/pickups/health_small.glb", place: (scale: 1.67)), // 0.4 / 0.24
+        (kind: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.125)), // 0.65 / 5.17
+        (kind: RocketLauncher, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.2)), // 0.63 / 3.14
+        (kind: Rockets, scene: "models/pickups/rockets.glb", place: (scale: 1.1)), // 0.44 / 0.40
+        (kind: PipeBombs, scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.6)), // 0.34 / 0.21
+        (kind: Armour, scene: "models/pickups/armour.glb", place: (scale: 0.29)), // 0.45 / 1.54
+        (kind: Medkit, scene: "models/pickups/medkit.glb", place: (scale: 0.24)), // 0.45 / 1.88
+        (kind: Atom, scene: "models/pickups/atom.glb", place: (scale: 0.45)), // 0.4 / 0.89
+        (kind: Jetpack, scene: "models/pickups/jetpack.glb", place: (scale: 0.08)), // 0.5 / 6.35
+        (kind: NightVision, scene: "models/pickups/night_vision.glb", place: (scale: 0.76, offset: (18.61, -0.16, -1.14))), // 0.35 / 0.46; mesh sits off-origin, centred
+        (kind: Key, scene: "models/pickups/keycard.glb", place: (scale: 0.34)), // 0.35 / 1.04
+    ],
+    extras: (
+        held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 0.5, offset: (0.0, 0.015, 0.0))), // 0.11 / 0.21
+        detonator: (scene: "models/weapons/detonator.glb", place: (scale: 0.05, offset: (-0.09, -0.07, -0.02))), // 0.15 / 2.10
+    ),
+)

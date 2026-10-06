@@ -1,10 +1,10 @@
-//! First-person weapon models (boot, pistol, shotgun, chaingun, rocket launcher, pipe bomb), plus a kick leg, built from Bevy
-//! primitives. Rendering only; nothing here touches the simulation.
+//! First-person weapon models: glTF scenes (pistol, shotgun, chaingun, rocket launcher, held
+//! bomb, detonator) plus the code-built boot, pipe-bomb fist and kick leg. Rendering only; nothing here touches the simulation.
 //!
 //! Layout. Spawned once (when the persistent [`PlayerCamera`] appears) as
 //! `PlayerCamera -> ViewRig -> { ViewModel(weapon) x6, KickLeg }`. None of it is a
 //! `LevelEntity`, so it survives restarts exactly like the camera. The rig carries all the
-//! motion (bob, sway, recoil, lowering, reload tilt); every part is `NotShadowCaster`.
+//! motion (bob, sway, recoil, lowering, reload tilt); every part and model is `NotShadowCaster`.
 //!
 //! Which model is visible: `PlayerArsenal.current`, except during a weapon switch, where the
 //! old model is shown while it sinks (first half) and the new one (`to`) while it rises
@@ -12,23 +12,29 @@
 //! the swap and the swap itself is hidden.
 //!
 //! Placement. The rig sits at camera-local [`RIG_BASE`], slightly closer in than the nominal
-//! `(0.12, -0.13, -0.28)` so that every part centre stays within [`MAX_EYE_DIST`] (0.3 m) of
-//! the eye. Models are small; the barrel tips may reach further. Whether that clips walls is a
-//! playtest question (fallback: a second camera with `RenderLayers`).
+//! `(0.12, -0.13, -0.28)` so that every code-built part centre and every model root (the
+//! `place.offset` of each weapon and extra in `models.ron`) stays within [`MAX_EYE_DIST`]
+//! (0.3 m) of the eye. The guns are longer than they are wide, so their barrel tips (the muzzle
+//! flashes) reach out to [`MAX_TIP_DIST`]. Whether that clips walls is a playtest question
+//! (fallback: a second camera with `RenderLayers`).
 
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal};
 use crate::flow::PlayState;
+use crate::models::{ModelLibrary, ModelSlot, spawn_model_with};
 use crate::player::{Look, Player, PlayerBody, PlayerCamera, PlayerTuning};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::defs::{AmmoKind, WeaponId};
+use rr_core::models::ModelDefs;
 use rr_core::weapons::{WeaponEvent, WeaponPhase};
 use std::f32::consts::{PI, TAU};
 
 /// Rig origin in camera space (x right, y up, -z forward).
 pub const RIG_BASE: Vec3 = Vec3::new(0.08, -0.09, -0.15);
-/// Part centres stay within this distance of the eye (at rest).
+/// Part centres and model roots stay within this distance of the eye (at rest).
 pub const MAX_EYE_DIST: f32 = 0.3;
+/// Muzzles (barrel tips) stay within this distance of the eye (at rest).
+pub const MAX_TIP_DIST: f32 = 0.55;
 /// Seconds the muzzle flash stays visible after a shot.
 pub const FLASH_SECS: f32 = 0.05;
 /// Duration of the kick-leg thrust and how far it reaches forward (metres).
@@ -191,177 +197,59 @@ enum Shape {
     Barrel(f32, f32),
 }
 
-#[derive(Clone, Copy)]
-enum Mat {
-    Metal,
-    Grip,
-    Boot,
-    /// Dark emissive-free red for the detonator button.
-    Red,
-}
-
-/// One model part: shape, centre relative to the rig, material.
+/// One code-built part (boot, kick leg, bomb fist): shape and centre relative to the rig.
 pub struct Part {
     shape: Shape,
     pub at: Vec3,
-    mat: Mat,
 }
 
-const fn part(shape: Shape, x: f32, y: f32, z: f32, mat: Mat) -> Part {
+const fn part(shape: Shape, x: f32, y: f32, z: f32) -> Part {
     Part {
         shape,
         at: Vec3::new(x, y, z),
-        mat,
     }
 }
 
-const PISTOL: &[Part] = &[
-    part(Shape::Cuboid(0.035, 0.04, 0.16), 0.0, 0.0, 0.0, Mat::Metal),
-    part(
-        Shape::Cuboid(0.032, 0.07, 0.04),
-        0.0,
-        -0.05,
-        0.04,
-        Mat::Grip,
-    ),
-];
-const SHOTGUN: &[Part] = &[
-    part(Shape::Barrel(0.015, 0.2), 0.0, 0.01, -0.03, Mat::Metal),
-    part(
-        Shape::Cuboid(0.04, 0.03, 0.07),
-        0.0,
-        -0.02,
-        -0.05,
-        Mat::Grip,
-    ),
-    part(Shape::Cuboid(0.04, 0.05, 0.12), 0.0, -0.03, 0.07, Mat::Grip),
-];
-const CHAINGUN: &[Part] = &[
-    // Receiver, hub behind the cluster and a grip.
-    part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, 0.0, 0.05, Mat::Metal),
-    part(Shape::Barrel(0.012, 0.03), 0.0, 0.01, -0.045, Mat::Grip),
-    part(
-        Shape::Cuboid(0.035, 0.06, 0.04),
-        0.0,
-        -0.05,
-        0.05,
-        Mat::Grip,
-    ),
-];
-/// Six barrels around the axis, relative to [`CLUSTER_AT`].
-const CLUSTER: &[Part] = &[
-    part(Shape::Barrel(0.007, 0.18), 0.0, 0.018, 0.0, Mat::Metal),
-    part(Shape::Barrel(0.007, 0.18), 0.0156, 0.009, 0.0, Mat::Metal),
-    part(Shape::Barrel(0.007, 0.18), 0.0156, -0.009, 0.0, Mat::Metal),
-    part(Shape::Barrel(0.007, 0.18), 0.0, -0.018, 0.0, Mat::Metal),
-    part(Shape::Barrel(0.007, 0.18), -0.0156, -0.009, 0.0, Mat::Metal),
-    part(Shape::Barrel(0.007, 0.18), -0.0156, 0.009, 0.0, Mat::Metal),
-];
-const ROCKETS: &[Part] = &[
-    // Tube, rear flare, forward sight, front sight post and a grip underneath.
-    part(Shape::Barrel(0.03, 0.26), 0.0, 0.0, -0.02, Mat::Metal),
-    part(Shape::Barrel(0.04, 0.03), 0.0, 0.0, 0.1, Mat::Metal),
-    part(
-        Shape::Cuboid(0.01, 0.03, 0.02),
-        0.0,
-        0.045,
-        -0.06,
-        Mat::Metal,
-    ),
-    part(
-        Shape::Cuboid(0.006, 0.02, 0.006),
-        0.0,
-        0.04,
-        -0.13,
-        Mat::Metal,
-    ),
-    part(
-        Shape::Cuboid(0.035, 0.06, 0.04),
-        0.0,
-        -0.05,
-        0.03,
-        Mat::Grip,
-    ),
-];
 const PIPE_HAND: &[Part] = &[
     // Fist and wrist.
-    part(Shape::Cuboid(0.06, 0.05, 0.06), 0.0, -0.03, 0.0, Mat::Boot),
-    part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, -0.05, 0.07, Mat::Boot),
-];
-const HELD_BOMB: &[Part] = &[
-    part(Shape::Barrel(0.022, 0.11), 0.0, 0.005, -0.04, Mat::Metal),
-    part(Shape::Barrel(0.008, 0.02), 0.0, 0.005, -0.1, Mat::Grip),
-];
-const DETONATOR: &[Part] = &[
-    part(
-        Shape::Cuboid(0.04, 0.03, 0.05),
-        -0.07,
-        -0.05,
-        0.0,
-        Mat::Metal,
-    ),
-    part(
-        Shape::Cuboid(0.015, 0.012, 0.015),
-        -0.07,
-        -0.032,
-        0.0,
-        Mat::Red,
-    ),
+    part(Shape::Cuboid(0.06, 0.05, 0.06), 0.0, -0.03, 0.0),
+    part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, -0.05, 0.07),
 ];
 const BOOT: &[Part] = &[
-    part(
-        Shape::Cuboid(0.07, 0.05, 0.15),
-        0.0,
-        -0.03,
-        -0.03,
-        Mat::Boot,
-    ),
-    part(Shape::Cuboid(0.06, 0.09, 0.06), 0.0, 0.03, 0.03, Mat::Boot),
+    part(Shape::Cuboid(0.07, 0.05, 0.15), 0.0, -0.03, -0.03),
+    part(Shape::Cuboid(0.06, 0.09, 0.06), 0.0, 0.03, 0.03),
 ];
 const LEG: &[Part] = &[
-    part(Shape::Cuboid(0.07, 0.05, 0.12), 0.0, -0.07, 0.0, Mat::Boot),
-    part(Shape::Barrel(0.035, 0.22), 0.0, -0.05, 0.14, Mat::Boot),
+    part(Shape::Cuboid(0.07, 0.05, 0.12), 0.0, -0.07, 0.0),
+    part(Shape::Barrel(0.035, 0.22), 0.0, -0.05, 0.14),
 ];
 
-/// Muzzle flash position relative to the rig, per firearm.
-const fn muzzle(w: WeaponId) -> Option<Vec3> {
-    match w {
-        WeaponId::Pistol => Some(Vec3::new(0.0, 0.0, -0.09)),
-        WeaponId::Shotgun | WeaponId::Chaingun | WeaponId::Rockets => {
-            Some(Vec3::new(0.0, 0.01, -0.12))
-        }
-        WeaponId::PipeBombs => None,
-        WeaponId::Boot => None,
-    }
+/// Muzzle flash position relative to the rig, from the model definitions; `None` for weapons
+/// without a flash (boot, pipe bombs).
+pub fn muzzle(defs: &ModelDefs, w: WeaponId) -> Option<Vec3> {
+    defs.weapons
+        .iter()
+        .find(|m| m.id == w)
+        .and_then(|m| m.muzzle)
+        .map(Vec3::from)
 }
 
-/// The parts of a weapon's model (the kick leg is separate: [`leg_parts`]).
+/// The code-built parts of a weapon's model: only the boot and the pipe-bomb fist are code-built
+/// (empty for every glTF weapon; the kick leg is separate: [`leg_parts`]).
 pub fn weapon_parts(w: WeaponId) -> &'static [Part] {
     match w {
         WeaponId::Boot => BOOT,
-        WeaponId::Pistol => PISTOL,
-        WeaponId::Shotgun => SHOTGUN,
-        WeaponId::Chaingun => CHAINGUN,
-        WeaponId::Rockets => ROCKETS,
         WeaponId::PipeBombs => PIPE_HAND,
+        _ => &[],
     }
-}
-
-/// Extra model parts that move on their own, as `(centre offset of the node, parts)`: the
-/// spinning cluster, the held bomb and the detonator.
-pub fn extra_parts() -> [(Vec3, &'static [Part]); 3] {
-    [
-        (CLUSTER_AT, CLUSTER),
-        (Vec3::ZERO, HELD_BOMB),
-        (Vec3::ZERO, DETONATOR),
-    ]
 }
 
 pub fn leg_parts() -> &'static [Part] {
     LEG
 }
 
-/// Render plugin: needs `Assets<Mesh>`, `Assets<StandardMaterial>` and the sim plugins.
+/// Render plugin: needs `Assets<Mesh>`, `Assets<StandardMaterial>`, the [`ModelLibrary`]
+/// (`ModelsPlugin`) and the sim plugins.
 pub struct ViewModelPlugin;
 
 impl Plugin for ViewModelPlugin {
@@ -378,39 +266,20 @@ impl Plugin for ViewModelPlugin {
     }
 }
 
-struct Looks {
-    metal: Handle<StandardMaterial>,
-    grip: Handle<StandardMaterial>,
-    boot: Handle<StandardMaterial>,
-    red: Handle<StandardMaterial>,
-}
-
-fn matte(c: Color) -> StandardMaterial {
-    StandardMaterial {
-        base_color: c,
-        perceptual_roughness: 0.8,
-        ..default()
-    }
-}
-
 /// Builds the viewmodel under each newly added [`PlayerCamera`].
 fn spawn_viewmodel(
     mut commands: Commands,
     cameras: Query<Entity, Added<PlayerCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    lib: Res<ModelLibrary>,
 ) {
     for cam in &cameras {
-        let looks = Looks {
-            metal: materials.add(matte(Color::srgb(0.22, 0.23, 0.26))),
-            grip: materials.add(matte(Color::srgb(0.32, 0.2, 0.1))),
-            boot: materials.add(matte(Color::srgb(0.25, 0.17, 0.1))),
-            red: materials.add(StandardMaterial {
-                base_color: Color::srgb(0.8, 0.1, 0.08),
-                emissive: Color::srgb(0.8, 0.1, 0.08).to_linear() * 2.0,
-                ..default()
-            }),
-        };
+        let boot = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.25, 0.17, 0.1),
+            perceptual_roughness: 0.8,
+            ..default()
+        });
         let flash_mesh = meshes.add(Sphere::new(0.02));
         let flash_mat = materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.8, 0.3),
@@ -431,12 +300,6 @@ fn spawn_viewmodel(
                     Shape::Cuboid(x, y, z) => meshes.add(Cuboid::new(x, y, z)),
                     Shape::Barrel(r, len) => meshes.add(Cylinder::new(r, len)),
                 };
-                let mat = match p.mat {
-                    Mat::Metal => looks.metal.clone(),
-                    Mat::Grip => looks.grip.clone(),
-                    Mat::Boot => looks.boot.clone(),
-                    Mat::Red => looks.red.clone(),
-                };
                 let rot = match p.shape {
                     // Cylinders stand along Y; lay them along the view axis.
                     Shape::Barrel(..) => Quat::from_rotation_x(PI / 2.0),
@@ -444,7 +307,7 @@ fn spawn_viewmodel(
                 };
                 commands.spawn((
                     Mesh3d(mesh),
-                    MeshMaterial3d(mat),
+                    MeshMaterial3d(boot.clone()),
                     Transform::from_translation(p.at).with_rotation(rot),
                     NotShadowCaster,
                     ChildOf(parent),
@@ -461,6 +324,19 @@ fn spawn_viewmodel(
                 ))
                 .id();
             spawn_parts(&mut commands, root, weapon_parts(w));
+            let model =
+                |commands: &mut Commands, parent: Entity, scene: &crate::models::ModelScene| {
+                    spawn_model_with(
+                        commands,
+                        parent,
+                        &scene.scene,
+                        &scene.place,
+                        ModelSlot {
+                            no_shadows: true,
+                            ..default()
+                        },
+                    );
+                };
             let node = |commands: &mut Commands, marker: Entity, at: Vec3| {
                 commands.entity(marker).insert((
                     Transform::from_translation(at),
@@ -468,24 +344,30 @@ fn spawn_viewmodel(
                     ChildOf(root),
                 ));
             };
-            let [(cluster_at, cluster), (_, bomb), (_, detonator)] = extra_parts();
             match w {
-                WeaponId::Chaingun => {
-                    let n = commands.spawn(BarrelCluster).id();
-                    node(&mut commands, n, cluster_at);
-                    spawn_parts(&mut commands, n, cluster);
-                }
                 WeaponId::PipeBombs => {
+                    // The fist is code-built; the bomb and the detonator are models.
                     let b = commands.spawn(HeldBomb).id();
                     node(&mut commands, b, Vec3::ZERO);
-                    spawn_parts(&mut commands, b, bomb);
+                    model(&mut commands, b, &lib.held_bomb);
                     let d = commands.spawn(Detonator).id();
                     node(&mut commands, d, Vec3::ZERO);
-                    spawn_parts(&mut commands, d, detonator);
+                    model(&mut commands, d, &lib.detonator);
                 }
-                _ => {}
+                WeaponId::Boot => {}
+                _ => {
+                    if let Some(scene) = lib.weapon(w) {
+                        model(&mut commands, root, scene);
+                    }
+                    if w == WeaponId::Chaingun {
+                        // The picked model has no separate barrel, so this pivot is empty and
+                        // the spin is invisible; it stays so the spin system keeps working.
+                        let n = commands.spawn(BarrelCluster).id();
+                        node(&mut commands, n, CLUSTER_AT);
+                    }
+                }
             }
-            if let Some(at) = muzzle(w) {
+            if let Some(at) = muzzle(&lib.defs, w) {
                 commands.spawn((
                     MuzzleFlash,
                     Mesh3d(flash_mesh.clone()),
@@ -737,15 +619,23 @@ mod tests {
                 p.at
             );
         }
-        for (at, parts) in extra_parts() {
-            for p in parts {
-                let d = (RIG_BASE + at + p.at).length();
-                assert!(d <= MAX_EYE_DIST, "extra part at {:?} is {d} m away", p.at);
-            }
+        let defs = ModelDefs::builtin();
+        let roots = defs
+            .weapons
+            .iter()
+            .map(|m| (format!("{:?}", m.id), m.place.offset))
+            .chain([
+                ("held bomb".to_owned(), defs.extras.held_bomb.place.offset),
+                ("detonator".to_owned(), defs.extras.detonator.place.offset),
+            ]);
+        for (name, offset) in roots {
+            let d = (RIG_BASE + Vec3::from(offset)).length();
+            assert!(d <= MAX_EYE_DIST, "{name} model root is {d} m from the eye");
         }
         for w in WeaponId::ALL {
-            if let Some(m) = muzzle(w) {
-                assert!((RIG_BASE + m).length() <= MAX_EYE_DIST);
+            if let Some(m) = muzzle(&defs, w) {
+                let d = (RIG_BASE + m).length();
+                assert!(d <= MAX_TIP_DIST, "{w:?} muzzle is {d} m from the eye");
             }
         }
     }

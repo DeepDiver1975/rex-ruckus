@@ -1,0 +1,35 @@
+// Model showcase on arsenal_depot.ron for PR screenshots: the glTF enemies, viewmodel weapons
+// and pickups up close. Replay with `rex-ruckus arsenal_depot.ron --demo <this> --record DIR`.
+// Segments run back to back; headings are core degrees (0 = east, 90 = north, CCW).
+(
+    invulnerable: true,
+    segments: [
+        // Pistol in hand, the two dock Grunts ahead.
+        (secs: 1.0),
+        // The armour on the left and the west Grunt.
+        (secs: 0.6, turn_deg: 60.0),
+        (secs: 0.4),
+        // Over to the chaingun and the pistol ammo; the Grunts come at us.
+        (secs: 0.6, turn_deg: -140.0),
+        (secs: 0.7, forward: 0.6),
+        (secs: 0.5, turn_deg: 80.0),
+        (secs: 0.6, select: Some(Chaingun)),
+        (secs: 1.2, fire: true),
+        (secs: 0.5, turn_deg: 55.0),
+        (secs: 1.2, fire: true),
+        // North door into the rocket range: the barrel line with the Enforcer behind it.
+        (secs: 0.3, turn_deg: -20.4),
+        (secs: 1.25, forward: 0.6),
+        (secs: 0.5, turn_deg: -34.6),
+        (secs: 0.2, use_key: true),
+        (secs: 1.2),
+        // The rocket launcher by the door, then the launcher in hand facing the Enforcer.
+        (secs: 0.6, forward: 0.6),
+        (secs: 0.5, turn_deg: 90.0),
+        (secs: 0.5, forward: 0.6),
+        (secs: 0.8, turn_deg: -90.0, select: Some(Rockets)),
+        (secs: 0.6),
+        (secs: 0.3, kick: true),
+        (secs: 0.6),
+    ],
+)

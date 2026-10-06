@@ -10,8 +10,9 @@
             proj: (speed: 15.0, damage: 8, radius: 0.12, life: 4.0),
             burst: 2, burst_gap: 0.25,
         ),
-        // The gun tip of the rig in rr-game: right hand 0.33 out, 1.32 up, 0.62 ahead.
-        muzzle: (0.62, -0.33, 1.32),
+        // The pistol tip in the right hand of the glTF model's Idle_Gun_Shoot pose
+        // (models.ron `tip`): 0.15 to the right, 1.42 up, 0.69 ahead.
+        muzzle: (0.69, -0.15, 1.42),
         pain_chance: 0.5, pain_time: 0.35, pain_cooldown: 0.8, death_time: 0.8, strafe: true,
     ),
     (
@@ -20,7 +21,8 @@
         sight_range: 30.0, fov_deg: 120.0, reaction: 0.5,
         attack_range: 14.0, attack_refire: 1.8, aim_error_deg: 2.0,
         attack: Hitscan(damage: 5, pellets: 6, spread_deg: 7.0),
-        muzzle: (0.6, -0.3, 1.3),
+        // The front of the shoulder turret around its Gun_end bone: centred, 1.65 up, 0.6 ahead.
+        muzzle: (0.6, 0.0, 1.65),
         pain_chance: 0.25, pain_time: 0.3, pain_cooldown: 1.0, death_time: 0.9, strafe: true,
     ),
     (
@@ -29,7 +31,8 @@
         sight_range: 25.0, fov_deg: 140.0, reaction: 0.25,
         attack_range: 1.6, attack_refire: 0.9, aim_error_deg: 0.0,
         attack: Melee(damage: 18, lunge_speed: 12.0),
-        muzzle: (0.5, 0.0, 1.0),
+        // The right fist at the peak of the Alien_Punch clip: 0.1 to the right, 0.55 up, 0.8 ahead.
+        muzzle: (0.8, -0.1, 0.55),
         pain_chance: 0.35, pain_time: 0.25, pain_cooldown: 0.8, death_time: 0.7, strafe: false,
     ),
     (
@@ -42,7 +45,8 @@
             burst: 1, burst_gap: 0.0,
         ),
         locomotion: Fly(hover: 2.5, swoop: true),
-        muzzle: (0.3, 0.0, 0.3),
+        // The Gun_end bone on top of the glTF drone (Shoot pose), above its hover height.
+        muzzle: (0.05, 0.0, 0.65),
         pain_chance: 0.4, pain_time: 0.25, pain_cooldown: 0.8, death_time: 0.6, strafe: false,
     ),
     (
