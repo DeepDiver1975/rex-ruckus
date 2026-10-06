@@ -63,3 +63,70 @@ fn every_item_has_a_model_child() {
     with_model.sort();
     assert_eq!(with_model, (0..n).collect::<Vec<_>>());
 }
+
+#[test]
+fn keycard_is_tinted_once_its_material_has_loaded() {
+    use rr_game::models::ModelReady;
+    let mut map = combat_room();
+    map.items.push(Item {
+        kind: ItemKind::Key(Key::Red),
+        pos: Vec2::new(2.0, 1.5),
+    });
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<WorldAsset>()
+        .init_asset::<Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
+    insert_level(&mut app, map);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        ModelsPlugin,
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PropsPlugin,
+    ));
+    app.update();
+    let mut q = app.world_mut().query::<(Entity, &ModelSlot)>();
+    let root = q.iter(app.world()).next().expect("keycard model").0;
+    // A mesh whose material is reserved but not yet loaded.
+    let handle = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .reserve_handle();
+    let mesh = app
+        .world_mut()
+        .spawn(MeshMaterial3d::<StandardMaterial>(handle.clone()))
+        .id();
+    app.world_mut().entity_mut(root).insert(ModelReady {
+        meshes: vec![mesh],
+        ..default()
+    });
+    app.update();
+    let current = |app: &App| {
+        app.world()
+            .get::<MeshMaterial3d<StandardMaterial>>(mesh)
+            .unwrap()
+            .0
+            .id()
+    };
+    assert_eq!(
+        current(&app),
+        handle.id(),
+        "not tinted before the material loads"
+    );
+    let _ = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .insert(handle.id(), StandardMaterial::default());
+    app.update();
+    assert_ne!(
+        current(&app),
+        handle.id(),
+        "tinted once the material is there"
+    );
+}

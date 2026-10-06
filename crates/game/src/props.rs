@@ -140,6 +140,15 @@ fn tint_keycards(
         if model.tinted {
             continue;
         }
+        // Wait until every source material has loaded: `TintCache` hands back untinted sources
+        // otherwise, and we would never retry.
+        let loaded = ready
+            .meshes
+            .iter()
+            .all(|&e| mats.get(e).map_or(true, |m| materials.get(&m.0).is_some()));
+        if !loaded {
+            continue;
+        }
         for &e in &ready.meshes {
             if let Ok(mut m) = mats.get_mut(e) {
                 let h = cache.get(&mut materials, &m.0, Look::Normal, model.tint);
