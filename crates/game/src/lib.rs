@@ -2,6 +2,7 @@
 
 pub mod actors;
 pub mod audio;
+pub mod automap;
 pub mod bindings;
 pub mod breakables;
 pub mod combat;
@@ -85,7 +86,12 @@ impl Plugin for GamePlugin {
                 scripted: self.demo.is_some(),
             },
         ));
-        app.add_plugins((episode::EpisodePlugin, lowres::LowResPlugin));
+        app.add_plugins((
+            episode::EpisodePlugin,
+            lowres::LowResPlugin,
+            automap::AutomapSimPlugin,
+            automap::AutomapRenderPlugin,
+        ));
         // The episode starts at the title screen; direct-level and demo runs go straight to play.
         if self.episode.is_some() && self.demo.is_none() {
             app.insert_resource(flow::PlayState::Menu);

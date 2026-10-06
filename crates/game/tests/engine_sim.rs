@@ -4,18 +4,20 @@
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::audio::COOLDOWN;
+use rr_core::automap::Automap;
 use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
-use rr_core::fixtures::{combat_room, engine_room};
+use rr_core::fixtures::{combat_room, door_rooms, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Map, SwitchAction};
 use rr_core::mechanics::{Motion, UseTarget};
 use rr_core::projectile::Shooter;
 use rr_game::audio::{AudioFxPlugin, QuipState, QuipVoice};
+use rr_game::automap::{AutomapSimPlugin, AutomapView, LevelAutomap, REVEAL_EVERY};
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, PlayerVitals, insert_defs};
 use rr_game::episode::{EpisodePlugin, Stats};
-use rr_game::flow::{FlowPlugin, PlayState};
+use rr_game::flow::{FlowPlugin, PlayState, load_level};
 use rr_game::fx::{FxPlugin, ScreenShake};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
@@ -42,6 +44,7 @@ fn app(map: Map) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         FxPlugin,
+        AutomapSimPlugin,
     ));
     app.update();
     app
@@ -299,4 +302,91 @@ fn a_paused_quake_does_not_shake() {
     app.world_mut().resource_mut::<ScreenShake>().trauma = 0.0;
     app.update();
     assert_eq!(app.world().resource::<ScreenShake>().trauma, 0.0);
+}
+
+fn map_open(app: &App) -> bool {
+    app.world().resource::<AutomapView>().open
+}
+
+/// Walls of room B (behind the door of `door_rooms`) the automap has revealed.
+fn room_b_seen(app: &App) -> usize {
+    let map = &app.world().resource::<CurrentMap>().0;
+    let am = &app.world().resource::<LevelAutomap>().0;
+    map.sectors[2].walls().filter(|&w| am.seen[w]).count()
+}
+
+fn kill_and_restart(app: &mut App) {
+    vitals(app).0.damage(1_000_000);
+    ticks(app, 1);
+    assert_eq!(state(app), PlayState::Dead);
+    ticks(app, 70);
+    input(app).use_pressed = true;
+    ticks(app, 1);
+    assert_eq!(state(app), PlayState::Playing);
+}
+
+#[test]
+fn the_automap_key_toggles_only_while_playing() {
+    // Review focus 5: a press while paused is dropped, not applied on resume.
+    let mut app = app(door_rooms("(kind: Door)", ""));
+    input(&mut app).toggle_map = true;
+    ticks(&mut app, 1);
+    assert!(map_open(&app));
+    input(&mut app).toggle_map = true;
+    ticks(&mut app, 1);
+    assert!(!map_open(&app));
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    input(&mut app).toggle_map = true;
+    ticks(&mut app, 1);
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Playing;
+    ticks(&mut app, 1);
+    assert!(!map_open(&app));
+}
+
+#[test]
+fn restart_forgets_the_explored_map_and_closes_it() {
+    let mut app = app(door_rooms("(kind: Door)", ""));
+    ticks(&mut app, 6);
+    assert_eq!(room_b_seen(&app), 0, "behind the closed door");
+    app.world_mut().resource_mut::<LevelMechanics>().0.toggle(0);
+    ticks(&mut app, 60);
+    assert!(room_b_seen(&app) > 0);
+    input(&mut app).toggle_map = true;
+    ticks(&mut app, 1);
+    kill_and_restart(&mut app);
+    assert!(!map_open(&app));
+    assert_eq!(room_b_seen(&app), 0);
+}
+
+#[test]
+fn a_level_switch_sizes_the_automap_for_the_new_map() {
+    let mut app = app(door_rooms("(kind: Door)", ""));
+    load_level(app.world_mut(), engine_room(""));
+    ticks(&mut app, 6);
+    let walls = app.world().resource::<CurrentMap>().0.walls.len();
+    assert_eq!(app.world().resource::<LevelAutomap>().0.seen.len(), walls);
+}
+
+#[test]
+fn reveal_runs_every_six_ticks() {
+    let mut app = app(door_rooms("(kind: Door)", ""));
+    app.world_mut().resource_mut::<LevelMechanics>().0.toggle(0);
+    ticks(&mut app, 60);
+    let forget = |app: &mut App| {
+        let am = Automap::new(&app.world().resource::<CurrentMap>().0);
+        app.insert_resource(LevelAutomap(am));
+    };
+    let ticks_to_reveal = |app: &mut App| {
+        (1..=100)
+            .find(|_| {
+                ticks(app, 1);
+                room_b_seen(app) > 0
+            })
+            .unwrap()
+    };
+    forget(&mut app);
+    assert!(ticks_to_reveal(&mut app) <= REVEAL_EVERY as usize);
+    // Now in phase: a forgotten map comes back exactly one reveal period later.
+    forget(&mut app);
+    assert_eq!(ticks_to_reveal(&mut app), REVEAL_EVERY as usize);
 }

@@ -118,6 +118,8 @@ pub struct PendingInput {
     pub toggle_jetpack: bool,
     /// Latched night-vision toggle press (N), applied by `use_inventory`.
     pub toggle_nv: bool,
+    /// Latched automap press (Tab), applied by `automap::toggle_automap`.
+    pub toggle_map: bool,
 }
 
 impl PendingInput {
@@ -133,6 +135,7 @@ impl PendingInput {
         self.use_medkit = false;
         self.toggle_jetpack = false;
         self.toggle_nv = false;
+        self.toggle_map = false;
     }
 }
 
@@ -457,6 +460,7 @@ pub fn read_input(
     input.jump = pressed(Action::Jump);
     input.crouch = pressed(Action::Crouch);
     input.use_pressed |= just(Action::Use);
+    input.toggle_map |= just(Action::Automap);
 
     let held = pressed(Action::Fire);
     let fire = fire_gate(grabbed, held, &mut fire_armed);

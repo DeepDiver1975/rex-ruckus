@@ -26,12 +26,13 @@ pub enum Action {
     Weapon4,
     Weapon5,
     Weapon6,
+    Automap,
     Pause,
 }
 
 impl Action {
     /// Every action, in controls-screen order.
-    pub const ALL: [Action; 20] = [
+    pub const ALL: [Action; 21] = [
         Action::Forward,
         Action::Back,
         Action::StrafeLeft,
@@ -51,6 +52,7 @@ impl Action {
         Action::Weapon4,
         Action::Weapon5,
         Action::Weapon6,
+        Action::Automap,
         Action::Pause,
     ];
 
@@ -76,6 +78,7 @@ impl Action {
             Action::Weapon4 => "Chaingun",
             Action::Weapon5 => "Rockets",
             Action::Weapon6 => "Pipe bombs",
+            Action::Automap => "Automap",
             Action::Pause => "Pause / menu",
         }
     }
@@ -142,6 +145,7 @@ impl Default for Bindings {
             (Weapon4, vec![k(K::Digit4)]),
             (Weapon5, vec![k(K::Digit5)]),
             (Weapon6, vec![k(K::Digit6)]),
+            (Automap, vec![k(K::Tab)]),
             (Pause, vec![PAUSE_KEY]),
         ]))
     }
@@ -301,6 +305,18 @@ mod tests {
         b.sanitise();
         assert_eq!(b.of(Action::Jump), &[Binding::Key(KeyCode::KeyW)]);
         assert_eq!(b.of(Action::Forward), &[] as &[Binding]);
+    }
+
+    #[test]
+    fn automap_defaults_to_tab_and_old_settings_get_it() {
+        assert_eq!(Action::ALL.len(), 21);
+        assert_eq!(
+            Bindings::default().of(Action::Automap),
+            &[Binding::Key(KeyCode::Tab)]
+        );
+        let mut b: Bindings = ron::from_str("{Jump: [Key(KeyX)]}").unwrap();
+        b.sanitise();
+        assert_eq!(b.of(Action::Automap), &[Binding::Key(KeyCode::Tab)]);
     }
 
     #[test]
