@@ -89,5 +89,12 @@ Ways to capture in-game frames:
 
   Write a short script of your own in `assets/demo/` (or a temp file) to frame the change.
 
-Upload the images into the PR description (drag and drop on GitHub). Do not commit screenshots
-to the repository.
+Attach the images with `gh`'s `--attach` flag, which uploads them to
+`github.com/user-attachments/assets` (the same pipeline as drag-and-drop in the web UI) and
+rewrites any `![alt](./path.png)` reference in the body to the uploaded asset:
+
+- New PR: `gh pr create --body-file body.md --attach './shot.png#Alt text'`
+- Existing PR: `gh pr edit <number> --attach './shot.png#Alt text'` (repeat `--attach` per file)
+- Comment: `gh pr comment <number> --attach './shot.png#Alt text'`
+
+Do not commit screenshots to the repository.
