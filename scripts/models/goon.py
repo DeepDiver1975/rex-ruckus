@@ -1,5 +1,6 @@
-# The Goon (Grunt): a squat mutant thug. Lantern jaw with tusks, red mohawk, glowing wraparound
-# shades, dirty tank top, Popeye forearms and a big swagger. His hand-cannon is a separate model
+# The Goon (Grunt): part pig, part orc, all biker. Dark hide, pig snout and ears, orc tusks
+# and brow, a mohawk and glowing shades; worn, riveted leathers over a slab of muscle, short
+# legs and a big swagger. His hand-cannon is a separate model
 # (hand_cannon.py) attached to `Hand.R` at runtime; it is drawn here only in the preview.
 #
 # Bones hang straight down (arms and legs) or point straight up (spine, head), so every pose
@@ -52,57 +53,84 @@ def bones():
 
 def materials():
     return {
-        "skin": rrkit.material("GoonSkin", (118, 150, 70)),
-        "tank": rrkit.material("GoonTank", (222, 214, 182)),
-        "pants": rrkit.material("GoonPants", (72, 62, 110)),
-        "boots": rrkit.material("GoonBoots", (38, 32, 30), rough=0.6),
-        "belt": rrkit.material("GoonBelt", (92, 56, 30)),
-        "gold": rrkit.material("GoonGold", (232, 182, 40), rough=0.3, metal=0.9),
-        "hair": rrkit.material("GoonMohawk", (226, 36, 48)),
+        "skin": rrkit.material("GoonSkin", (84, 92, 58)),
+        "snout": rrkit.material("GoonSnout", (124, 84, 76)),
+        "dark": rrkit.material("GoonNostril", (30, 20, 20)),
+        "leather": rrkit.material("GoonLeather", (44, 34, 29), rough=0.7),
+        "worn": rrkit.material("GoonLeatherWorn", (72, 56, 44), rough=0.9),
+        "pants": rrkit.material("GoonPants", (40, 40, 46), rough=0.9),
+        "patch": rrkit.material("GoonPatch", (70, 64, 54), rough=0.95),
+        "boots": rrkit.material("GoonBoots", (28, 24, 22), rough=0.75),
+        "rivets": rrkit.material("GoonRivets", (150, 148, 140), rough=0.45, metal=0.9),
+        "brass": rrkit.material("GoonBrass", (150, 116, 52), rough=0.5, metal=0.8),
+        "hair": rrkit.material("GoonMohawk", (150, 30, 34)),
         "shades": rrkit.material("GoonShades", (255, 70, 20), rough=0.2, emit=4.0),
-        "frame": rrkit.material("GoonFrame", (20, 20, 24), rough=0.3),
-        "ivory": rrkit.material("GoonTusk", (236, 226, 190)),
-        "studs": rrkit.material("GoonStuds", (200, 204, 210), rough=0.3, metal=0.9),
+        "ivory": rrkit.material("GoonTusk", (214, 200, 160)),
     }
 
 
+def rivets(body, bone, m, points, size=0.028):
+    for p in points:
+        body.box(bone, m["rivets"], p, (size, size, size), bevel=size * 0.25)
+
+
 def build(body, m):
-    sk, tk, pa, bo = m["skin"], m["tank"], m["pants"], m["boots"]
-    # Pelvis, belt and a big gold buckle.
+    sk, le, wo, pa, bo = m["skin"], m["leather"], m["worn"], m["pants"], m["boots"]
+    # Pelvis in worn trousers; a riveted belt, a tarnished buckle and a wallet chain.
     body.box("Hips", pa, (0, 0, 0.74), (0.46, 0.30, 0.20), top=(1.05, 1.0), bevel=0.025)
-    body.box("Hips", m["belt"], (0, 0, WAIST_Z), (0.50, 0.33, 0.07))
-    body.box("Hips", m["gold"], (0, -0.17, WAIST_Z), (0.15, 0.025, 0.10), bevel=0.01)
-    # Narrow waist flaring into a barrel chest: a V under the tank top.
-    body.box("Spine", tk, (0, 0, 0.95), (0.48, 0.32, 0.22), top=(1.3, 1.15), bevel=0.03)
-    body.box("Spine", tk, (0, -0.10, 0.95), (0.30, 0.12, 0.18), top=(1.1, 1.0), bevel=0.03)  # abs
-    body.box("Chest", tk, (0, 0, 1.18), (0.66, 0.40, 0.26), top=(1.22, 1.0), bevel=0.04)
+    body.box("Hips", le, (0, 0, WAIST_Z), (0.50, 0.33, 0.07))
+    body.box("Hips", m["brass"], (0, -0.17, WAIST_Z), (0.15, 0.025, 0.10), bevel=0.01)
+    rivets(body, "Hips", m, [(x, -0.168, WAIST_Z) for x in (-0.20, -0.14, 0.14, 0.20)], 0.022)
+    for i, t in enumerate((0.0, 0.2, 0.4, 0.6, 0.8, 1.0)):
+        x, z = 0.22 - 0.10 * t, WAIST_Z - 0.03 - 0.12 * (1 - (2 * t - 1) ** 2)
+        body.box("Hips", m["rivets"], (x, -0.16, z), (0.03, 0.012, 0.02), rot=(0, 30 * (i % 2), 0))
+    # Bare torso: a narrow waist with an eight-pack flaring into a barrel chest.
+    body.box("Spine", sk, (0, 0, 0.95), (0.48, 0.32, 0.22), top=(1.3, 1.15), bevel=0.03)
     for s in (1, -1):
-        # Pecs bulging the tank top, lats flaring out under the arms.
-        body.box("Chest", tk, (s * 0.15, -0.17, 1.22), (0.28, 0.14, 0.20), top=(1.0, 0.7),
-                 bevel=0.04)
+        for z in (0.89, 0.95, 1.01):
+            body.box("Spine", sk, (s * 0.055, -0.165, z), (0.10, 0.04, 0.05), bevel=0.012)
+    body.box("Chest", sk, (0, 0, 1.18), (0.66, 0.40, 0.26), top=(1.22, 1.0), bevel=0.04)
+    for s in (1, -1):
+        body.box("Chest", sk, (s * 0.15, -0.17, 1.22), (0.28, 0.14, 0.20), top=(1.0, 0.7),
+                 bevel=0.04)  # pecs
         body.box("Chest", sk, (s * 0.33, 0.04, 1.12), (0.12, 0.30, 0.22), top=(1.5, 1.0),
-                 bevel=0.03)
-    # Bare, mountainous traps sloping from the neck to the shoulders.
+                 bevel=0.03)  # lats
     body.box("Chest", sk, (0, 0.03, 1.36), (0.84, 0.36, 0.14), top=(0.42, 0.7), bevel=0.03)
+    # Open biker vest: back panel and two riveted lapels framing the chest.
+    body.box("Spine", le, (0, 0.05, 0.95), (0.52, 0.26, 0.23), top=(1.3, 1.15), bevel=0.02)
+    body.box("Chest", le, (0, 0.07, 1.19), (0.71, 0.32, 0.30), top=(1.2, 1.0), bevel=0.02)
     for s in (1, -1):
-        body.box("Chest", tk, (s * 0.15, -0.03, 1.34), (0.09, 0.40, 0.05))  # straps
-    # Thick neck, head sunk low and pushed forwards: little cranium, huge jaw.
-    hz = HEAD_Z - 1.57  # the head parts were laid out with the neck top at 1.57
+        body.box("Spine", le, (s * 0.22, -0.13, 0.95), (0.13, 0.10, 0.23), top=(1.3, 1.0))
+        body.box("Chest", le, (s * 0.31, -0.17, 1.19), (0.14, 0.13, 0.30), top=(1.25, 1.0))
+        body.box("Chest", wo, (s * 0.31, -0.236, 1.10), (0.10, 0.012, 0.08))  # scuffed pocket
+        rivets(body, "Spine", m, [(s * 0.165, -0.185, z) for z in (0.87, 0.94, 1.01)])
+        rivets(body, "Chest", m, [(s * 0.245, -0.24, z) for z in (1.08, 1.15, 1.22, 1.29)])
+        body.box("Chest", le, (s * 0.15, -0.03, 1.34), (0.10, 0.42, 0.05))  # shoulder straps
+    # Studded collar on a thick neck.
     body.cyl("Neck", sk, (0, -0.02, NECK_Z + 0.03), 0.15, 0.12, 0.12, seg=8)
+    body.cyl("Neck", le, (0, -0.02, NECK_Z + 0.02), 0.16, 0.16, 0.05, seg=8)
+    for a in range(0, 360, 45):
+        body.spike("Neck", m["rivets"], (0, -0.02, NECK_Z + 0.02), 0.014, 0.20, rot=(90, 0, a))
+    # Head sunk low and pushed forwards: little cranium, orc jaw and tusks, pig snout and ears.
+    hz = HEAD_Z - 1.57  # the head parts were laid out with the neck top at 1.57
     body.box("Head", sk, (0, -0.02, 1.71 + hz), (0.22, 0.22, 0.17), top=(0.8, 0.85), bevel=0.02)
     body.box("Head", sk, (0, -0.06, 1.61 + hz), (0.38, 0.28, 0.15), top=(0.85, 0.95), front=1.1,
              bevel=0.025)
     body.box("Head", sk, (0, -0.19, 1.585 + hz), (0.25, 0.08, 0.09), bevel=0.015)  # chin
-    body.box("Head", sk, (0, -0.125, 1.735 + hz), (0.23, 0.06, 0.05), bevel=0.01)  # brow
-    body.box("Head", sk, (0, -0.155, 1.665 + hz), (0.05, 0.06, 0.06), top=(1.3, 1.0))  # nose
+    body.box("Head", sk, (0, -0.125, 1.735 + hz), (0.25, 0.07, 0.06), bevel=0.012)  # brow
+    body.cyl("Head", m["snout"], (0, -0.20, 1.655 + hz), 0.08, 0.072, 0.10, rot=(90, 0, 0), seg=8,
+             bevel=0.01)
     for s in (1, -1):
+        body.box("Head", m["dark"], (s * 0.03, -0.252, 1.655 + hz), (0.028, 0.01, 0.04))
         body.spike("Head", m["ivory"], (s * 0.10, -0.20, 1.61 + hz), 0.028, 0.11,
                    rot=(-12, 0, s * 4))
-        body.box("Head", sk, (s * 0.115, -0.01, 1.69 + hz), (0.03, 0.06, 0.07))  # ears
+        # Pointed pig ears, cocked up and out.
+        body.box("Head", m["snout"], (s * 0.13, 0.0, 1.78 + hz), (0.11, 0.025, 0.11),
+                 top=(0.15, 1.0), rot=(15, 0, s * -35))
     # Wraparound shades: a glowing band with dark side arms.
-    body.box("Head", m["shades"], (0, -0.145, 1.70 + hz), (0.25, 0.03, 0.05), front=1.05)
+    body.box("Head", m["shades"], (0, -0.155, 1.70 + hz), (0.25, 0.03, 0.05), front=1.05)
     for s in (1, -1):
-        body.box("Head", m["frame"], (s * 0.125, -0.08, 1.70 + hz), (0.02, 0.12, 0.035))
+        body.box("Head", m["dark"], (s * 0.125, -0.09, 1.70 + hz), (0.02, 0.12, 0.035))
     # Mohawk: five swept blades.
     for i, y in enumerate((-0.11, -0.06, -0.01, 0.04, 0.09)):
         h = 0.10 + 0.03 * (2 - abs(2 - i))
@@ -115,21 +143,34 @@ def build(body, m):
         body.ball(up, sk, (x, 0, SHOULDER_Z - 0.01), 0.17, scale=(1.0, 1.05, 0.9))  # deltoid
         body.cyl(up, sk, (x, 0, 1.17), 0.10, 0.13, 0.26, seg=8)
         body.ball(up, sk, (x, -0.06, 1.16), 0.10, scale=(0.9, 0.8, 1.2))  # biceps
-        # Popeye forearm, a studded wristband and a big fist.
+        if s > 0:
+            # Riveted, spiked leather pad on the off shoulder.
+            body.box(up, le, (x + 0.02, 0, SHOULDER_Z + 0.08), (0.30, 0.34, 0.10),
+                     top=(0.75, 0.85), rot=(0, 18, 0), bevel=0.02)
+            body.box(up, wo, (x + 0.07, 0, SHOULDER_Z + 0.02), (0.24, 0.30, 0.07),
+                     top=(0.9, 0.95), rot=(0, 30, 0), bevel=0.015)
+            for y in (-0.10, 0.0, 0.10):
+                body.spike(up, m["rivets"], (x + 0.02, y, SHOULDER_Z + 0.12), 0.025, 0.09,
+                           rot=(0, 18, 0))
+        # Popeye forearm, a studded leather cuff and a fingerless glove.
         body.cyl(lo, sk, (x, 0, 0.93), 0.10, 0.15, 0.24, seg=8)
-        body.cyl(lo, m["frame"], (x, 0, WRIST_Z + 0.015), 0.115, 0.115, 0.06, seg=8)
+        body.cyl(lo, le, (x, 0, WRIST_Z + 0.03), 0.12, 0.13, 0.09, seg=8)
         for a in (0, 90, 180, 270):
-            body.spike(lo, m["studs"], (x, 0, WRIST_Z + 0.015), 0.017, 0.15, rot=(90, 0, a))
-        body.box(ha, sk, (x, -0.01, WRIST_Z - 0.06), (0.15, 0.16, 0.14), bevel=0.025)
+            body.spike(lo, m["rivets"], (x, 0, WRIST_Z + 0.03), 0.017, 0.16, rot=(90, 0, a))
+        body.box(ha, le, (x, -0.01, WRIST_Z - 0.05), (0.15, 0.16, 0.11), bevel=0.02)
+        body.box(ha, sk, (x, -0.01, WRIST_Z - 0.115), (0.14, 0.15, 0.05), bevel=0.015)
 
     def leg(s, sfx):
         x = s * HIP_X
         up, lo, ft = "UpperLeg" + sfx, "LowerLeg" + sfx, "Foot" + sfx
         body.cyl(up, pa, (x, 0, 0.53), 0.13, 0.17, 0.32, seg=8)
         body.cyl(lo, pa, (x, 0, 0.28), 0.115, 0.13, 0.22, seg=8)
+        body.box(lo, m["patch"], (x, -0.115, 0.36), (0.15, 0.05, 0.11), bevel=0.01)  # knee
         body.cyl(lo, bo, (x, 0, 0.17), 0.125, 0.13, 0.14, seg=8)  # boot shaft
+        body.cyl(lo, m["worn"], (x, 0, 0.225), 0.135, 0.135, 0.03, seg=8)  # strap
+        rivets(body, lo, m, [(x + s * 0.13, 0, 0.225)], 0.035)  # buckle
         body.box(ft, bo, (x, -0.06, 0.06), (0.20, 0.34, 0.12), top=(0.95, 0.8), bevel=0.025)
-        body.box(ft, m["studs"], (x, -0.225, 0.055), (0.18, 0.02, 0.07))  # toecap
+        body.box(ft, m["rivets"], (x, -0.225, 0.055), (0.18, 0.02, 0.07))  # steel toecap
 
     rrkit.both(arm)
     rrkit.both(leg)
