@@ -8,7 +8,7 @@ mod powers;
 mod quips;
 
 pub use bank::{SoundBankDef, SoundDef, gain};
-pub use cues::{combat_cues, inv_cues, mech_cues, weapon_cues};
+pub use cues::{combat_cues, mech_cues, weapon_cues};
 pub use footsteps::Footsteps;
 pub use powers::PowerWatch;
 pub use quips::{
@@ -81,7 +81,7 @@ pub enum Cue {
     ActorWake(ActorKind),
     ActorFire(ActorKind),
     ActorPain(ActorKind),
-    /// For a barrel this is its explosion.
+    /// Never for a barrel: its blast sounds as `Explosion`.
     ActorDeath(ActorKind),
     PlayerHurt,
     PlayerDeath,
@@ -100,9 +100,11 @@ pub enum Cue {
     JetpackStart,
     /// Raised by the game while the jetpack is burning (no core event).
     JetpackLoop,
+    /// Raised by the game when the jetpack state turns off (no core event).
     JetpackStop,
     /// Raised by the game when night vision turns on (no core event).
     NightVisionOn,
+    /// Raised by the game when night vision turns off (no core event).
     NightVisionOff,
     /// Raised by the game from player movement (no core event).
     Footstep,
@@ -113,8 +115,8 @@ pub enum Cue {
 impl Cue {
     /// Every cue, with `WeaponId`, `ActorKind` and `PickupClass` expanded. Exactly the cues the
     /// mapping can emit or the game raises itself, with no duplicates. Left out because they
-    /// never occur: `ActorWake`/`ActorFire`/`ActorPain` for `Barrel` (a static body;
-    /// `combat_cues` drops those events for it). `Fire(Boot)` stays: the boot swing emits `Fire`.
+    /// never occur: every `Actor*` cue for `Barrel` (a static body; `combat_cues` drops those
+    /// events for it, death included). `Fire(Boot)` stays: the boot swing emits `Fire`.
     pub fn all() -> Vec<Cue> {
         use Cue::*;
         let mut v: Vec<Cue> = WeaponId::ALL.into_iter().map(Fire).collect();
@@ -123,9 +125,8 @@ impl Cue {
         ]);
         for k in ActorKind::ALL {
             if k != ActorKind::Barrel {
-                v.extend([ActorWake(k), ActorFire(k), ActorPain(k)]);
+                v.extend([ActorWake(k), ActorFire(k), ActorPain(k), ActorDeath(k)]);
             }
-            v.push(ActorDeath(k));
         }
         v.extend([
             PlayerHurt,

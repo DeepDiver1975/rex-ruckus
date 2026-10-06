@@ -2,7 +2,6 @@
 
 use super::{Cue, CuePos};
 use crate::combat::{Combat, CombatEvent};
-use crate::inventory::InvEvent;
 use crate::map::{ActorKind, Map, MoverKind, SectorId, WallId};
 use crate::mechanics::MechEvent;
 use crate::weapons::WeaponEvent;
@@ -20,9 +19,9 @@ fn wall_mid(map: &Map, w: WallId) -> Vec3 {
 /// Cues for one combat event. `combat` supplies the actor behind an index.
 ///
 /// `ProjectileGone` and `BombsDetonated` give nothing: the `Impact` or `Explosion` event that
-/// accompanies them already carries the sound. Barrels are static bodies, so their wake, fire
-/// and pain events are silent; only `ActorDeath(Barrel)` (the blast) sounds. An actor index out
-/// of range gives nothing.
+/// accompanies them already carries the sound. Barrels are static bodies, so all their events
+/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. An actor
+/// index out of range gives nothing.
 pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) {
     let actor = |i: usize| combat.actors.get(i).map(|a| (a.kind, a.body.pos));
     let mut living = |i: usize, cue: fn(ActorKind) -> Cue| {
@@ -36,11 +35,7 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
         CombatEvent::ActorHurt { actor, .. } => living(actor, Cue::ActorPain),
         CombatEvent::ActorWoke(i) => living(i, Cue::ActorWake),
         CombatEvent::ActorFired { actor } => living(actor, Cue::ActorFire),
-        CombatEvent::ActorKilled(i) => {
-            if let Some((k, p)) = actor(i) {
-                out.push((Cue::ActorDeath(k), Some(p)));
-            }
-        }
+        CombatEvent::ActorKilled(i) => living(i, Cue::ActorDeath),
         CombatEvent::PlayerHurt { .. } => out.push((Cue::PlayerHurt, None)),
         CombatEvent::PlayerKilled => out.push((Cue::PlayerDeath, None)),
         CombatEvent::CrackOpened(s) => {
@@ -112,14 +107,6 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
                 out.push((Cue::Pickup(kind.into()), Some(it.pos.extend(z + 0.5))));
             }
         }
-    }
-}
-
-/// Cues for one inventory event, at the listener. Switching a power on is a game-side toggle.
-pub fn inv_cues(ev: &InvEvent, out: &mut Out) {
-    match *ev {
-        InvEvent::JetpackOff => out.push((Cue::JetpackStop, None)),
-        InvEvent::NightVisionOff => out.push((Cue::NightVisionOff, None)),
     }
 }
 
@@ -240,6 +227,9 @@ mod tests {
         for (e, want) in evs.iter().zip(expected) {
             assert_eq!(run_combat(e, &c, &map), want, "{e:?}");
         }
+        // A barrel's death is silent: its blast sounds as `Explosion` when the fuse ends.
+        assert_eq!(c.actors[1].kind, ActorKind::Barrel);
+        assert_eq!(run_combat(&CombatEvent::ActorKilled(1), &c, &map), vec![]);
     }
 
     #[test]
@@ -261,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn barrel_is_silent_until_it_dies() {
+    fn barrel_is_silent() {
         let (map, c) = setup();
         assert_eq!(c.actors[1].kind, ActorKind::Barrel);
         for ev in [
@@ -271,16 +261,10 @@ mod tests {
             },
             CombatEvent::ActorWoke(1),
             CombatEvent::ActorFired { actor: 1 },
+            CombatEvent::ActorKilled(1),
         ] {
             assert!(run_combat(&ev, &c, &map).is_empty(), "{ev:?}");
         }
-        assert_eq!(
-            run_combat(&CombatEvent::ActorKilled(1), &c, &map),
-            vec![(
-                Cue::ActorDeath(ActorKind::Barrel),
-                Some(c.actors[1].body.pos)
-            )]
-        );
     }
 
     #[test]
@@ -465,18 +449,6 @@ mod tests {
     }
 
     #[test]
-    fn inv_table() {
-        for (e, want) in [
-            (InvEvent::JetpackOff, Cue::JetpackStop),
-            (InvEvent::NightVisionOff, Cue::NightVisionOff),
-        ] {
-            let mut out = Vec::new();
-            inv_cues(&e, &mut out);
-            assert_eq!(out, vec![(want, None)]);
-        }
-    }
-
-    #[test]
     fn every_emitted_cue_is_in_all() {
         let (map, c) = setup();
         let all: HashSet<Cue> = Cue::all().into_iter().collect();
@@ -532,8 +504,6 @@ mod tests {
         ] {
             mech_cues(&MechEvent::ItemTaken { item: 0, kind }, &map, &mut out);
         }
-        inv_cues(&InvEvent::JetpackOff, &mut out);
-        inv_cues(&InvEvent::NightVisionOff, &mut out);
         assert!(!out.is_empty());
         for (cue, _) in &out {
             assert!(all.contains(cue), "{cue:?} missing from Cue::all()");
@@ -543,7 +513,9 @@ mod tests {
         let game_side = [
             Cue::JetpackStart,
             Cue::JetpackLoop,
+            Cue::JetpackStop,
             Cue::NightVisionOn,
+            Cue::NightVisionOff,
             Cue::Footstep,
             Cue::Land,
         ];

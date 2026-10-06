@@ -3,6 +3,9 @@
 
 use super::Cue;
 
+/// The single source of the jetpack and night-vision on/off cues: core's `InvEvent`s are not
+/// mapped to cues, or each switch-off would sound twice.
+///
 /// Remembers last tick's jetpack and night-vision flags. Starts with both off.
 #[derive(Debug, Clone, Default)]
 pub struct PowerWatch {

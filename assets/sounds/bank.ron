@@ -53,7 +53,6 @@
     ActorDeath(Drone): (files: ["sounds/cc0/actor_death_drone.ogg"], volume: 0.7, max_voices: 3, pitch_jitter: 0.15),
 
     // A barrel's death is its blast.
-    ActorDeath(Barrel): (files: ["sounds/synth/explosion.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, pitch_jitter: 0.05),
 
     // The player.
     PlayerHurt: (files: ["sounds/cc0/player_hurt_1.ogg", "sounds/cc0/player_hurt_2.ogg"], volume: 0.7, max_voices: 2, pitch_jitter: 0.06, spatial: false),
