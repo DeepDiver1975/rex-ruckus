@@ -334,6 +334,16 @@ pub fn spawn_camera(mut commands: Commands) {
     ));
 }
 
+/// Whether the cursor may be grabbed in `state`: not under a menu. An episode's level-complete
+/// state shows the stats screen, whose Continue button needs the pointer.
+fn grab_allowed(state: PlayState, has_episode: bool) -> bool {
+    match state {
+        PlayState::Playing | PlayState::Dead => true,
+        PlayState::Complete => !has_episode,
+        PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd => false,
+    }
+}
+
 /// Grabs and releases the cursor (see [`grab_change`]).
 pub fn grab_cursor(
     mut cursor: Single<&mut CursorOptions>,
@@ -341,12 +351,10 @@ pub fn grab_cursor(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<PlayState>,
+    episode: Option<Res<crate::episode::Episode>>,
 ) {
     let grabbed = cursor.grab_mode != CursorGrabMode::None;
-    let allowed = matches!(
-        *state,
-        PlayState::Playing | PlayState::Dead | PlayState::Complete
-    );
+    let allowed = grab_allowed(*state, episode.is_some());
     match grab_change(
         window.focused,
         mouse.just_pressed(MouseButton::Left),
@@ -508,6 +516,17 @@ pub(crate) fn update_camera(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stats_screen_frees_the_cursor() {
+        assert!(grab_allowed(PlayState::Playing, true));
+        assert!(grab_allowed(PlayState::Dead, true));
+        assert!(grab_allowed(PlayState::Complete, false));
+        assert!(!grab_allowed(PlayState::Complete, true));
+        assert!(!grab_allowed(PlayState::Paused, false));
+        assert!(!grab_allowed(PlayState::Menu, false));
+        assert!(!grab_allowed(PlayState::EpisodeEnd, true));
+    }
 
     #[test]
     fn eye_is_clamped_below_the_ceiling() {

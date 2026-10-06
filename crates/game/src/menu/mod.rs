@@ -1,4 +1,4 @@
-//! Menus: main, difficulty, pause, options and controls (and, in a later task, stats), drawn with
+//! Menus: main, difficulty, pause, options, controls and the stats screens, drawn with
 //! `bevy_ui` over the frozen level.
 //!
 //! Every way of choosing a button (mouse click, Enter) ends in [`MenuInput::activate`]; the one
@@ -11,14 +11,16 @@ pub mod controls;
 pub mod main_menu;
 pub mod options;
 pub mod pause;
+pub mod stats;
 pub mod widgets;
 
 pub use controls::{Capture, Notice};
 
 use crate::bindings::{Action, Bindings};
-use crate::episode::{Episode, start_episode};
-use crate::flow::{PlayState, load_level, restart_level};
+use crate::episode::{Episode, Stats, start_episode};
+use crate::flow::{AdvanceRequested, LevelDifficulty, PlayState, load_level, restart_level};
 use crate::hud::UiFont;
+use crate::level::CurrentMap;
 use crate::player::{grab_cursor, pause_on_escape};
 use crate::settings::Settings;
 use bevy::ecs::system::SystemParam;
@@ -290,7 +292,10 @@ pub fn run_menu_action(world: &mut World) {
                 screen(world, Some(back));
             }
         }
-        MenuAction::Rebind(a) => world.resource_mut::<Capture>().0 = Some(a),
+        MenuAction::Rebind(a) => {
+            world.resource_mut::<Notice>().0.clear();
+            world.resource_mut::<Capture>().0 = Some(a);
+        }
         MenuAction::ResetBindings => {
             world.resource_mut::<Notice>().0.clear();
             if let Some(mut settings) = world.get_resource_mut::<Settings>() {
@@ -307,8 +312,13 @@ pub fn run_menu_action(world: &mut World) {
                 options::adjust(&mut settings, which, 1);
             }
         }
-        // Handled by the stats screens.
-        MenuAction::Continue => {}
+        MenuAction::Continue => {
+            // Only from the stats screen: a Fire press that already advanced the level (the
+            // click carries one) must not skip the next level as well.
+            if state == PlayState::Complete && world.contains_resource::<Episode>() {
+                world.resource_mut::<AdvanceRequested>().0 = true;
+            }
+        }
     }
 }
 
@@ -341,11 +351,15 @@ fn sync_screen(
 }
 
 /// Replaces the menu entities when the screen changes.
+#[allow(clippy::too_many_arguments)]
 fn rebuild_screen(
     mut commands: Commands,
     screen: Res<MenuScreen>,
     ui: Res<UiFont>,
     episode: Option<Res<Episode>>,
+    stats: Res<Stats>,
+    map: Option<Res<CurrentMap>>,
+    difficulty: Res<LevelDifficulty>,
     roots: Query<Entity, With<MenuRoot>>,
     mut selection: ResMut<MenuSelection>,
 ) {
@@ -359,8 +373,15 @@ fn rebuild_screen(
         Some(Screen::Pause) => pause::spawn_pause(&mut commands, &ui, episode.is_some()),
         Some(Screen::Options) => options::spawn_options(&mut commands, &ui),
         Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
-        // The level-complete and episode-end screens come with the stats screens.
-        Some(Screen::Stats | Screen::EpisodeEnd) | None => {}
+        Some(Screen::Stats) => {
+            let name = map.as_ref().map_or("", |m| m.0.name.as_str());
+            stats::spawn_stats(&mut commands, &ui, name, &stats.0);
+        }
+        Some(Screen::EpisodeEnd) => {
+            let totals = episode.map(|e| e.totals).unwrap_or_default();
+            stats::spawn_episode_end(&mut commands, &ui, difficulty.0, &totals);
+        }
+        None => {}
     }
 }
 

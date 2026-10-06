@@ -114,12 +114,14 @@ pub fn flash_decay(flash: f32, dt: f32) -> f32 {
     (flash - FLASH_DECAY * dt).max(0.0)
 }
 
-/// Overlay message for a play state; `None` while playing.
-pub fn overlay_text(state: PlayState) -> Option<&'static str> {
+/// Overlay message for a play state; `None` while playing. With an episode (`has_episode`) the
+/// stats screen replaces the level-complete message.
+pub fn overlay_text(state: PlayState, has_episode: bool) -> Option<&'static str> {
     match state {
         // Menus draw their own screens.
         PlayState::Playing | PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd => None,
         PlayState::Dead => Some("You died \u{2014} press Use or Fire to restart"),
+        PlayState::Complete if has_episode => None,
         PlayState::Complete => Some("Level complete \u{2014} press Use or Fire to restart"),
     }
 }
@@ -487,11 +489,12 @@ fn update_flash(
 
 fn update_overlay(
     state: Res<PlayState>,
+    episode: Option<Res<crate::episode::Episode>>,
     mut node: Single<(&mut Visibility, &mut BackgroundColor), With<OverlayNode>>,
     mut text: Single<&mut Text, With<OverlayText>>,
 ) {
     let (vis, bg) = &mut *node;
-    match overlay_text(*state) {
+    match overlay_text(*state, episode.is_some()) {
         Some(s) => {
             vis.set_if_neq(Visibility::Inherited);
             set_bg(bg, overlay_tint(*state));
@@ -547,18 +550,20 @@ mod tests {
 
     #[test]
     fn overlay_text_per_state() {
-        assert_eq!(overlay_text(PlayState::Playing), None);
+        assert_eq!(overlay_text(PlayState::Playing, false), None);
         for s in [PlayState::Menu, PlayState::Paused, PlayState::EpisodeEnd] {
-            assert_eq!(overlay_text(s), None, "{s:?}");
+            assert_eq!(overlay_text(s, false), None, "{s:?}");
         }
         assert_eq!(
-            overlay_text(PlayState::Dead),
+            overlay_text(PlayState::Dead, true),
             Some("You died — press Use or Fire to restart")
         );
         assert_eq!(
-            overlay_text(PlayState::Complete),
+            overlay_text(PlayState::Complete, false),
             Some("Level complete — press Use or Fire to restart")
         );
+        // The stats screen replaces it in an episode.
+        assert_eq!(overlay_text(PlayState::Complete, true), None);
     }
 
     #[test]

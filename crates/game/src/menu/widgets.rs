@@ -11,13 +11,18 @@ pub const IDLE: Color = Color::srgba(0.1, 0.1, 0.15, 0.9);
 /// Button fill when selected (keyboard or hover).
 pub const SELECTED: Color = Color::srgb(0.8, 0.35, 0.05);
 /// Dimmed backdrop over the frozen level.
-const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.05, 0.75);
+pub const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.05, 0.8);
+/// Draw order of a menu: above every HUD layer (which stay below 20).
+pub const MENU_Z: i32 = 100;
 
 /// Spawns a full-screen menu root with a title and returns it; add rows with
 /// `commands.entity(root).with_children(..)`. Buttons are found in spawn order.
 pub fn spawn_screen(commands: &mut Commands, ui: &UiFont, title: &str) -> Entity {
     let mut root = commands.spawn((
         Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
             flex_direction: FlexDirection::Column,
@@ -27,7 +32,7 @@ pub fn spawn_screen(commands: &mut Commands, ui: &UiFont, title: &str) -> Entity
             ..default()
         },
         BackgroundColor(BACKDROP),
-        GlobalZIndex(50),
+        GlobalZIndex(MENU_Z),
         MenuRoot,
     ));
     root.with_children(|p| label(p, ui, title, 64.0, AMBER));

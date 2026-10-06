@@ -148,6 +148,7 @@ pub fn capture_input(
     }
     if keys.just_pressed(KeyCode::Escape) {
         capture.0 = None;
+        notice.0.clear();
         *armed = false;
         return;
     }
