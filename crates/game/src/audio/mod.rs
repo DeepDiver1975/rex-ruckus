@@ -5,7 +5,7 @@
 //! Every cue goes through [`play_cues`]: core events from `FxQueue` are mapped by the
 //! pure `rr_core::audio` functions, and the cues the game raises itself (footsteps, landing,
 //! powers switching on and off) wait in [`GameCues`]. Distance falloff is the bank's own
-//! [`gain`]; Bevy's spatial audio only pans (see [`spatial_scale`]).
+//! [`gain`]; Bevy's spatial audio mostly pans (see [`spatial_scale`]).
 //!
 //! The hero's quips (with a HUD subtitle) are in [`quips`], the level music in [`music`].
 //! [`AudioVolumes`] holds the mix; `M` mutes and `[` / `]` step the master volume.
@@ -187,7 +187,9 @@ impl Plugin for AudioFxPlugin {
                         .run_if(resource_changed::<AudioVolumes>)
                         .before(FxReaders),
                     attach_listener,
-                    (play_cues, loop_gain).chain().in_set(FxReaders),
+                    (play_cues, loop_gain, stop_movers_off_play)
+                        .chain()
+                        .in_set(FxReaders),
                     quips::play_quips
                         .in_set(FxReaders)
                         .run_if(resource_exists::<QuipState>),
@@ -268,6 +270,20 @@ fn player_cues(
         audio.powers.tick(jet && playing, nv, &mut raised);
     }
     cues.0.extend(raised.into_iter().map(|c| (c, None)));
+}
+
+/// `tick_movers` only runs while playing, so a door or lift moving at death or exit never sends
+/// its stop event; its hum would drone over the end screen. Like the jetpack, it ends with play.
+fn stop_movers_off_play(
+    mut commands: Commands,
+    state: Res<PlayState>,
+    loops: Query<Entity, With<MoverLoop>>,
+) {
+    if *state != PlayState::Playing {
+        for e in &loops {
+            commands.entity(e).try_despawn();
+        }
+    }
 }
 
 /// Scale for Bevy's spatial audio. Rodio attenuates by `1 / d²` in scaled units (capped at 1),

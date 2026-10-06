@@ -17,7 +17,7 @@ use rr_game::audio::{
 };
 use rr_game::combat::PlayerArsenal;
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
-use rr_game::flow::FlowPlugin;
+use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::mechanics::{HudMessage, HudSubtitle, MechanicsSimPlugin, insert_level};
 use rr_game::paths::assets_dir;
 use rr_game::player::PendingInput;
@@ -224,6 +224,22 @@ fn a_restart_silences_the_loops() {
     rr_game::flow::restart_level(app.world_mut());
     assert_eq!(count::<MoverLoop>(&mut app), 0);
     assert_eq!(count::<JetpackHum>(&mut app), 0);
+}
+
+#[test]
+fn mover_loops_stop_when_play_ends() {
+    for end in [PlayState::Dead, PlayState::Complete] {
+        let mut app = app();
+        fx(&mut app).mech.push(MechEvent::MoverStarted {
+            sector: 1,
+            kind: MoverKind::Door,
+        });
+        app.update();
+        assert_eq!(count::<MoverLoop>(&mut app), 1);
+        *app.world_mut().resource_mut::<PlayState>() = end;
+        app.update();
+        assert_eq!(count::<MoverLoop>(&mut app), 0, "{end:?}");
+    }
 }
 
 #[test]
