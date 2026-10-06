@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use rr_tools::{
-    audio::validate_audio, models::validate_models, svg::render_svg, synth::synth_file,
-    validate_episode, validate_file,
+    audio::validate_audio, fonts::validate_fonts, models::validate_models, svg::render_svg,
+    synth::synth_file, validate_episode, validate_file,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -74,6 +74,9 @@ fn main() -> ExitCode {
             print!("{report}");
             all_ok &= ok;
             let (report, ok) = validate_models(&assets);
+            print!("{report}");
+            all_ok &= ok;
+            let (report, ok) = validate_fonts(&assets);
             print!("{report}");
             all_ok &= ok;
             if all_ok {

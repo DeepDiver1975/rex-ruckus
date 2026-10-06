@@ -15,6 +15,7 @@ pub mod hud;
 pub mod inventory;
 pub mod level;
 pub mod mechanics;
+pub mod menu;
 pub mod models;
 pub mod paths;
 pub mod player;
@@ -84,6 +85,13 @@ impl Plugin for GamePlugin {
             },
         ));
         app.add_plugins(episode::EpisodePlugin);
+        // The episode starts at the title screen; direct-level and demo runs go straight to play.
+        if self.episode.is_some() && self.demo.is_none() {
+            app.insert_resource(flow::PlayState::Menu);
+        }
+        app.add_plugins(menu::MenuPlugin {
+            enabled: self.demo.is_none(),
+        });
         if let Some(demo) = &self.demo {
             app.add_plugins(demo::DemoPlugin {
                 script: demo.script.clone(),

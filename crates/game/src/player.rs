@@ -8,6 +8,7 @@ use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, use_key};
+use crate::menu::MenuScreen;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
@@ -117,6 +118,22 @@ pub struct PendingInput {
     pub toggle_jetpack: bool,
     /// Latched night-vision toggle press (N), applied by `use_inventory`.
     pub toggle_nv: bool,
+}
+
+impl PendingInput {
+    /// Drops every latched tap and the held fire (movement is re-read each frame anyway).
+    pub fn clear_taps(&mut self) {
+        self.use_pressed = false;
+        self.fire = false;
+        self.fire_pressed = false;
+        self.reload = false;
+        self.kick = false;
+        self.select = None;
+        self.cycle = 0;
+        self.use_medkit = false;
+        self.toggle_jetpack = false;
+        self.toggle_nv = false;
+    }
 }
 
 /// Whether a held fire button may shoot. Fire is armed only after the button was seen released
@@ -349,13 +366,21 @@ fn grab_cursor(
 }
 
 /// The pause binding toggles between playing and the pause menu.
-fn pause_on_escape(
+pub(crate) fn pause_on_escape(
     bindings: Res<Bindings>,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
+    screen: Option<Res<MenuScreen>>,
     mut state: ResMut<PlayState>,
 ) {
     if !bindings.just_pressed(Action::Pause, &keys, &buttons) {
+        return;
+    }
+    // On a sub-screen (options, controls) the key goes back a screen instead.
+    if screen
+        .and_then(|s| s.0)
+        .is_some_and(|s| s.back(*state).is_some())
+    {
         return;
     }
     match *state {
@@ -432,6 +457,13 @@ pub fn read_input(
         if scroll.delta.y != 0.0 {
             input.cycle += scroll.delta.y.signum() as i32;
         }
+    }
+    // A menu is up: nothing reads these latches, so a tap would otherwise fire on the resume.
+    if matches!(
+        *state,
+        PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd
+    ) {
+        input.clear_taps();
     }
 }
 

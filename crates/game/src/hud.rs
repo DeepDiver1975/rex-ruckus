@@ -135,6 +135,18 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
+        // Loaded here, not at Startup, so `spawn_hud` and the menus can rely on it. Without an
+        // asset server (headless tests) it stays the default handle.
+        if !app.world().contains_resource::<UiFont>() {
+            let ui = match (
+                app.world().get_resource::<AssetServer>(),
+                app.world().contains_resource::<Assets<Font>>(),
+            ) {
+                (Some(server), true) => UiFont(server.load(UI_FONT_PATH)),
+                _ => UiFont::default(),
+            };
+            app.insert_resource(ui);
+        }
         app.init_resource::<DamageFlash>()
             .init_resource::<HudSubtitle>()
             .add_systems(Startup, spawn_hud)
@@ -154,8 +166,18 @@ impl Plugin for HudPlugin {
     }
 }
 
-fn font(px: f32) -> TextFont {
+/// The UI font (Kenney Future). `Handle::default()` is Bevy's built-in font, used when the asset
+/// server is absent (headless tests) or the file is missing.
+#[derive(Resource, Clone, Default)]
+pub struct UiFont(pub Handle<Font>);
+
+/// Path of the UI font under `assets/`.
+pub const UI_FONT_PATH: &str = "fonts/kenney_future.ttf";
+
+/// A [`TextFont`] in the UI font at `px` pixels.
+pub fn font(ui: &UiFont, px: f32) -> TextFont {
     TextFont {
+        font: FontSource::Handle(ui.0.clone()),
         font_size: FontSize::Px(px),
         ..default()
     }
@@ -187,11 +209,11 @@ fn row(top: Val) -> Node {
     }
 }
 
-fn spawn_hud(mut commands: Commands) {
+fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
     commands.spawn(row(Val::Percent(60.0))).with_children(|p| {
         p.spawn((
             Text::new(""),
-            font(22.0),
+            font(&ui, 22.0),
             TextColor(Color::WHITE),
             PromptText,
         ));
@@ -199,7 +221,7 @@ fn spawn_hud(mut commands: Commands) {
     commands.spawn(row(Val::Px(24.0))).with_children(|p| {
         p.spawn((
             Text::new(""),
-            font(28.0),
+            font(&ui, 28.0),
             TextColor(Color::srgb(1.0, 0.85, 0.2)),
             MessageText,
         ));
@@ -208,7 +230,7 @@ fn spawn_hud(mut commands: Commands) {
     commands.spawn(row(Val::Percent(74.0))).with_children(|p| {
         p.spawn((
             Text::new(""),
-            font(20.0),
+            font(&ui, 20.0),
             TextColor(Color::srgb(0.85, 0.9, 1.0)),
             SubtitleText,
         ));
@@ -257,7 +279,12 @@ fn spawn_hud(mut commands: Commands) {
         ))
         .with_children(|bar| {
             let cell = |p: &mut ChildSpawnerCommands, kind: StatusCell, text: &str| {
-                p.spawn((Text::new(text), font(26.0), TextColor(Color::WHITE), kind));
+                p.spawn((
+                    Text::new(text),
+                    font(&ui, 26.0),
+                    TextColor(Color::WHITE),
+                    kind,
+                ));
             };
             cell(bar, StatusCell::Health, "HEALTH 100");
             cell(bar, StatusCell::Armour, "ARMOUR 0");
@@ -281,7 +308,7 @@ fn spawn_hud(mut commands: Commands) {
                 for item in [Item::Medkit, Item::Jetpack, Item::NightVision] {
                     strip.spawn((
                         Text::new(""),
-                        font(18.0),
+                        font(&ui, 18.0),
                         TextColor(INACTIVE),
                         StatusCell::Item(item),
                     ));
@@ -316,7 +343,7 @@ fn spawn_hud(mut commands: Commands) {
         .with_children(|p| {
             p.spawn((
                 Text::new(""),
-                font(36.0),
+                font(&ui, 36.0),
                 TextColor(Color::WHITE),
                 OverlayText,
             ));

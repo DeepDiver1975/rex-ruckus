@@ -653,3 +653,28 @@ fn hard_difficulty_spawns_hard_actors_after_restart() {
     );
     assert_eq!(app.world().resource::<LevelCombat>().0.damage_scale, 1.4);
 }
+
+/// Taps made while a menu is up are dropped, not kept for the first tick after resuming
+/// (a stale Use would open a door, a stale Reload would reload).
+#[test]
+fn taps_while_paused_do_not_survive_the_resume() {
+    for frozen in [PlayState::Menu, PlayState::Paused, PlayState::EpisodeEnd] {
+        let mut rig = InputRig::new(combat_room());
+        rig.frames(2);
+        *rig.app.world_mut().resource_mut::<PlayState>() = frozen;
+        {
+            let mut keys = rig.app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::KeyE);
+            keys.press(KeyCode::KeyR);
+            keys.press(KeyCode::KeyQ);
+        }
+        rig.mouse().press(MouseButton::Left);
+        rig.read_only();
+        *rig.app.world_mut().resource_mut::<PlayState>() = PlayState::Playing;
+        let i = input(&mut rig.app);
+        assert!(
+            !i.use_pressed && !i.reload && !i.use_medkit && !i.fire_pressed && !i.fire,
+            "{frozen:?}: stale latches after the resume"
+        );
+    }
+}

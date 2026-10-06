@@ -96,6 +96,14 @@ Scale, rotation, tint and attachment points are applied at runtime from `assets/
 | `assets/models/pickups/night_vision.glb` | Binoculars | Voxel_dev | https://poly.pizza/m/PLmfHOiB08 | CC0 | none |
 | `assets/models/pickups/jetpack.glb` | Lowpoly Jetpack: `Jetpacks.blend`, collection "Collection 1" | snabisch | https://opengameart.org/content/lowpoly-jetpack | CC0 | converted to glTF with Blender by `scripts/blend_to_glb.py` (Diffuse materials rebuilt as Principled in the same colours) |
 
+## Fonts
+
+The UI font (CC0 1.0, public domain; the pack's `License.txt` says so).
+
+| Repo path | Original font and file | Author | Source | Licence | Processing |
+|---|---|---|---|---|---|
+| `assets/fonts/kenney_future.ttf` | Kenney Fonts: Kenney Future.ttf | Kenney | https://kenney.nl/assets/kenney-fonts | CC0 | none (sha256 bd36e536cc26672bdba652547494a4877f2a446329bb7141840d9cd73bceffc2) |
+
 ## Voice
 
 Rex's spoken one-liners (`assets/quips/*.ogg`) are synthesised text-to-speech.
