@@ -17,11 +17,14 @@ mod music;
 mod quips;
 mod sfx;
 
+use crate::bindings::{Action, Binding, Bindings};
 use crate::combat::{FxReaders, PlayerInventory, eye_of};
 use crate::flow::{PlayState, SpawnLevel, run_spawn_level};
 use crate::mechanics::HudMessage;
+use crate::menu::Capture;
 use crate::paths::assets_dir;
 use crate::player::{Player, PlayerBody, PlayerCamera, PlayerSimSet, spawn_player};
+use crate::settings::{SaveSettings, Settings};
 use bevy::audio::{AudioSinkPlayback, SpatialAudioSink, SpatialScale, Volume};
 use bevy::prelude::*;
 use rr_core::audio::{Cue, CuePos, Footsteps, PowerWatch, SoundBankDef, SoundDef, gain};
@@ -322,13 +325,29 @@ fn loop_gain(
     }
 }
 
-/// `M` mutes or unmutes, `[` and `]` step the master volume; each shows on the HUD.
+/// `M` mutes or unmutes, `[` and `]` step the master volume; each shows on the HUD. The master
+/// goes through [`Settings`] (saved, and shown in the options) when it exists. The keys are
+/// ignored while a rebind captures a key and when the key is bound to a game action.
 fn volume_keys(
     keys: Res<ButtonInput<KeyCode>>,
+    bindings: Option<Res<Bindings>>,
+    capture: Option<Res<Capture>>,
+    mut settings: Option<ResMut<Settings>>,
+    mut save: Option<ResMut<SaveSettings>>,
     mut volumes: ResMut<AudioVolumes>,
     mut msg: ResMut<HudMessage>,
 ) {
-    if keys.just_pressed(KeyCode::KeyM) {
+    if capture.is_some_and(|c| c.0.is_some()) {
+        return;
+    }
+    let taken = |key: KeyCode| {
+        bindings.as_ref().is_some_and(|b| {
+            Action::ALL
+                .iter()
+                .any(|a| b.of(*a).contains(&Binding::Key(key)))
+        })
+    };
+    if keys.just_pressed(KeyCode::KeyM) && !taken(KeyCode::KeyM) {
         volumes.muted = !volumes.muted;
         msg.show(if volumes.muted {
             "Sound off"
@@ -340,15 +359,33 @@ fn volume_keys(
         (KeyCode::BracketLeft, -VOLUME_STEP),
         (KeyCode::BracketRight, VOLUME_STEP),
     ] {
-        if keys.just_pressed(key) {
-            volumes.step_master(delta);
-            let pct = (volumes.master * 100.0).round();
-            msg.show(if volumes.muted {
-                format!("Volume {pct}% (muted)")
-            } else {
-                format!("Volume {pct}%")
-            });
+        if !keys.just_pressed(key) || taken(key) {
+            continue;
         }
+        // The settings own the saved master; `apply_settings` copies it into the mix.
+        let master = if let Some(settings) = settings.as_deref_mut() {
+            let mut mix = AudioVolumes {
+                master: settings.master,
+                ..*volumes
+            };
+            mix.step_master(delta);
+            settings.master = mix.master;
+            if let Some(save) = save.as_deref_mut() {
+                save.0 = true;
+            }
+            mix.master
+        } else {
+            volumes.step_master(delta);
+            volumes.master
+        };
+        // The mix follows the settings only a frame later; keep it current for this frame.
+        volumes.master = master;
+        let pct = (master * 100.0).round();
+        msg.show(if volumes.muted {
+            format!("Volume {pct}% (muted)")
+        } else {
+            format!("Volume {pct}%")
+        });
     }
 }
 
@@ -393,6 +430,62 @@ fn apply_volumes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn keys_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Bindings>()
+            .init_resource::<Capture>()
+            .init_resource::<Settings>()
+            .init_resource::<SaveSettings>()
+            .init_resource::<AudioVolumes>()
+            .init_resource::<HudMessage>()
+            .add_systems(Update, volume_keys);
+        app
+    }
+
+    fn tap(app: &mut App, key: KeyCode) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.update();
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(key);
+        keys.clear();
+    }
+
+    #[test]
+    fn volume_keys_step_the_saved_master() {
+        let mut app = keys_app();
+        app.world_mut().resource_mut::<Settings>().master = 0.5;
+        tap(&mut app, KeyCode::BracketRight);
+        assert_eq!(app.world().resource::<Settings>().master, 0.6);
+        assert_eq!(app.world().resource::<AudioVolumes>().master, 0.6);
+        assert!(app.world().resource::<SaveSettings>().0, "saved on exit");
+        tap(&mut app, KeyCode::BracketLeft);
+        assert_eq!(app.world().resource::<Settings>().master, 0.5);
+        tap(&mut app, KeyCode::KeyM);
+        assert!(app.world().resource::<AudioVolumes>().muted);
+        assert_eq!(app.world().resource::<Settings>().master, 0.5);
+    }
+
+    #[test]
+    fn volume_keys_yield_to_capture_and_bindings() {
+        let mut app = keys_app();
+        let master = |app: &App| app.world().resource::<Settings>().master;
+        app.world_mut().resource_mut::<Capture>().0 = Some(Action::Jump);
+        tap(&mut app, KeyCode::BracketLeft);
+        tap(&mut app, KeyCode::KeyM);
+        assert_eq!(master(&app), 1.0);
+        assert!(!app.world().resource::<AudioVolumes>().muted);
+        app.world_mut().resource_mut::<Capture>().0 = None;
+        app.world_mut()
+            .resource_mut::<Bindings>()
+            .bind(Action::Jump, Binding::Key(KeyCode::BracketLeft));
+        tap(&mut app, KeyCode::BracketLeft);
+        assert_eq!(master(&app), 1.0, "bound to Jump");
+    }
 
     #[test]
     fn music_sinks_follow_the_music_slider() {

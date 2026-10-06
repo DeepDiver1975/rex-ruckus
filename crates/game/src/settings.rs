@@ -129,6 +129,10 @@ impl Settings {
 #[derive(Resource, Debug, Default)]
 pub struct SaveSettings(pub bool);
 
+/// Whether [`Settings`] changed since the last save; checked when the app exits.
+#[derive(Resource, Debug, Default)]
+struct Unsaved(bool);
+
 /// Loads [`Settings`] from `path` (`None`: defaults, never touches disk), applies them to the
 /// look, audio, binding and camera state, and saves on request. Add it before the plugins whose
 /// "insert if absent" defaults would otherwise win.
@@ -161,14 +165,18 @@ impl Plugin for SettingsPlugin {
         .insert_resource(settings)
         .insert_resource(SettingsPath(self.path.clone()))
         .init_resource::<SaveSettings>()
+        .init_resource::<Unsaved>()
         .add_systems(
             Update,
             (
                 apply_settings.run_if(resource_changed::<Settings>),
                 apply_fov,
+                track_unsaved,
                 save_settings.run_if(|f: Res<SaveSettings>| f.0),
-            ),
-        );
+            )
+                .chain(),
+        )
+        .add_systems(Last, save_on_exit);
     }
 }
 
@@ -208,20 +216,52 @@ fn apply_fov(settings: Res<Settings>, mut cameras: Query<&mut Projection, With<P
     }
 }
 
+/// Notes a change of the settings (not their first appearance) as not yet saved.
+fn track_unsaved(settings: Res<Settings>, mut unsaved: ResMut<Unsaved>) {
+    if settings.is_changed() && !settings.is_added() {
+        unsaved.0 = true;
+    }
+}
+
+/// Writes the settings file; a failure is logged and returned as `false`.
+fn write_settings(settings: &Settings, path: &SettingsPath) -> bool {
+    let Some(path) = &path.0 else { return true };
+    match settings.save_to(path) {
+        Ok(()) => true,
+        Err(e) => {
+            warn!("cannot save {}: {e}", path.display());
+            false
+        }
+    }
+}
+
 /// Writes the settings file once per request; a failure is logged and shown on the HUD.
 fn save_settings(
     settings: Res<Settings>,
     path: Res<SettingsPath>,
     mut flag: ResMut<SaveSettings>,
+    mut unsaved: ResMut<Unsaved>,
     msg: Option<ResMut<HudMessage>>,
 ) {
     flag.0 = false;
-    let Some(path) = &path.0 else { return };
-    if let Err(e) = settings.save_to(path) {
-        warn!("cannot save {}: {e}", path.display());
-        if let Some(mut msg) = msg {
-            msg.show("Could not save settings");
-        }
+    unsaved.0 = false;
+    if !write_settings(&settings, &path)
+        && let Some(mut msg) = msg
+    {
+        msg.show("Could not save settings");
+    }
+}
+
+/// Saves edits that were never saved (the app closed on the options screen).
+fn save_on_exit(
+    mut exits: MessageReader<AppExit>,
+    settings: Res<Settings>,
+    path: Res<SettingsPath>,
+    mut unsaved: ResMut<Unsaved>,
+) {
+    if exits.read().next().is_some() && unsaved.0 {
+        unsaved.0 = false;
+        write_settings(&settings, &path);
     }
 }
 
@@ -347,6 +387,25 @@ mod tests {
         app.update();
         assert_eq!(Settings::load_from(&p).0.fov_deg, 90.0);
         assert!(!app.world().resource::<SaveSettings>().0);
+    }
+
+    #[test]
+    fn exit_saves_unsaved_edits_only() {
+        let dir = tempdir();
+        let p = dir.join("s.ron");
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_plugins(SettingsPlugin {
+            path: Some(p.clone()),
+        });
+        app.update();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert!(!p.exists(), "no edits, no file");
+        app.world_mut().resource_mut::<Settings>().fov_deg = 100.0;
+        app.update();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(Settings::load_from(&p).0.fov_deg, 100.0);
     }
 
     #[test]
