@@ -90,6 +90,8 @@ fn main() {
     });
     // Without a level or a demo the game plays the episode.
     let episode = (args.level.is_none() && demo.is_none()).then(load_episode);
+    // Direct-level dev runs and demos use defaults and never write the settings file.
+    let settings = episode.is_some().then(rr_game::settings::Settings::path);
     let level = args.level.unwrap_or_else(|| "arsenal_depot.ron".into());
     App::new()
         .add_plugins(
@@ -110,6 +112,7 @@ fn main() {
             demo,
             audio,
             difficulty: args.difficulty,
+            settings,
         })
         .run();
 }

@@ -2,7 +2,10 @@
 //! OS config dir (`$RR_SETTINGS` overrides the path). A missing file means defaults; a broken
 //! one means defaults and a warning, never a crash.
 
+use crate::audio::AudioVolumes;
 use crate::bindings::Bindings;
+use crate::mechanics::HudMessage;
+use crate::player::{LookSettings, PlayerCamera};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -122,6 +125,98 @@ impl Settings {
     }
 }
 
+/// Set to `true` (by the options menu) to write [`Settings`] to [`SettingsPath`]; cleared after.
+#[derive(Resource, Debug, Default)]
+pub struct SaveSettings(pub bool);
+
+/// Loads [`Settings`] from `path` (`None`: defaults, never touches disk), applies them to the
+/// look, audio, binding and camera state, and saves on request. Add it before the plugins whose
+/// "insert if absent" defaults would otherwise win.
+pub struct SettingsPlugin {
+    pub path: Option<PathBuf>,
+}
+
+impl Plugin for SettingsPlugin {
+    fn build(&self, app: &mut App) {
+        let (settings, warning) = match &self.path {
+            Some(p) => Settings::load_from(p),
+            None => (Settings::default(), None),
+        };
+        if let Some(w) = warning {
+            warn!("{w}");
+        }
+        app.insert_resource(LookSettings {
+            sensitivity: settings.mouse_sensitivity,
+            invert_y: settings.invert_y,
+        })
+        .insert_resource(settings.bindings.clone())
+        .insert_resource(settings)
+        .insert_resource(SettingsPath(self.path.clone()))
+        .init_resource::<SaveSettings>()
+        .add_systems(
+            Update,
+            (
+                apply_settings.run_if(resource_changed::<Settings>),
+                apply_fov,
+                save_settings.run_if(|f: Res<SaveSettings>| f.0),
+            ),
+        );
+    }
+}
+
+/// Copies [`Settings`] into the live look, binding and volume resources (the mute toggle stays).
+pub fn apply_settings(
+    mut commands: Commands,
+    settings: Res<Settings>,
+    volumes: Option<ResMut<AudioVolumes>>,
+) {
+    commands.insert_resource(LookSettings {
+        sensitivity: settings.mouse_sensitivity,
+        invert_y: settings.invert_y,
+    });
+    commands.insert_resource(settings.bindings.clone());
+    if let Some(mut volumes) = volumes {
+        let next = AudioVolumes {
+            master: settings.master,
+            sfx: settings.sfx,
+            voice: settings.voice,
+            music: settings.music,
+            muted: volumes.muted,
+        };
+        volumes.set_if_neq(next);
+    }
+}
+
+/// Keeps the player camera's field of view on the setting, also for a camera spawned later.
+fn apply_fov(settings: Res<Settings>, mut cameras: Query<&mut Projection, With<PlayerCamera>>) {
+    let fov = settings.fov_deg.to_radians();
+    for mut proj in &mut cameras {
+        if let Projection::Perspective(p) = &*proj
+            && p.fov != fov
+            && let Projection::Perspective(p) = &mut *proj
+        {
+            p.fov = fov;
+        }
+    }
+}
+
+/// Writes the settings file once per request; a failure is logged and shown on the HUD.
+fn save_settings(
+    settings: Res<Settings>,
+    path: Res<SettingsPath>,
+    mut flag: ResMut<SaveSettings>,
+    msg: Option<ResMut<HudMessage>>,
+) {
+    flag.0 = false;
+    let Some(path) = &path.0 else { return };
+    if let Err(e) = settings.save_to(path) {
+        warn!("cannot save {}: {e}", path.display());
+        if let Some(mut msg) = msg {
+            msg.show("Could not save settings");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +281,73 @@ mod tests {
         let (s, warn) = Settings::load_from(&p);
         assert_eq!(s, Settings::default());
         assert!(warn.unwrap().contains("settings.ron"));
+    }
+
+    #[test]
+    fn settings_drive_look_volumes_and_bindings() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let mut s = Settings {
+            mouse_sensitivity: 0.004,
+            invert_y: true,
+            music: 0.2,
+            ..Default::default()
+        };
+        s.bindings.bind(Action::Jump, Binding::Key(KeyCode::KeyX));
+        app.insert_resource(s.clone())
+            .add_systems(Update, apply_settings);
+        app.insert_resource(AudioVolumes {
+            muted: true,
+            ..Default::default()
+        });
+        app.update();
+        let look = app.world().resource::<LookSettings>();
+        assert_eq!((look.sensitivity, look.invert_y), (0.004, true));
+        let v = app.world().resource::<AudioVolumes>();
+        assert_eq!((v.music, v.muted), (0.2, true));
+        assert_eq!(app.world().resource::<Bindings>(), &s.bindings);
+    }
+
+    #[test]
+    fn fov_follows_the_setting_even_for_a_late_camera() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(SettingsPlugin { path: None });
+        app.world_mut().resource_mut::<Settings>().fov_deg = 100.0;
+        app.update();
+        let cam = app
+            .world_mut()
+            .spawn((PlayerCamera, Projection::Perspective(default())))
+            .id();
+        app.update();
+        let Projection::Perspective(p) = app.world().get::<Projection>(cam).unwrap() else {
+            panic!("perspective")
+        };
+        assert!((p.fov - 100f32.to_radians()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn save_flag_writes_the_file_once() {
+        let dir = tempdir();
+        let p = dir.join("settings.ron");
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_plugins(SettingsPlugin {
+            path: Some(p.clone()),
+        });
+        app.world_mut().resource_mut::<Settings>().fov_deg = 90.0;
+        app.world_mut().resource_mut::<SaveSettings>().0 = true;
+        app.update();
+        assert_eq!(Settings::load_from(&p).0.fov_deg, 90.0);
+        assert!(!app.world().resource::<SaveSettings>().0);
+    }
+
+    #[test]
+    fn no_path_never_writes() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(SettingsPlugin { path: None });
+        app.world_mut().resource_mut::<SaveSettings>().0 = true;
+        app.update();
+        assert!(!app.world().resource::<SaveSettings>().0);
     }
 }

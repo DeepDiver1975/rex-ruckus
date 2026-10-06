@@ -347,21 +347,35 @@ fn volume_keys(
     }
 }
 
+/// A playing sound: its spawn settings, whether it is the music, and its (spatial) sink.
+type PlayingSound = (
+    &'static PlaybackSettings,
+    Option<&'static MusicTrack>,
+    Option<&'static mut AudioSink>,
+    Option<&'static mut SpatialAudioSink>,
+);
+
+/// A playing sound's volume before the global one: music follows the live music slider, the rest
+/// keep their spawn volume.
+fn sink_volume(spawn: Volume, is_music: bool, volumes: &AudioVolumes) -> Volume {
+    if is_music {
+        Volume::Linear(volumes.music)
+    } else {
+        spawn
+    }
+}
+
 /// Sets Bevy's [`GlobalVolume`] from the mix. It only applies to sounds as they start, so the
 /// playing ones are set again from their own spawn volume (mover loops follow in `loop_gain`).
 fn apply_volumes(
     mut commands: Commands,
     volumes: Res<AudioVolumes>,
-    mut sinks: Query<(
-        &PlaybackSettings,
-        Option<&mut AudioSink>,
-        Option<&mut SpatialAudioSink>,
-    )>,
+    mut sinks: Query<PlayingSound>,
 ) {
     let global = Volume::Linear(volumes.global());
     commands.insert_resource(GlobalVolume::new(global));
-    for (settings, sink, spatial) in &mut sinks {
-        let v = settings.volume * global;
+    for (settings, music, sink, spatial) in &mut sinks {
+        let v = sink_volume(settings.volume, music.is_some(), &volumes) * global;
         if let Some(mut sink) = sink {
             sink.set_volume(v);
         }
@@ -374,6 +388,17 @@ fn apply_volumes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn music_sinks_follow_the_music_slider() {
+        let v = AudioVolumes {
+            music: 0.2,
+            ..Default::default()
+        };
+        let spawn = Volume::Linear(0.9);
+        assert_eq!(sink_volume(spawn, true, &v), Volume::Linear(0.2));
+        assert_eq!(sink_volume(spawn, false, &v), spawn);
+    }
 
     #[test]
     fn master_steps_in_tenths_within_range() {

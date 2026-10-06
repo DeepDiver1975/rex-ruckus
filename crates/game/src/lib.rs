@@ -38,6 +38,8 @@ pub struct GamePlugin {
     pub audio: audio::AudioOptions,
     /// Skill the level is played on.
     pub difficulty: rr_core::difficulty::Difficulty,
+    /// Settings file to read and save; `None` uses defaults and never touches disk.
+    pub settings: Option<std::path::PathBuf>,
 }
 
 impl Plugin for GamePlugin {
@@ -54,7 +56,12 @@ impl Plugin for GamePlugin {
         mechanics::insert_level(app, first, self.difficulty);
         combat::insert_defs(app, combat::load_defs());
         // Models load before the plugins whose spawns use them.
-        app.add_plugins(models::ModelsPlugin).add_plugins((
+        app.add_plugins(models::ModelsPlugin);
+        // Before the plugins that only insert look and binding defaults when absent.
+        app.add_plugins(settings::SettingsPlugin {
+            path: self.settings.clone(),
+        });
+        app.add_plugins((
             flow::FlowPlugin,
             LevelRenderPlugin,
             player::PlayerSimPlugin,
