@@ -129,6 +129,19 @@ class Body:
         self._place(res["verts"], loc, rot)
         return self._finish(res["verts"], bone, mat, bevel)
 
+    def between(self, bone, mat, a, b, r1, r2, seg=6, bevel=0.0):
+        """A (tapered) cylinder from point a (radius r1) to point b (radius r2)."""
+        a, b = Vector(a), Vector(b)
+        rot = [math.degrees(x) for x in (b - a).to_track_quat("Z", "Y").to_euler()]
+        return self.cyl(bone, mat, (a + b) / 2, r1, r2, (b - a).length, rot=rot, seg=seg,
+                        bevel=bevel)
+
+    def spike_to(self, bone, mat, a, b, r, seg=4):
+        """A cone from point a (radius r) to a point at b."""
+        a, b = Vector(a), Vector(b)
+        rot = [math.degrees(x) for x in (b - a).to_track_quat("Z", "Y").to_euler()]
+        return self.spike(bone, mat, a, r, (b - a).length, rot=rot, seg=seg)
+
     def ball(self, bone, mat, loc, r, scale=(1, 1, 1), rot=(0, 0, 0), sub=1):
         res = bmesh.ops.create_icosphere(self.bm, subdivisions=sub, radius=r)
         for v in res["verts"]:
@@ -153,8 +166,38 @@ class Body:
         for v in verts:
             v.co = m @ v.co
 
+    def _canonical(self):
+        """Rebuilds the mesh in a canonical vertex and face order. Bevel orders its output by
+        memory address, so without this the same script would export different files."""
+        dl = self.deform
+        key = {v: (tuple(round(c, 5) for c in v.co), tuple(sorted(v[dl].items()))) for v in
+               self.bm.verts}
+        verts = sorted(self.bm.verts, key=key.get)
+        index = {v: i for i, v in enumerate(verts)}
+        faces = []
+        for f in self.bm.faces:
+            idx = [index[v] for v in f.verts]
+            r = idx.index(min(idx))
+            faces.append((tuple(idx[r:] + idx[:r]), f.material_index))
+        faces.sort()
+        bm = bmesh.new()
+        ndl = bm.verts.layers.deform.verify()
+        new = []
+        for v in verts:
+            nv = bm.verts.new(v.co)
+            for g, w in v[dl].items():
+                nv[ndl][g] = w
+            new.append(nv)
+        for idx, mi in faces:
+            f = bm.faces.new([new[i] for i in idx])
+            f.material_index = mi
+            f.smooth = False
+        self.bm.free()
+        self.bm, self.deform = bm, ndl
+
     def object(self):
         bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=1e-5)
+        self._canonical()
         bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
         mesh = bpy.data.meshes.new(self.name)
         self.bm.to_mesh(mesh)
@@ -188,7 +231,11 @@ def both(fn):
 
 
 def armature(name, bones):
-    """bones: [(name, head, tail, parent or None, deform)]; returns the armature object."""
+    """bones: [(name, head, tail, parent or None, deform)]; returns the armature object.
+
+    All rolls are 0. Bones pointing straight up or down get X = world X; a bone pointing
+    forwards should tilt down a little (see peeper.py), since an exactly level one gets
+    X = -world X and every pitch in its poses flips."""
     data = bpy.data.armatures.new(name)
     arm = bpy.data.objects.new(name, data)
     bpy.context.scene.collection.objects.link(arm)
@@ -206,6 +253,30 @@ def armature(name, bones):
     return arm
 
 
+def biped(hip_x, hip_z, knee_z, ankle_z, waist_z, chest_z, neck_z, head_z, head_top,
+          shoulder_x, shoulder_z, elbow_z, wrist_z, hand_z, toe=(-0.16, 0.04)):
+    """The standard humanoid bones: limbs hang straight down and the spine points straight up,
+    so a pose means the same on every character (see the per-model notes on rotation axes)."""
+    b = [
+        ("Hips", (0, 0, hip_z), (0, 0, waist_z), None, True),
+        ("Spine", (0, 0, waist_z), (0, 0, chest_z), "Hips", True),
+        ("Chest", (0, 0, chest_z), (0, 0, neck_z), "Spine", True),
+        ("Neck", (0, 0, neck_z), (0, 0, head_z), "Chest", True),
+        ("Head", (0, 0, head_z), (0, 0, head_top), "Neck", True),
+    ]
+    for s, sfx in ((1, ".L"), (-1, ".R")):
+        x, lx = s * shoulder_x, s * hip_x
+        b += [
+            ("UpperArm" + sfx, (x, 0, shoulder_z), (x, 0, elbow_z), "Chest", True),
+            ("LowerArm" + sfx, (x, 0, elbow_z), (x, 0, wrist_z), "UpperArm" + sfx, True),
+            ("Hand" + sfx, (x, 0, wrist_z), (x, 0, hand_z), "LowerArm" + sfx, True),
+            ("UpperLeg" + sfx, (lx, 0, hip_z), (lx, 0, knee_z), "Hips", True),
+            ("LowerLeg" + sfx, (lx, 0, knee_z), (lx, 0, ankle_z), "UpperLeg" + sfx, True),
+            ("Foot" + sfx, (lx, 0, ankle_z), (lx, toe[0], toe[1]), "LowerLeg" + sfx, True),
+        ]
+    return b
+
+
 def skin(body_obj, arm):
     body_obj.parent = arm
     mod = body_obj.modifiers.new("Armature", "ARMATURE")
@@ -215,15 +286,17 @@ def skin(body_obj, arm):
 # --- animation -------------------------------------------------------------------------------
 
 
-def clip(arm, name, keys, loop=True):
+def clip(arm, name, keys, loop=True, linear=False, closed=False):
     """keys: [(frame, {bone: {"r": (x, y, z) degrees, "l": (x, y, z) metres}})]. Every bone
     is keyed at every key frame (unlisted bones at rest), so clips never leak into each other.
-    A looping clip gets its first key repeated at the end automatically if it isn't already."""
+    A looping clip gets its first key repeated at the end automatically if it isn't already.
+    `linear` keys without easing, for steady spins (rotors); `closed` says the keys already end
+    on a pose equivalent to the first (e.g. a rotor a whole turn on), so none is added."""
     act = bpy.data.actions.new(name)
     act.use_fake_user = True
     arm.animation_data_create()
     arm.animation_data.action = act
-    if loop and keys[-1][1] is not keys[0][1]:
+    if loop and not closed and keys[-1][1] is not keys[0][1]:
         period = keys[-1][0] + (keys[1][0] - keys[0][0] if len(keys) > 1 else 1)
         keys = keys + [(period, keys[0][1])]
     for frame, pose in keys:
@@ -233,6 +306,13 @@ def clip(arm, name, keys, loop=True):
             pb.location = k.get("l", (0, 0, 0))
             pb.keyframe_insert("rotation_euler", frame=frame)
             pb.keyframe_insert("location", frame=frame)
+    if linear:
+        for layer in act.layers:
+            for strip in layer.strips:
+                for bag in strip.channelbags:
+                    for fc in bag.fcurves:
+                        for kp in fc.keyframe_points:
+                            kp.interpolation = "LINEAR"
     act.frame_range = (keys[0][0], keys[-1][0])
     act.use_frame_range = True
     act.use_cyclic = loop

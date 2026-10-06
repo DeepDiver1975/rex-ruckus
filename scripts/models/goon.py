@@ -28,23 +28,8 @@ GRIP = (-SHOULDER_X, -0.01, WRIST_Z - 0.055)
 
 
 def bones():
-    b = [
-        ("Hips", (0, 0, HIP_Z), (0, 0, WAIST_Z), None, True),
-        ("Spine", (0, 0, WAIST_Z), (0, 0, CHEST_Z), "Hips", True),
-        ("Chest", (0, 0, CHEST_Z), (0, 0, NECK_Z), "Spine", True),
-        ("Neck", (0, 0, NECK_Z), (0, 0, HEAD_Z), "Chest", True),
-        ("Head", (0, 0, HEAD_Z), (0, 0, HEAD_Z + 0.25), "Neck", True),
-    ]
-    for s, sfx in ((1, ".L"), (-1, ".R")):
-        x = s * SHOULDER_X
-        b += [
-            ("UpperArm" + sfx, (x, 0, SHOULDER_Z), (x, 0, ELBOW_Z), "Chest", True),
-            ("LowerArm" + sfx, (x, 0, ELBOW_Z), (x, 0, WRIST_Z), "UpperArm" + sfx, True),
-            ("Hand" + sfx, (x, 0, WRIST_Z), (x, 0, HAND_Z), "LowerArm" + sfx, True),
-            ("UpperLeg" + sfx, (s * HIP_X, 0, HIP_Z), (s * HIP_X, 0, KNEE_Z), "Hips", True),
-            ("LowerLeg" + sfx, (s * HIP_X, 0, KNEE_Z), (s * HIP_X, 0, ANKLE_Z), "UpperLeg" + sfx, True),
-            ("Foot" + sfx, (s * HIP_X, 0, ANKLE_Z), (s * HIP_X, -0.16, 0.04), "LowerLeg" + sfx, True),
-        ]
+    b = rrkit.biped(HIP_X, HIP_Z, KNEE_Z, ANKLE_Z, WAIST_Z, CHEST_Z, NECK_Z, HEAD_Z, HEAD_Z + 0.25,
+                    SHOULDER_X, SHOULDER_Z, ELBOW_Z, WRIST_Z, HAND_Z)
     # The cannon's muzzle, for the shot glow (models.ron `tip: Node("Muzzle")`).
     mz = tuple(g + o for g, o in zip(GRIP, hand_cannon.MUZZLE))
     b.append(("Muzzle", mz, (mz[0], mz[1] - 0.05, mz[2]), "Hand.R", False))

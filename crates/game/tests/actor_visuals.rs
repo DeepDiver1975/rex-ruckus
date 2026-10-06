@@ -442,7 +442,7 @@ fn model_root(app: &mut App, idx: usize) -> Entity {
 
 /// Stands in for a loaded glTF: gives `kind` an animation graph with `roles` and makes the
 /// model of every actor of that kind "ready", with a player bound to the graph, two meshes
-/// sharing one material (as glTF meshes do) and the `Hand.R` and `Gun_end` nodes.
+/// sharing one material (as glTF meshes do) and the `Hand.R` and `Muzzle` nodes.
 fn fake_ready(
     app: &mut App,
     kind: ActorKind,
@@ -500,7 +500,7 @@ fn fake_ready(
             .map(|_| w.spawn((MeshMaterial3d(material.clone()), ChildOf(m))).id())
             .collect();
         let mut named = HashMap::new();
-        for name in ["Hand.R", "Gun_end"] {
+        for name in ["Hand.R", "Muzzle"] {
             let e = w
                 .spawn((Name::new(name), Transform::default(), ChildOf(player)))
                 .id();
@@ -737,24 +737,24 @@ fn the_attachment_is_scale_corrected_the_frame_it_attaches() {
     );
 }
 
-/// The Enforcer's tip glow sits on its `Gun_end` node and lights only after a shot.
+/// The Enforcer's tip glow sits on its `Muzzle` node and lights only after a shot.
 #[test]
 fn a_node_tip_glows_after_a_shot() {
     let mut app = app_with(&[ActorKind::Enforcer]);
     fake_ready(&mut app, ActorKind::Enforcer, &ClipRole::ALL);
     app.update();
     let m = model_root(&mut app, 0);
-    let gun_end = app.world().get::<ModelReady>(m).unwrap().nodes["Gun_end"];
+    let muzzle = app.world().get::<ModelReady>(m).unwrap().nodes["Muzzle"];
     let tip = |app: &mut App| -> Visibility {
         let mut q = app
             .world_mut()
             .query_filtered::<(&ChildOf, &Visibility), With<Mesh3d>>();
         let v: Vec<_> = q
             .iter(app.world())
-            .filter(|(c, _)| c.parent() == gun_end)
+            .filter(|(c, _)| c.parent() == muzzle)
             .map(|(_, v)| *v)
             .collect();
-        assert_eq!(v.len(), 1, "one tip sphere on Gun_end");
+        assert_eq!(v.len(), 1, "one tip sphere on Muzzle");
         v[0]
     };
     app.update();

@@ -267,7 +267,7 @@ fn spawn_tip(commands: &mut Commands, a: &ActorAssets, parent: Entity, t: Transf
         .id()
 }
 
-/// Parents the tip glow to its named node (e.g. `Gun_end`) once the model is ready.
+/// Parents the tip glow to its named node (e.g. `Muzzle`) once the model is ready.
 fn attach_tips(
     mut commands: Commands,
     a: Res<ActorAssets>,

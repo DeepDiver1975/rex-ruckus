@@ -6,7 +6,8 @@
 #   MODEL is a script name without .py (default: all of them).
 #   --preview DIR also writes turnaround and per-clip contact sheets (PNG) into DIR.
 #
-# Built with Blender 5.0.1; the export is not byte-reproducible across Blender versions.
+# Built with Blender 5.0.1. A rebuild reproduces the committed files byte for byte with the same
+# Blender version, not across versions.
 # BLENDER overrides the binary. It runs with a minimal PATH because Blender's embedded Python
 # finds its standard library through PATH, and a user-installed python3.x (pyenv, uv) would
 # shadow the one Blender was built against.
@@ -18,6 +19,9 @@ blender="$(command -v "${BLENDER:-blender}")" || { echo "blender is needed (apt 
 # Model script -> output path under assets/.
 declare -A out=(
     [goon]=models/enemies/grunt.glb
+    [bruiser]=models/enemies/enforcer.glb
+    [gnasher]=models/enemies/slasher.glb
+    [peeper]=models/enemies/drone.glb
     [hand_cannon]=models/weapons/hand_cannon.glb
 )
 
