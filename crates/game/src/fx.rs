@@ -4,6 +4,7 @@
 use crate::combat::{FxQueue, FxReaders, eye_of};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
+use crate::mechanics::LevelMechanics;
 use crate::player::{Player, PlayerBody, PlayerCamera, update_camera};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -47,6 +48,11 @@ impl ScreenShake {
         self.trauma = (self.trauma + gain).min(1.0);
     }
 
+    /// A running quake keeps the shake at least this strong; never lowers it.
+    pub fn hold(&mut self, level: f32) {
+        self.trauma = self.trauma.max(level.clamp(0.0, 1.0));
+    }
+
     pub fn decay(&mut self, dt: f32) {
         self.trauma = (self.trauma - TRAUMA_DECAY * dt).max(0.0);
     }
@@ -80,6 +86,7 @@ impl Plugin for FxPlugin {
                 Update,
                 (age_explosions, decay_shake).after(spawn_explosions),
             )
+            .add_systems(Update, quake_shake.after(decay_shake))
             .add_systems(
                 RunFixedMainLoop,
                 apply_shake
@@ -192,6 +199,13 @@ fn decay_shake(time: Res<Time>, mut shake: ResMut<ScreenShake>) {
     shake.decay(time.delta_secs());
 }
 
+/// Keeps the screen shaking for as long as a quake runs.
+fn quake_shake(mech: Option<Res<LevelMechanics>>, mut shake: ResMut<ScreenShake>) {
+    if let Some(m) = mech {
+        shake.hold(m.0.quake_strength());
+    }
+}
+
 /// Nudges the camera by the shake, on top of the transform `update_camera` just set (which
 /// is rebuilt from the sim every frame, so the offset never accumulates or reaches the player).
 fn apply_shake(
@@ -213,6 +227,16 @@ fn apply_shake(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hold_keeps_trauma_at_least_the_quake() {
+        let mut s = ScreenShake::default();
+        s.hold(0.6);
+        assert_eq!(s.trauma, 0.6);
+        s.trauma = 0.9;
+        s.hold(0.6);
+        assert_eq!(s.trauma, 0.9, "never lowers it");
+    }
 
     #[test]
     fn trauma_scales_with_distance_and_clamps() {

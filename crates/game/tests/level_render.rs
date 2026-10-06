@@ -246,3 +246,10 @@ fn crack_sectors_use_the_cracked_material() {
     assert_eq!(map.sectors[1].wall_mat, id);
     assert_eq!(map.sectors[0].face_mat, None, "other sectors untouched");
 }
+
+#[test]
+fn hazard_sectors_use_their_material() {
+    let (map, _) = rr_game::mechanics::fresh_level(rr_core::fixtures::engine_room(""));
+    assert_eq!(map.0.materials[map.0.sectors[3].floor_mat], "slime");
+    assert_eq!(map.0.materials[map.0.sectors[0].floor_mat], "floor");
+}

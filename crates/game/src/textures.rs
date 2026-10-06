@@ -11,6 +11,10 @@ pub const SIZE: u32 = 32;
 /// Material name of crack walls (see `mechanics::mark_crack_walls`).
 pub const CRACKED: &str = "cracked";
 
+/// Material names of hazard floors (see `mechanics::mark_hazard_floors`).
+pub const SLIME: &str = "slime";
+pub const ELECTRIC: &str = "electric";
+
 /// Cheap deterministic integer hash → 0..=255 noise.
 fn noise(x: u32, y: u32, seed: u32) -> u8 {
     let mut h = x.wrapping_mul(374_761_393)
@@ -49,6 +53,19 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
                 [25, 25, 25, 255]
             } else {
                 shade([105, 105, 100], n * 2)
+            }
+        }
+        // Toxic green with lighter bubble rings.
+        SLIME => shade(
+            [60, 170, 40],
+            n * 3 + if (x + 3 * y) % 11 == 0 { 45 } else { 0 },
+        ),
+        // Dark blue with a bright crackling zigzag.
+        ELECTRIC => {
+            if x == 4 + (y % 8) * 3 % 24 || y == 16 {
+                [150, 220, 255, 255]
+            } else {
+                shade([20, 30, 70], n)
             }
         }
         // Pane: pale blue with diagonal glints; the level material blends it translucent.
@@ -146,6 +163,16 @@ mod tests {
             assert_eq!(a.len(), (SIZE * SIZE * 4) as usize, "{name}");
             assert_eq!(a, pixels(name), "{name} must be deterministic");
         }
+    }
+
+    #[test]
+    fn hazard_textures_differ_from_each_other_and_the_checker() {
+        let (s, e, missing) = (pixels(SLIME), pixels(ELECTRIC), pixels("does-not-exist"));
+        assert_eq!(s.len(), (SIZE * SIZE * 4) as usize);
+        assert_ne!(s, e);
+        assert_ne!(s, missing);
+        assert_ne!(e, missing);
+        assert_eq!(s, pixels(SLIME), "deterministic");
     }
 
     #[test]

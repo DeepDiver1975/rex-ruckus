@@ -240,6 +240,9 @@ pub fn restart_level(world: &mut World) {
     if let Some(mut flash) = world.get_resource_mut::<crate::hud::DamageFlash>() {
         flash.0 = 0.0;
     }
+    if let Some(mut color) = world.get_resource_mut::<crate::hud::FlashColor>() {
+        *color = default();
+    }
     // Likewise in place: the viewmodel and camera state carry over from the dead run otherwise
     // (the gun swings in from the death-time look, the view rolls back upright over ~0.2 s).
     if let Some(mut view) = world.get_resource_mut::<crate::viewmodel::ViewState>() {

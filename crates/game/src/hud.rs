@@ -15,6 +15,7 @@ use crate::props::key_color;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::WeaponId;
+use rr_core::hazard::HazardKind;
 use rr_core::inventory::{BATTERY_MAX, FUEL_MAX, Inventory as Carried, MEDKIT_MAX};
 use rr_core::map::{Key, Map, MoverKind, SwitchAction};
 use rr_core::mechanics::{Mechanics, UseTarget};
@@ -75,6 +76,41 @@ struct FlashNode;
 struct OverlayNode;
 #[derive(Component)]
 struct OverlayText;
+
+const HURT_RED: Color = Color::srgb(0.85, 0.0, 0.0);
+
+/// The flash colour; red unless a hazard burned.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct FlashColor(pub Color);
+
+impl Default for FlashColor {
+    fn default() -> Self {
+        FlashColor(HURT_RED)
+    }
+}
+
+pub fn hazard_color(kind: HazardKind) -> Color {
+    match kind {
+        HazardKind::Slime => Color::srgb(0.25, 0.85, 0.1),
+        HazardKind::Electric => Color::srgb(0.3, 0.6, 1.0),
+    }
+}
+
+/// The flash colour for a frame's events: `None` without a `PlayerHurt`; a hazard's colour when
+/// a `HazardBurn` came with it; red otherwise.
+pub fn hurt_tint(events: &[CombatEvent]) -> Option<Color> {
+    if !events
+        .iter()
+        .any(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
+    {
+        return None;
+    }
+    let hazard = events.iter().rev().find_map(|e| match e {
+        CombatEvent::HazardBurn { kind } => Some(hazard_color(*kind)),
+        _ => None,
+    });
+    Some(hazard.unwrap_or(HURT_RED))
+}
 
 /// Red screen flash strength in 0..=1.
 #[derive(Resource, Default, Debug)]
@@ -180,6 +216,7 @@ impl Plugin for HudPlugin {
             app.insert_resource(ui);
         }
         app.init_resource::<DamageFlash>()
+            .init_resource::<FlashColor>()
             .init_resource::<HudSubtitle>()
             .add_systems(Startup, spawn_hud)
             .add_systems(
@@ -578,7 +615,10 @@ fn update_keycards(
 }
 
 /// An [`FxReaders`] system: it only reads the queue.
-fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>) {
+fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>, mut color: ResMut<FlashColor>) {
+    if let Some(c) = hurt_tint(&fx.combat) {
+        color.0 = c;
+    }
     for ev in &fx.combat {
         if let CombatEvent::PlayerHurt { amount, .. } = ev {
             flash.0 = flash_add(flash.0, *amount);
@@ -589,12 +629,10 @@ fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>) {
 fn update_flash(
     time: Res<Time>,
     mut flash: ResMut<DamageFlash>,
+    color: Res<FlashColor>,
     mut node: Single<&mut BackgroundColor, With<FlashNode>>,
 ) {
-    set_bg(
-        &mut node,
-        Color::srgba(0.85, 0.0, 0.0, flash.0 * FLASH_ALPHA),
-    );
+    set_bg(&mut node, color.0.with_alpha(flash.0 * FLASH_ALPHA));
     if flash.0 > 0.0 {
         flash.0 = flash_decay(flash.0, time.delta_secs());
     }
@@ -622,6 +660,24 @@ fn update_overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rr_core::hazard::HazardKind;
+
+    #[test]
+    fn hazard_burns_tint_the_flash() {
+        let hurt = CombatEvent::PlayerHurt {
+            amount: 4,
+            from: Vec3::ZERO,
+        };
+        assert_eq!(hurt_tint(&[]), None);
+        assert_eq!(hurt_tint(std::slice::from_ref(&hurt)), Some(HURT_RED));
+        let slime = CombatEvent::HazardBurn {
+            kind: HazardKind::Slime,
+        };
+        assert_eq!(
+            hurt_tint(&[slime, hurt]),
+            Some(hazard_color(HazardKind::Slime))
+        );
+    }
 
     use rr_core::fixtures::{door_rooms, lift_shaft};
 

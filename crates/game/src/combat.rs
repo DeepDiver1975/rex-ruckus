@@ -5,7 +5,7 @@
 use crate::episode::Episode;
 use crate::flow::{LevelDifficulty, PlayState, SpawnLevel};
 use crate::level::CurrentMap;
-use crate::mechanics::{DirtySectors, LevelMechanics};
+use crate::mechanics::{DirtySectors, HudMessage, LevelMechanics, finish_level};
 use crate::paths::assets_dir;
 use crate::player::{
     EYE_BELOW_TOP, Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player,
@@ -122,6 +122,7 @@ impl Plugin for CombatSimPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FxQueue>()
             .init_resource::<PlayState>()
+            .init_resource::<HudMessage>()
             .init_resource::<DirtySectors>()
             .add_systems(SpawnLevel, spawn_combat.after(spawn_player))
             .add_systems(
@@ -246,6 +247,8 @@ fn combat_tick(
     defs: Res<GameDefs>,
     mut combat: ResMut<LevelCombat>,
     mut fx: ResMut<FxQueue>,
+    mut state: ResMut<PlayState>,
+    mut msg: ResMut<HudMessage>,
     mut q: Query<(&mut PlayerBody, &mut PlayerVitals), With<Player>>,
 ) {
     let dt = time.timestep().as_secs_f32();
@@ -260,6 +263,13 @@ fn combat_tick(
             .0
             .tick(&mut map.0, &mut mech.0, &defs.0, &mut target, dt);
         mark_dirty(&out, &mut dirty);
+        for ev in &out {
+            if let CombatEvent::DeathAction(action) = *ev
+                && mech.0.apply(action)
+            {
+                finish_level(&mut state, &mut msg);
+            }
+        }
         fx.combat.extend(out);
     }
 }
