@@ -17,7 +17,7 @@ fn rebuild_replaces_meshes_of_changed_sector_and_neighbours() {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
         .init_resource::<DirtySectors>()
-        .insert_resource(LevelMaterials(vec![Handle::default(); 4]))
+        .insert_resource(LevelMaterials(vec![Handle::default(); 4], Vec::new()))
         .add_systems(Update, rebuild_dirty_sectors);
     insert_level(&mut app, door_rooms("(kind: Door)", ""), Difficulty::Normal);
     app.world_mut().resource_mut::<DirtySectors>().0.insert(1);
@@ -54,7 +54,7 @@ fn rebuild_despawns_old_meshes_and_spares_unaffected_sectors() {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
         .init_resource::<DirtySectors>()
-        .insert_resource(LevelMaterials(vec![Handle::default(); 4]))
+        .insert_resource(LevelMaterials(vec![Handle::default(); 4], Vec::new()))
         .add_systems(Update, rebuild_dirty_sectors);
     insert_level(&mut app, door_rooms("(kind: Door)", ""), Difficulty::Normal);
     app.world_mut()

@@ -686,3 +686,25 @@ fn taps_while_paused_do_not_survive_the_resume() {
         );
     }
 }
+
+#[test]
+fn switching_to_a_level_with_more_materials_renders_it() {
+    // The next level of an episode lists materials the first one did not (glass, crack walls
+    // and plain extra textures): its sectors index past the first level's material table.
+    let mut app = full_app(combat_room());
+    let mut next = combat_room();
+    next.name = "bigger room".into();
+    next.materials
+        .extend(["tile".to_string(), "wood".to_string()]);
+    let last = next.materials.len() - 1;
+    next.sectors[0].floor_mat = last;
+    rr_game::flow::load_level(app.world_mut(), next);
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<rr_game::level::LevelMaterials>()
+            .0
+            .len(),
+        last + 1
+    );
+}
