@@ -71,6 +71,12 @@ The default level is `arsenal_depot.ron`, the M4a showcase: rockets and explodin
 
 Add `--mute` to start with the sound off (`M` toggles it in game).
 
+## Models
+
+Enemies, viewmodel weapons and pickups are CC0 glTF models in `assets/models/`, mapped to the game
+by `assets/defs/models.ron` and imported with `scripts/import-models.sh` (sources in `CREDITS.md`).
+The boot, kick leg and switch panels are built from primitives at runtime.
+
 ## Tuning
 
 Weapon and enemy stats live in `assets/defs/weapons.ron` and `assets/defs/enemies.ron`; edit them and restart.
@@ -80,7 +86,7 @@ Weapon and enemy stats live in `assets/defs/weapons.ron` and `assets/defs/enemie
     cargo run -p rr-tools -- validate assets/levels/*.ron
     cargo run -p rr-tools -- render-svg assets/levels/arsenal_depot.ron -o depot.svg
 
-`validate` also checks that the sound bank covers every event, that quip files exist, that level music files exist and that every third-party audio file is listed in `CREDITS.md`.
+`validate` also checks that the sound bank covers every event, that quip files exist, that level music files exist and that models cover every enemy, weapon and pickup (clip and bone names, triangle budget) and that every third-party audio and model file is listed in `CREDITS.md`.
 
 In the SVG, glass panes are dashed cyan, crack walls hatched and secret sectors starred.
 
