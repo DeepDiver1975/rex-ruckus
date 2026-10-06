@@ -31,24 +31,37 @@ pub fn use_target(map: &Map, mech: &Mechanics, body: &Body, heading: f32) -> Opt
         })
         .collect();
     hits.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let prop = crate::props::ray_prop(map, origin, dir, USE_RANGE);
 
-    for (_, wid) in hits {
+    let mut open = true;
+    for (t, wid) in hits {
+        if let Some((tp, i)) = prop
+            && tp <= t
+        {
+            return Some(UseTarget::Prop(i));
+        }
         if let Some(i) = map.switches.iter().position(|s| s.wall == wid) {
             return Some(UseTarget::Switch(i));
         }
         let Some(next) = map.walls[wid].passage() else {
+            open = false;
             break;
         };
         if let Some(m) = mech.mover_in(next) {
             if manual(m) {
                 return Some(UseTarget::Mover(m));
             }
+            open = false;
             break;
         }
         let far = &map.sectors[next];
         if !(far.floor_z < eye && eye < far.ceil_z) {
+            open = false;
             break;
         }
+    }
+    if open && let Some((_, i)) = prop {
+        return Some(UseTarget::Prop(i));
     }
     mech.mover_in(body.sector)
         .filter(|&m| manual(m))
@@ -129,6 +142,25 @@ mod tests {
         assert_eq!(
             use_target(&map, &mech, &at(&map, 3.5, 2.0), 0.0),
             Some(UseTarget::Mover(0))
+        );
+    }
+
+    #[test]
+    fn facing_a_prop_targets_it_before_the_fallback() {
+        let mut map = crate::fixtures::engine_room("");
+        let mech = Mechanics::new(&mut map);
+        assert_eq!(
+            use_target(&map, &mech, &at(&map, 16.0, 3.0), -PI / 2.0),
+            Some(UseTarget::Prop(2))
+        );
+        assert_eq!(
+            use_target(&map, &mech, &at(&map, 14.0, 2.5), PI / 2.0),
+            Some(UseTarget::Prop(0))
+        );
+        assert_eq!(
+            use_target(&map, &mech, &at(&map, 16.0, 3.4), PI / 2.0),
+            None,
+            "facing away"
         );
     }
 }

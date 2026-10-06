@@ -16,6 +16,7 @@ use rr_core::defs::WeaponId;
 use rr_core::inventory::{BATTERY_MAX, FUEL_MAX, Inventory as Carried, MEDKIT_MAX};
 use rr_core::map::{Key, Map, MoverKind, SwitchAction};
 use rr_core::mechanics::{Mechanics, UseTarget};
+use rr_core::props::PropKind;
 
 /// Damage that fills the flash completely.
 const FLASH_FULL_DAMAGE: f32 = 25.0;
@@ -83,6 +84,12 @@ pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget, key: &str) -> Str
         UseTarget::Switch(i) => match map.switches[i].action {
             SwitchAction::Exit => "Exit",
             SwitchAction::Channel(_) => "Switch",
+        },
+        UseTarget::Prop(i) => match (map.props[i].kind, mech.props[i].stock) {
+            (PropKind::Toilet, _) => "Use toilet",
+            (PropKind::Vending, 0) => "Sold out",
+            (PropKind::Vending, _) => "Buy soda",
+            (PropKind::PoolTable, _) => "Rack 'em",
         },
     };
     format!("[{key}] {what}")
@@ -577,6 +584,25 @@ mod tests {
         assert_eq!(
             prompt_label(&map, &mech, UseTarget::Switch(1), "X"),
             "[X] Switch"
+        );
+        let mut map = rr_core::fixtures::engine_room("");
+        let mut mech = Mechanics::new(&mut map);
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(0), "E"),
+            "[E] Use toilet"
+        );
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(1), "E"),
+            "[E] Buy soda"
+        );
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(2), "E"),
+            "[E] Rack 'em"
+        );
+        mech.props[1].stock = 0;
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(1), "E"),
+            "[E] Sold out"
         );
         let mut b = Bindings::default();
         assert_eq!(use_key_label(Some(&b)), "E");

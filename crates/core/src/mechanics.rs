@@ -3,9 +3,12 @@
 //! ceiling, a lift's floor) between two heights, and carries whoever stands on it.
 
 use crate::collide::{Body, touches_sector, z_range};
+use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawQuake, SectorId, SwitchAction,
 };
+use crate::props::{PropKind, PropOutcome};
+use crate::vitals::Vitals;
 
 /// Feet within this distance of a lift floor ride along with it.
 const CARRY_EPS: f32 = 0.01;
@@ -51,6 +54,8 @@ pub struct Mover {
 pub enum UseTarget {
     Mover(usize),
     Switch(usize),
+    /// Index into `map.props`; used through `use_prop`.
+    Prop(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +96,27 @@ pub enum MechEvent {
         strength: f32,
         duration: f32,
     },
+    /// Prop `prop` (index into `map.props`) was used; never queued for `Busy`.
+    PropUsed {
+        prop: usize,
+        kind: PropKind,
+        outcome: PropOutcome,
+    },
+}
+
+/// Health a toilet gives per use.
+pub const TOILET_HEAL: i32 = 10;
+/// Health a soda gives.
+pub const SODA_HEAL: i32 = 5;
+/// Seconds before a toilet can be flushed again.
+pub const FLUSH_COOLDOWN: f32 = 1.5;
+
+/// A prop's runtime state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PropState {
+    pub kind: PropKind,
+    pub stock: u32,
+    pub cooldown: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +126,8 @@ pub struct Mechanics {
     pub switch_on: Vec<bool>,
     /// Per item: already picked up.
     pub taken: Vec<bool>,
+    /// Per prop: stock and toilet cooldown.
+    pub props: Vec<PropState>,
     /// Per trigger: a `once` trigger that already ran.
     trig_done: Vec<bool>,
     /// The sector `enter` last saw the player in (`None` before the first call).
@@ -157,6 +185,15 @@ impl Mechanics {
             movers,
             switch_on: vec![false; map.switches.len()],
             taken: vec![false; map.items.len()],
+            props: map
+                .props
+                .iter()
+                .map(|p| PropState {
+                    kind: p.kind,
+                    stock: p.stock,
+                    cooldown: 0.0,
+                })
+                .collect(),
             trig_done: vec![false; map.triggers.len()],
             inside: None,
             quakes: map.quakes.iter().map(|&q| (q, None)).collect(),
@@ -271,9 +308,44 @@ impl Mechanics {
         channel_locks(map, ch).find(|&k| !keys.contains(k))
     }
 
+    /// The player uses prop `i`. Toilet: +10 health up to 100 (a plain flush at full health),
+    /// then a 1.5 s cooldown. Vending machine: +5 up to 100 per soda while stock lasts. Pool
+    /// table: flavour. Queues `PropUsed` unless the toilet is still busy.
+    pub fn use_prop(&mut self, i: usize, vitals: &mut Vitals) -> PropOutcome {
+        let p = &mut self.props[i];
+        let before = vitals.health.hp;
+        let outcome = match p.kind {
+            PropKind::Toilet if p.cooldown > 0.0 => return PropOutcome::Busy,
+            PropKind::Toilet => {
+                p.cooldown = FLUSH_COOLDOWN;
+                vitals.heal_to(TOILET_HEAL, PLAYER_MAX_HEALTH);
+                match vitals.health.hp - before {
+                    0 => PropOutcome::Flushed,
+                    n => PropOutcome::Healed(n),
+                }
+            }
+            PropKind::Vending if p.stock == 0 => PropOutcome::SoldOut,
+            PropKind::Vending => {
+                p.stock -= 1;
+                vitals.heal_to(SODA_HEAL, PLAYER_MAX_HEALTH);
+                PropOutcome::Dispensed(vitals.health.hp - before)
+            }
+            PropKind::PoolTable => PropOutcome::Racked,
+        };
+        let kind = self.props[i].kind;
+        self.events.push(MechEvent::PropUsed {
+            prop: i,
+            kind,
+            outcome,
+        });
+        outcome
+    }
+
     /// Pressing use on `target` while holding `keys`.
     pub fn activate(&mut self, map: &Map, target: UseTarget, keys: KeySet) -> UseOutcome {
         match target {
+            // Props go through `use_prop` (they need the player's vitals).
+            UseTarget::Prop(_) => UseOutcome::Activated,
             UseTarget::Mover(m) => {
                 if let Some(k) = self.movers[m].def.lock
                     && !keys.contains(k)
@@ -318,6 +390,9 @@ impl Mechanics {
     /// would squeeze a body against a ceiling reverses instead. Returns the sectors whose heights changed.
     pub fn tick(&mut self, map: &mut Map, bodies: &mut [Body], dt: f32) -> Vec<SectorId> {
         let mut changed = Vec::new();
+        for p in &mut self.props {
+            p.cooldown = (p.cooldown - dt).max(0.0);
+        }
         for (q, t) in &mut self.quakes {
             if let Some(e) = t {
                 *e += dt;
@@ -459,6 +534,8 @@ mod tests {
     use super::*;
     use crate::collide::clip_move;
     use crate::fixtures::{door_rooms, engine_room, lift_shaft};
+    use crate::props::{PropKind, PropOutcome};
+    use crate::vitals::Vitals;
     use glam::Vec2;
 
     const DT: f32 = 1.0 / 60.0;
@@ -986,5 +1063,45 @@ mod tests {
         );
         run(&mut map, &mut mech, &mut [], 30);
         assert_eq!(mech.quake_strength(), 0.0);
+    }
+
+    #[test]
+    fn toilet_heals_ten_up_to_100_with_a_cooldown() {
+        let (mut map, mut mech) = setup(engine_room(""));
+        let mut v = Vitals::new();
+        v.damage(15);
+        assert_eq!(mech.use_prop(0, &mut v), PropOutcome::Healed(10));
+        assert_eq!(v.health.hp, 95);
+        assert_eq!(mech.use_prop(0, &mut v), PropOutcome::Busy);
+        run(&mut map, &mut mech, &mut [], 91);
+        assert_eq!(mech.use_prop(0, &mut v), PropOutcome::Healed(5));
+        run(&mut map, &mut mech, &mut [], 91);
+        assert_eq!(
+            mech.use_prop(0, &mut v),
+            PropOutcome::Flushed,
+            "flushes at full health"
+        );
+        let ev = mech.drain_events();
+        assert_eq!(
+            ev[0],
+            MechEvent::PropUsed {
+                prop: 0,
+                kind: PropKind::Toilet,
+                outcome: PropOutcome::Healed(10)
+            }
+        );
+        assert_eq!(ev.len(), 3, "Busy is silent");
+    }
+
+    #[test]
+    fn vending_machine_sells_its_stock_then_is_sold_out() {
+        let (_, mut mech) = setup(engine_room(""));
+        let mut v = Vitals::new();
+        v.damage(15);
+        assert_eq!(mech.use_prop(1, &mut v), PropOutcome::Dispensed(5));
+        assert_eq!(mech.use_prop(1, &mut v), PropOutcome::Dispensed(5));
+        assert_eq!(mech.use_prop(1, &mut v), PropOutcome::SoldOut);
+        assert_eq!((v.health.hp, mech.props[1].stock), (95, 0));
+        assert_eq!(mech.use_prop(2, &mut v), PropOutcome::Racked);
     }
 }

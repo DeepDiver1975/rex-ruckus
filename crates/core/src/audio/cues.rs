@@ -102,7 +102,9 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
         MechEvent::NeedKey(_) => out.push((Cue::Denied, None)),
         MechEvent::Exit => out.push((Cue::LevelComplete, None)),
         // Sounds for these come later.
-        MechEvent::TriggerFired(_) | MechEvent::QuakeStarted { .. } => {}
+        MechEvent::TriggerFired(_)
+        | MechEvent::QuakeStarted { .. }
+        | MechEvent::PropUsed { .. } => {}
         MechEvent::ItemTaken { item, kind } => {
             if let Some(it) = map.items.get(item) {
                 let z = map
@@ -122,6 +124,7 @@ mod tests {
     use crate::difficulty::Difficulty;
     use crate::fixtures::{defs, door_rooms};
     use crate::map::{ActorSpawn, ItemKind, Key};
+    use crate::props::{PropKind, PropOutcome};
     use glam::Vec2;
     use std::collections::HashSet;
 
@@ -403,6 +406,11 @@ mod tests {
                 strength: 0.5,
                 duration: 1.0,
             },
+            MechEvent::PropUsed {
+                prop: 0,
+                kind: PropKind::Toilet,
+                outcome: PropOutcome::Healed(10),
+            },
         ];
         for e in &evs {
             match e {
@@ -413,7 +421,8 @@ mod tests {
                 | MechEvent::Exit
                 | MechEvent::ItemTaken { .. }
                 | MechEvent::TriggerFired(_)
-                | MechEvent::QuakeStarted { .. } => {}
+                | MechEvent::QuakeStarted { .. }
+                | MechEvent::PropUsed { .. } => {}
             }
         }
         evs
@@ -442,6 +451,8 @@ mod tests {
             vec![(Cue::LevelComplete, None)],
             vec![(Cue::Pickup(PickupClass::Key), key_pos)],
             vec![],
+            vec![],
+            // Silent for now; Task 15 maps the toilet flush to a cue.
             vec![],
         ];
         for (e, want) in all_mech_events().iter().zip(expected) {

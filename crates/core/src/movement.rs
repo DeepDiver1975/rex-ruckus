@@ -134,6 +134,7 @@ pub fn step_flyer(map: &Map, body: &mut Body, wish: Vec3, speed: f32, hover: f32
     let eased = z + (floor + hover - z).clamp(-speed * dt, speed * dt);
     body.pos.z = clamp(eased);
     body.vel = ((body.pos - start) / dt).with_z((body.pos.z - z) / dt);
+    crate::props::push_out_of_props(map, body, Tuning::default().step_height);
 }
 
 pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt: f32) {
@@ -221,6 +222,7 @@ pub fn step_player(map: &Map, body: &mut Body, input: &MoveInput, t: &Tuning, dt
         body.pos.z = (ceil - body.height).max(floor);
         body.vel.z = body.vel.z.min(0.0);
     }
+    crate::props::push_out_of_props(map, body, t.step_height);
 }
 
 #[cfg(test)]
