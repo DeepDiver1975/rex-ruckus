@@ -29,6 +29,9 @@ struct ItemModel {
 
 /// Height of an item prop's centre above its floor.
 const ITEM_LIFT: f32 = 0.6;
+/// Keycard tints are the key colour times this: the card texture is mid-grey, so the plain key
+/// colour comes out murky (yellow reads olive).
+const KEY_TINT_GAIN: f32 = 1.35;
 
 #[derive(Resource, Clone)]
 struct PanelMaterials {
@@ -117,7 +120,8 @@ fn spawn_props(
         let tint = match item.kind {
             ItemKind::Key(k) => {
                 let c = key_color(k).to_srgba();
-                Some((c.red, c.green, c.blue))
+                let g = KEY_TINT_GAIN;
+                Some((c.red * g, c.green * g, c.blue * g))
             }
             _ => None,
         };

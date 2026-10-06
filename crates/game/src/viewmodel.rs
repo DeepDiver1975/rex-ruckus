@@ -12,9 +12,11 @@
 //! the swap and the swap itself is hidden.
 //!
 //! Placement. The rig sits at camera-local [`RIG_BASE`], slightly closer in than the nominal
-//! `(0.12, -0.13, -0.28)` so that every part centre stays within [`MAX_EYE_DIST`] (0.3 m) of
-//! the eye. Models are small; the barrel tips may reach further. Whether that clips walls is a
-//! playtest question (fallback: a second camera with `RenderLayers`).
+//! `(0.12, -0.13, -0.28)` so that every code-built part centre and every model root (the
+//! `place.offset` of each weapon and extra in `models.ron`) stays within [`MAX_EYE_DIST`]
+//! (0.3 m) of the eye. The guns are longer than they are wide, so their barrel tips (the muzzle
+//! flashes) reach out to [`MAX_TIP_DIST`]. Whether that clips walls is a playtest question
+//! (fallback: a second camera with `RenderLayers`).
 
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal};
 use crate::flow::PlayState;
@@ -29,8 +31,10 @@ use std::f32::consts::{PI, TAU};
 
 /// Rig origin in camera space (x right, y up, -z forward).
 pub const RIG_BASE: Vec3 = Vec3::new(0.08, -0.09, -0.15);
-/// Part centres stay within this distance of the eye (at rest).
+/// Part centres and model roots stay within this distance of the eye (at rest).
 pub const MAX_EYE_DIST: f32 = 0.3;
+/// Muzzles (barrel tips) stay within this distance of the eye (at rest).
+pub const MAX_TIP_DIST: f32 = 0.55;
 /// Seconds the muzzle flash stays visible after a shot.
 pub const FLASH_SECS: f32 = 0.05;
 /// Duration of the kick-leg thrust and how far it reaches forward (metres).
@@ -616,9 +620,22 @@ mod tests {
             );
         }
         let defs = ModelDefs::builtin();
+        let roots = defs
+            .weapons
+            .iter()
+            .map(|m| (format!("{:?}", m.id), m.place.offset))
+            .chain([
+                ("held bomb".to_owned(), defs.extras.held_bomb.place.offset),
+                ("detonator".to_owned(), defs.extras.detonator.place.offset),
+            ]);
+        for (name, offset) in roots {
+            let d = (RIG_BASE + Vec3::from(offset)).length();
+            assert!(d <= MAX_EYE_DIST, "{name} model root is {d} m from the eye");
+        }
         for w in WeaponId::ALL {
             if let Some(m) = muzzle(&defs, w) {
-                assert!((RIG_BASE + m).length() <= MAX_EYE_DIST);
+                let d = (RIG_BASE + m).length();
+                assert!(d <= MAX_TIP_DIST, "{w:?} muzzle is {d} m from the eye");
             }
         }
     }
