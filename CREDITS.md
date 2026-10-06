@@ -82,6 +82,7 @@ Scale, rotation, tint and attachment points are applied at runtime from `assets/
 | `assets/models/enemies/slasher.glb` | Gnasher (original) | Rex Ruckus contributors | `scripts/models/gnasher.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/enemies/drone.glb` | Peeper (original) | Rex Ruckus contributors | `scripts/models/peeper.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/enemies/barrel.glb` | Exploding Barrel | Quaternius | https://poly.pizza/m/1orHe0kCc1 | CC0 | none |
+| `assets/models/enemies/boss.glb` | Mech (bee pilot) | Quaternius | https://poly.pizza/m/4UvIHxnoSR | CC0 | none |
 | `assets/models/weapons/pistol.glb` | Pistol | Quaternius | https://poly.pizza/m/J3i9KDQ3kt | CC0 | none |
 | `assets/models/weapons/shotgun.glb` | Shotgun Sawed Off | Quaternius | https://poly.pizza/m/29FXKu7G91 | CC0 | none |
 | `assets/models/weapons/chaingun.glb` | Assault Rifle | Quaternius | https://poly.pizza/m/Bgvuu4CUMV | CC0 | none |
@@ -97,6 +98,7 @@ Scale, rotation, tint and attachment points are applied at runtime from `assets/
 | `assets/models/pickups/keycard.glb` | Pickup Key Card | Quaternius | https://poly.pizza/m/EDvCEBvs8k | CC0 | none |
 | `assets/models/pickups/atom.glb` | Pickup Sphere | Quaternius | https://poly.pizza/m/1xtAc12dmv | CC0 | none |
 | `assets/models/pickups/night_vision.glb` | Binoculars | Voxel_dev | https://poly.pizza/m/PLmfHOiB08 | CC0 | none |
+| `assets/models/props/toilet.glb` | Toilet | CreativeTrio | https://poly.pizza/m/ZGtHqPsLv2 | CC0 | none |
 | `assets/models/pickups/jetpack.glb` | Lowpoly Jetpack: `Jetpacks.blend`, collection "Collection 1" | snabisch | https://opengameart.org/content/lowpoly-jetpack | CC0 | converted to glTF with Blender by `scripts/blend_to_glb.py` (Diffuse materials rebuilt as Principled in the same colours) |
 
 ## Fonts
