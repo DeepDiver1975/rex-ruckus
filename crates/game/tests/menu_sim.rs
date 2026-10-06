@@ -6,12 +6,26 @@ use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
 use rr_core::map::Map;
+use rr_game::bindings::{Action, Binding};
 use rr_game::combat::{CombatSimPlugin, insert_defs};
 use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin};
 use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::menu::{MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, Screen};
+use rr_game::menu::{
+    Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, Screen, Setting,
+};
 use rr_game::player::{PendingInput, PlayerBody, PlayerSimPlugin};
+use rr_game::settings::{Settings, SettingsPlugin};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// The settings file of a test app.
+#[derive(Resource)]
+struct SettingsFile(PathBuf);
+
+fn settings_file(app: &App) -> PathBuf {
+    app.world().resource::<SettingsFile>().0.clone()
+}
 
 /// An episode over the given maps, started at the title screen.
 fn menu_app(maps: Vec<Map>) -> App {
@@ -26,6 +40,16 @@ fn menu_app(maps: Vec<Map>) -> App {
     episode.maps = Some(maps);
     app.insert_resource(episode);
     app.insert_resource(PlayState::Menu);
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "rr-menu-sim-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("settings.ron");
+    app.insert_resource(SettingsFile(path.clone()));
+    app.add_plugins(SettingsPlugin { path: Some(path) });
     app.add_plugins((
         FlowPlugin,
         PlayerSimPlugin,
@@ -192,4 +216,120 @@ fn menu_click_does_not_grab_the_cursor() {
     assert_ne!(grab, CursorGrabMode::None, "the next click grabs");
     let mut q = app.world_mut().query::<&PendingInput>();
     assert!(!q.single(app.world()).unwrap().fire);
+}
+
+fn open_options(app: &mut App) {
+    press(app, MenuAction::Options);
+    assert_eq!(screen(app), Some(Screen::Options));
+}
+
+fn open_controls(app: &mut App) {
+    open_options(app);
+    press(app, MenuAction::Controls);
+    assert_eq!(screen(app), Some(Screen::Controls));
+}
+
+/// Presses and releases a key over one frame.
+fn key(app: &mut App, k: KeyCode) {
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(k);
+    app.update();
+    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+    keys.release(k);
+    keys.clear();
+}
+
+#[test]
+fn rebinding_captures_the_next_key_and_esc_cancels() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_controls(&mut app);
+    press(&mut app, MenuAction::Rebind(Action::Jump));
+    assert_eq!(app.world().resource::<Capture>().0, Some(Action::Jump));
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(app.world().resource::<Capture>().0, None);
+    assert_eq!(screen(&app), Some(Screen::Controls), "Esc only cancels");
+    assert_eq!(
+        app.world().resource::<Settings>().bindings.of(Action::Jump),
+        &[Binding::Key(KeyCode::Space)]
+    );
+    press(&mut app, MenuAction::Rebind(Action::Jump));
+    key(&mut app, KeyCode::KeyE);
+    let b = &app.world().resource::<Settings>().bindings;
+    assert_eq!(b.of(Action::Jump)[0], Binding::Key(KeyCode::KeyE));
+    assert!(b.of(Action::Use).is_empty());
+    assert_eq!(app.world().resource::<Capture>().0, None);
+}
+
+#[test]
+fn the_click_that_starts_a_capture_is_not_captured() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_controls(&mut app);
+    // The mouse press that chose the row is still "just pressed" in the frame the capture starts.
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    press(&mut app, MenuAction::Rebind(Action::Jump));
+    assert_eq!(app.world().resource::<Capture>().0, Some(Action::Jump));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear();
+    // A later mouse press binds.
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Right);
+    app.update();
+    assert_eq!(
+        app.world().resource::<Settings>().bindings.of(Action::Jump)[0],
+        Binding::Mouse(MouseButton::Right)
+    );
+}
+
+#[test]
+fn menu_input_is_ignored_while_capturing() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_controls(&mut app);
+    press(&mut app, MenuAction::Rebind(Action::Jump));
+    press(&mut app, MenuAction::Back);
+    assert_eq!(screen(&app), Some(Screen::Controls));
+    assert_eq!(app.world().resource::<Capture>().0, Some(Action::Jump));
+}
+
+#[test]
+fn reset_restores_the_default_bindings() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_controls(&mut app);
+    press(&mut app, MenuAction::Rebind(Action::Jump));
+    key(&mut app, KeyCode::KeyE);
+    press(&mut app, MenuAction::ResetBindings);
+    assert_eq!(
+        app.world().resource::<Settings>().bindings,
+        rr_game::bindings::Bindings::default()
+    );
+}
+
+#[test]
+fn leaving_options_saves() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_options(&mut app);
+    press(&mut app, MenuAction::Adjust(Setting::Fov, 1));
+    press(&mut app, MenuAction::Back);
+    app.update(); // save_settings runs on the frame after the flag is set
+    assert_eq!(Settings::load_from(&settings_file(&app)).0.fov_deg, 80.0);
+}
+
+#[test]
+fn arrow_keys_adjust_the_selected_row() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_options(&mut app);
+    // Row 0 is the sensitivity.
+    key(&mut app, KeyCode::ArrowRight);
+    let sens = app.world().resource::<Settings>().mouse_sensitivity;
+    assert!(sens > Settings::default().mouse_sensitivity);
+    key(&mut app, KeyCode::ArrowLeft);
+    key(&mut app, KeyCode::ArrowLeft);
+    assert!(
+        app.world().resource::<Settings>().mouse_sensitivity
+            < Settings::default().mouse_sensitivity
+    );
 }

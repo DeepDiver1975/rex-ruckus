@@ -1,4 +1,4 @@
-//! Menus: main, difficulty, pause (and, in later tasks, options, controls and stats), drawn with
+//! Menus: main, difficulty, pause, options and controls (and, in a later task, stats), drawn with
 //! `bevy_ui` over the frozen level.
 //!
 //! Every way of choosing a button (mouse click, Enter) ends in [`MenuInput::activate`]; the one
@@ -7,15 +7,20 @@
 //! actions (sub-screens). A new screen needs a [`Screen`] variant, a spawn function called from
 //! [`rebuild_screen`] and, if it has a back target, an arm in [`Screen::back`].
 
+pub mod controls;
 pub mod main_menu;
+pub mod options;
 pub mod pause;
 pub mod widgets;
+
+pub use controls::{Capture, Notice};
 
 use crate::bindings::{Action, Bindings};
 use crate::episode::{Episode, start_episode};
 use crate::flow::{PlayState, load_level, restart_level};
 use crate::hud::UiFont;
 use crate::player::{grab_cursor, pause_on_escape};
+use crate::settings::Settings;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -58,7 +63,7 @@ impl Screen {
     }
 }
 
-/// A player setting a menu row can change (adjusted by Task 8's options screen).
+/// A player setting an options row can change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Setting {
     Sensitivity,
@@ -135,6 +140,8 @@ impl Plugin for MenuPlugin {
         app.init_resource::<MenuScreen>()
             .init_resource::<MenuInput>()
             .init_resource::<MenuSelection>()
+            .init_resource::<Capture>()
+            .init_resource::<Notice>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Bindings>()
@@ -144,12 +151,19 @@ impl Plugin for MenuPlugin {
                 (
                     // After the pause toggle, so Esc that goes back a screen is not also a resume.
                     keyboard_nav.after(pause_on_escape),
+                    options::arrow_keys,
                     click_buttons,
+                    options::click_arrows,
                     // After the cursor grab: a click on a menu button is consumed by the menu
                     // (the grab sees the menu still open), and the next click grabs.
                     run_menu_action.after(grab_cursor),
+                    // After the action: the frame a capture starts is skipped.
+                    controls::capture_input,
                     sync_screen,
                     rebuild_screen.run_if(resource_changed::<MenuScreen>),
+                    options::refresh_values,
+                    controls::refresh_rows,
+                    options::save_on_leave,
                     highlight,
                 )
                     .chain(),
@@ -182,6 +196,7 @@ fn keyboard_nav(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<Bindings>,
+    capture: Res<Capture>,
     state: Res<PlayState>,
     buttons: MenuButtons,
     mut selection: ResMut<MenuSelection>,
@@ -189,6 +204,9 @@ fn keyboard_nav(
     mut screen: ResMut<MenuScreen>,
 ) {
     let Some(current) = screen.0 else { return };
+    if capture.0.is_some() {
+        return;
+    }
     let items = buttons.list();
     let up = keys.any_just_pressed([KeyCode::ArrowUp, KeyCode::KeyW]);
     let down = keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::KeyS]);
@@ -212,10 +230,11 @@ fn keyboard_nav(
 fn click_buttons(
     changed: Query<(Entity, &Interaction, &MenuAction), Changed<Interaction>>,
     buttons: MenuButtons,
+    capture: Res<Capture>,
     mut selection: ResMut<MenuSelection>,
     mut input: ResMut<MenuInput>,
 ) {
-    if changed.is_empty() {
+    if changed.is_empty() || capture.0.is_some() {
         return;
     }
     let items = buttons.list();
@@ -237,6 +256,10 @@ pub fn run_menu_action(world: &mut World) {
     let Some(action) = world.resource_mut::<MenuInput>().activate.take() else {
         return;
     };
+    // Waiting for a key: choosing a button does nothing.
+    if world.resource::<Capture>().0.is_some() {
+        return;
+    }
     let state = *world.resource::<PlayState>();
     let screen = |world: &mut World, s: Option<Screen>| world.resource_mut::<MenuScreen>().0 = s;
     match action {
@@ -257,19 +280,35 @@ pub fn run_menu_action(world: &mut World) {
             world.write_message(AppExit::Success);
         }
         MenuAction::Options => screen(world, Some(Screen::Options)),
-        MenuAction::Controls => screen(world, Some(Screen::Controls)),
+        MenuAction::Controls => {
+            world.resource_mut::<Notice>().0.clear();
+            screen(world, Some(Screen::Controls));
+        }
         MenuAction::Back => {
             let current = world.resource::<MenuScreen>().0;
             if let Some(back) = current.and_then(|s| s.back(state)) {
                 screen(world, Some(back));
             }
         }
-        // Handled by the screens that spawn them (options, controls, stats).
-        MenuAction::Continue
-        | MenuAction::Rebind(_)
-        | MenuAction::ResetBindings
-        | MenuAction::Adjust(..)
-        | MenuAction::Toggle(_) => {}
+        MenuAction::Rebind(a) => world.resource_mut::<Capture>().0 = Some(a),
+        MenuAction::ResetBindings => {
+            world.resource_mut::<Notice>().0.clear();
+            if let Some(mut settings) = world.get_resource_mut::<Settings>() {
+                settings.bindings = Bindings::default();
+            }
+        }
+        MenuAction::Adjust(which, dir) => {
+            if let Some(mut settings) = world.get_resource_mut::<Settings>() {
+                options::adjust(&mut settings, which, dir);
+            }
+        }
+        MenuAction::Toggle(which) => {
+            if let Some(mut settings) = world.get_resource_mut::<Settings>() {
+                options::adjust(&mut settings, which, 1);
+            }
+        }
+        // Handled by the stats screens.
+        MenuAction::Continue => {}
     }
 }
 
@@ -318,13 +357,8 @@ fn rebuild_screen(
         Some(Screen::Main) => main_menu::spawn_main(&mut commands, &ui),
         Some(Screen::Difficulty) => main_menu::spawn_difficulty(&mut commands, &ui),
         Some(Screen::Pause) => pause::spawn_pause(&mut commands, &ui, episode.is_some()),
-        // Placeholder until the options screen exists: a way back.
-        Some(Screen::Options | Screen::Controls) => {
-            let root = widgets::spawn_screen(&mut commands, &ui, "OPTIONS");
-            commands
-                .entity(root)
-                .with_children(|p| widgets::button(p, &ui, "Back", MenuAction::Back));
-        }
+        Some(Screen::Options) => options::spawn_options(&mut commands, &ui),
+        Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
         // The level-complete and episode-end screens come with the stats screens.
         Some(Screen::Stats | Screen::EpisodeEnd) | None => {}
     }

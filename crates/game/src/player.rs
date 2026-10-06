@@ -372,8 +372,13 @@ pub(crate) fn pause_on_escape(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     screen: Option<Res<MenuScreen>>,
+    capture: Option<Res<crate::menu::Capture>>,
     mut state: ResMut<PlayState>,
 ) {
+    // Esc cancels a key capture instead.
+    if capture.is_some_and(|c| c.0.is_some()) {
+        return;
+    }
     if !bindings.just_pressed(Action::Pause, &keys, &buttons) {
         return;
     }
