@@ -14,6 +14,7 @@ pub mod fx;
 pub mod hud;
 pub mod inventory;
 pub mod level;
+pub mod lowres;
 pub mod mechanics;
 pub mod menu;
 pub mod models;
@@ -84,7 +85,7 @@ impl Plugin for GamePlugin {
                 scripted: self.demo.is_some(),
             },
         ));
-        app.add_plugins(episode::EpisodePlugin);
+        app.add_plugins((episode::EpisodePlugin, lowres::LowResPlugin));
         // The episode starts at the title screen; direct-level and demo runs go straight to play.
         if self.episode.is_some() && self.demo.is_none() {
             app.insert_resource(flow::PlayState::Menu);
