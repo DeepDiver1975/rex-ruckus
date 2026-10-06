@@ -18,7 +18,6 @@ out="$assets/models"
 
 # dest (under assets/models)   poly.pizza id   static file   sha256
 manifest=$(cat <<'EOF'
-enemies/grunt.glb            Btfn3G5Xv4 713f6535-f4f3-4367-a4c6-ced126ae0936.glb a835107bac833eb916c494e10997ae1709e85957ea6f6c59ace3c9a66f6d1fec
 enemies/enforcer.glb         mWojM4i2IH 78e23275-cb6a-4ba3-ae5e-48a9b4ee2e65.glb 5c5f5b28c002592f590b23503c2cb98bf230293b165e56496d650bd6eeaafd9e
 enemies/slasher.glb          HYUUkdugoP 678f2de4-d13d-497e-b993-8debb95424a5.glb f55d091cd3914977724f4a7887e1866e73c2f2045df391e83c787b6736552ddb
 enemies/drone.glb            UDTM6X1y9a 6d0889f1-0c3f-4f98-b011-fbcf6c79a93b.glb af82b5b458530b31ce9694cf0461649839e1e822a922203faa16f4c32c21e595
