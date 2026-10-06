@@ -1,44 +1,45 @@
-//! Enemy, barrel, projectile and impact visuals: procedural stand-ins built from Bevy primitives.
+//! Enemy, barrel, projectile and impact visuals. Enemies and barrels are animated glTF models
+//! from the [`ModelLibrary`]; projectiles and sparks stay procedural.
 //!
 //! Purely presentational: every system here only reads the simulation ([`LevelCombat`],
-//! [`FxQueue`]) and writes transforms, materials and visual-only entities. One module per rig
-//! ([`grunt`], [`enforcer`], [`slasher`], [`drone`], [`barrel`]); [`projectiles`] holds the bolt,
-//! rocket, bomb and spark visuals. Every actor gets an [`ActorVisual`] root plus the marker of
-//! its kind; [`spawn_actors`] dispatches on [`ActorKind`].
+//! [`FxQueue`]) and writes transforms, materials, animation players and visual-only entities.
+//! Every actor gets an [`ActorVisual`] root plus the marker of its kind, with its model spawned
+//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher) and
+//! attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks and
+//! plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
 
+mod anim;
 mod barrel;
 mod drone;
-mod enforcer;
-mod grunt;
+mod humanoid;
 mod projectiles;
-mod slasher;
 
+pub use anim::{AnimCmd, anim_for, pick_role};
 pub use barrel::BarrelVisual;
 pub use drone::DroneVisual;
-pub use enforcer::EnforcerVisual;
-pub use grunt::GruntVisual;
+pub use humanoid::{EnforcerVisual, GruntVisual, SlasherVisual};
 pub use projectiles::{
     BoltVisual, BombVisual, ProjKind, RocketVisual, SPARK_SECS, Spark, proj_kind,
 };
-pub use slasher::SlasherVisual;
 
-use crate::combat::{FxQueue, FxReaders, GameDefs, LevelCombat, spawn_combat};
+use crate::combat::{FxQueue, FxReaders, LevelCombat, spawn_combat};
 use crate::coords::{core_angle_to_yaw, to_bevy};
 use crate::flow::{LevelEntity, SpawnLevel};
+use crate::models::{Look, ModelLibrary, ModelReady, ModelSlot, TintCache, spawn_model_with};
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::actors::{Actor, AiState};
 use rr_core::combat::CombatEvent;
 use rr_core::map::ActorKind;
+use rr_core::models::Tip;
 use std::f32::consts::FRAC_PI_2;
 
 /// Seconds the gun tip glows after a shot.
 pub const TIP_GLOW_SECS: f32 = 0.12;
 /// Seconds the body flashes after a hit that did not kill.
 pub const HIT_FLASH_SECS: f32 = 0.1;
-/// Backward tilt while in pain (radians).
-const PAIN_TILT: f32 = 0.25;
-/// Head nod while asleep (radians, negative = chin down).
-const SLEEP_NOD: f32 = -0.5;
+/// Radius of the gun-tip glow (m).
+const TIP_RADIUS: f32 = 0.07;
 
 /// Root of every actor's visual; the index is into `LevelCombat.actors`. Next to it the root
 /// carries the marker of its kind ([`GruntVisual`], [`EnforcerVisual`], ...).
@@ -53,56 +54,45 @@ struct TipGlow(f32);
 #[derive(Component, Default)]
 struct HitFlash(f32);
 
-/// Body materials for each look.
-#[derive(Clone)]
-struct Skin {
-    normal: Handle<StandardMaterial>,
-    dim: Handle<StandardMaterial>,
-    pain: Handle<StandardMaterial>,
-    hit: Handle<StandardMaterial>,
+/// The glTF model spawned under an actor's root (the [`ModelSlot`] entity).
+#[derive(Component)]
+struct ActorModel {
+    root: Entity,
+    kind: ActorKind,
 }
 
-impl Skin {
-    /// A skin of base colour `c` (linear-ish sRGB triple); asleep it is darker.
-    fn new(materials: &mut Assets<StandardMaterial>, c: [f32; 3]) -> Self {
-        let dim = c.map(|v| v * 0.45);
-        Skin {
-            normal: materials.add(matte(Color::srgb(c[0], c[1], c[2]))),
-            dim: materials.add(matte(Color::srgb(dim[0], dim[1], dim[2]))),
-            pain: materials.add(emissive(Color::srgb(0.85, 0.15, 0.1), 1.5)),
-            hit: materials.add(emissive(Color::srgb(1.0, 0.85, 0.7), 2.5)),
-        }
-    }
-
-    fn pick(&self, look: SkinLook) -> &Handle<StandardMaterial> {
-        match look {
-            SkinLook::Normal => &self.normal,
-            SkinLook::Dim => &self.dim,
-            SkinLook::Pain => &self.pain,
-            SkinLook::Hit => &self.hit,
-        }
-    }
+/// The model's original mesh materials (captured once it is ready) and the look they show.
+#[derive(Component, Default)]
+struct ModelLook {
+    originals: Option<Vec<(Entity, Handle<StandardMaterial>)>>,
+    current: Option<Look>,
 }
 
-/// Meshes and materials shared by every actor, bolt and spark; survives restarts.
+/// The gun-tip glow sphere of an actor that shoots; `None` until its tip node exists.
+#[derive(Component, Default)]
+struct TipSphere(Option<Entity>);
+
+/// Keeps an entity at a fixed world scale (and its offset in world units) although its parent
+/// sits inside a glTF's scaled armature: the local transform divides out the parent's scale.
+#[derive(Component, Clone, Copy)]
+struct KeepWorldScale {
+    scale: f32,
+    offset: Vec3,
+}
+
+/// Meshes and materials shared by every bolt, spark and tip glow; survives restarts.
 #[derive(Resource, Clone)]
 struct ActorAssets {
-    grunt: grunt::Assets,
-    enforcer: enforcer::Assets,
-    slasher: slasher::Assets,
-    drone: drone::Assets,
-    barrel: barrel::Assets,
+    tip_mesh: Handle<Mesh>,
+    tip_glow: Handle<StandardMaterial>,
     proj: projectiles::ProjAssets,
 }
 
 impl ActorAssets {
     fn new(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Self {
         ActorAssets {
-            grunt: grunt::Assets::new(meshes, materials),
-            enforcer: enforcer::Assets::new(meshes, materials),
-            slasher: slasher::Assets::new(meshes, materials),
-            drone: drone::Assets::new(meshes, materials),
-            barrel: barrel::Assets::new(meshes, materials),
+            tip_mesh: meshes.add(Sphere::new(TIP_RADIUS)),
+            tip_glow: materials.add(emissive(Color::srgb(1.0, 0.65, 0.18), 8.0)),
             proj: projectiles::ProjAssets::new(meshes, materials),
         }
     }
@@ -124,38 +114,10 @@ fn matte(c: Color) -> StandardMaterial {
     }
 }
 
-/// Spawns a mesh child of `parent` at `at`.
-fn part(
-    commands: &mut Commands,
-    parent: Entity,
-    mesh: &Handle<Mesh>,
-    mat: &Handle<StandardMaterial>,
-    at: Vec3,
-) -> Entity {
-    commands
-        .spawn((
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(mat.clone()),
-            Transform::from_translation(at),
-            ChildOf(parent),
-        ))
-        .id()
-}
-
-/// Spawns an invisible pivot child of `parent` at `at`, to be rotated by the pose.
-fn pivot(commands: &mut Commands, parent: Entity, at: Vec3) -> Entity {
-    commands
-        .spawn((
-            Transform::from_translation(at),
-            Visibility::default(),
-            ChildOf(parent),
-        ))
-        .id()
-}
-
-/// Grunt/Enforcer/Slasher/Drone/Barrel visuals and projectiles. Needs a renderer's assets
-/// (`Assets<Mesh>`, `Assets<StandardMaterial>`) and `CombatSimPlugin`; not part of the
-/// headless sim.
+/// Enemy and barrel models, their animation and looks, and projectiles. Needs a renderer's
+/// assets (`Assets<Mesh>`, `Assets<StandardMaterial>`) and `CombatSimPlugin`; the models need
+/// [`ModelsPlugin`](crate::models::ModelsPlugin) (without it only the bare roots spawn). Not
+/// part of the headless sim.
 pub struct ActorVisualsPlugin;
 
 impl Plugin for ActorVisualsPlugin {
@@ -165,14 +127,23 @@ impl Plugin for ActorVisualsPlugin {
                 Update,
                 (
                     (flash_tips, flash_hits, projectiles::spawn_sparks).in_set(FxReaders),
+                    anim::animate_enemies
+                        .in_set(FxReaders)
+                        .run_if(resource_exists::<ModelLibrary>),
                     (
-                        pose_gunners,
-                        slasher::pose_slashers,
-                        drone::pose_drones,
-                        barrel::pose_barrels,
+                        humanoid::place_walkers,
+                        drone::place_drones,
+                        barrel::hide_dead_barrels,
+                        glow_tips,
                     )
-                        .after(flash_tips)
-                        .after(flash_hits),
+                        .after(flash_tips),
+                    (
+                        tint_enemies.after(flash_hits),
+                        humanoid::attach_scenes,
+                        attach_tips,
+                    )
+                        .run_if(resource_exists::<ModelLibrary>),
+                    keep_world_scale,
                     projectiles::sync_projectiles,
                     projectiles::age_sparks,
                 )
@@ -193,12 +164,21 @@ pub fn death_pitch(t_left: f32, death_time: f32) -> f32 {
     FRAC_PI_2 * done * done
 }
 
-/// One visual per actor, in [`SpawnLevel`] after combat has spawned, built by the rig of its kind.
+/// Whether an enemy kind shoots, and so gets a gun-tip glow.
+fn has_gun(kind: ActorKind) -> bool {
+    matches!(
+        kind,
+        ActorKind::Grunt | ActorKind::Enforcer | ActorKind::Drone
+    )
+}
+
+/// One visual per actor, in [`SpawnLevel`] after combat has spawned: a root with the marker of
+/// its kind and, with a [`ModelLibrary`], its glTF model and (for an offset tip) the tip glow.
 fn spawn_actors(
     mut commands: Commands,
     existing: Option<Res<ActorAssets>>,
+    lib: Option<Res<ModelLibrary>>,
     combat: Res<LevelCombat>,
-    defs: Res<GameDefs>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -211,32 +191,144 @@ fn spawn_actors(
         }
     };
     for (i, actor) in combat.0.actors.iter().enumerate() {
-        let model_height = match actor.kind {
-            ActorKind::Grunt => grunt::MODEL_HEIGHT,
-            ActorKind::Enforcer => enforcer::MODEL_HEIGHT,
-            ActorKind::Slasher => slasher::MODEL_HEIGHT,
-            ActorKind::Drone => drone::MODEL_HEIGHT,
-            ActorKind::Barrel => barrel::MODEL_HEIGHT,
-        };
-        let scale = defs.0.enemy(actor.kind).height / model_height;
         let root = commands
             .spawn((
                 ActorVisual(i),
                 TipGlow::default(),
                 HitFlash::default(),
+                TipSphere::default(),
                 Transform::from_translation(to_bevy(actor.body.pos))
-                    .with_rotation(Quat::from_rotation_y(core_angle_to_yaw(actor.angle)))
-                    .with_scale(Vec3::splat(scale)),
+                    .with_rotation(Quat::from_rotation_y(core_angle_to_yaw(actor.angle))),
                 Visibility::default(),
                 LevelEntity,
             ))
             .id();
+        let mut e = commands.entity(root);
         match actor.kind {
-            ActorKind::Grunt => grunt::spawn(&mut commands, root, i, &a.grunt),
-            ActorKind::Enforcer => enforcer::spawn(&mut commands, root, i, &a.enforcer),
-            ActorKind::Slasher => slasher::spawn(&mut commands, root, i, &a.slasher),
-            ActorKind::Drone => drone::spawn(&mut commands, root, i, &a.drone),
-            ActorKind::Barrel => barrel::spawn(&mut commands, root, i, &a.barrel),
+            ActorKind::Grunt => e.insert(GruntVisual(i)),
+            ActorKind::Enforcer => e.insert(EnforcerVisual(i)),
+            ActorKind::Slasher => e.insert(SlasherVisual(i)),
+            ActorKind::Drone => e.insert(DroneVisual(i)),
+            ActorKind::Barrel => e.insert(BarrelVisual(i)),
+        };
+        let Some(lib) = lib.as_deref() else {
+            continue;
+        };
+        let enemy = lib.enemy(actor.kind);
+        let slot = ModelSlot {
+            enemy: Some(actor.kind),
+            no_shadows: false,
+        };
+        let model = spawn_model_with(
+            &mut commands,
+            root,
+            &enemy.model.scene,
+            &enemy.model.place,
+            slot,
+        );
+        commands.entity(root).insert((
+            ActorModel {
+                root: model,
+                kind: actor.kind,
+            },
+            ModelLook::default(),
+            anim::EnemyAnim::default(),
+        ));
+        let tip = &lib.defs.enemy(actor.kind).tip;
+        if has_gun(actor.kind)
+            && let Tip::Offset(o) = tip
+        {
+            let sphere = spawn_tip(
+                &mut commands,
+                &a,
+                root,
+                Transform::from_translation(Vec3::from(*o)),
+            );
+            commands.entity(root).insert(TipSphere(Some(sphere)));
+        }
+    }
+}
+
+/// A hidden tip-glow sphere under `parent`.
+fn spawn_tip(commands: &mut Commands, a: &ActorAssets, parent: Entity, t: Transform) -> Entity {
+    commands
+        .spawn((
+            Mesh3d(a.tip_mesh.clone()),
+            MeshMaterial3d(a.tip_glow.clone()),
+            NotShadowCaster,
+            t,
+            Visibility::Hidden,
+            ChildOf(parent),
+        ))
+        .id()
+}
+
+/// Parents the tip glow to its named node (e.g. `Gun_end`) once the model is ready.
+fn attach_tips(
+    mut commands: Commands,
+    a: Res<ActorAssets>,
+    lib: Res<ModelLibrary>,
+    mut roots: Query<(&ActorModel, &mut TipSphere)>,
+    ready: Query<&ModelReady>,
+) {
+    for (model, mut sphere) in &mut roots {
+        if sphere.0.is_some() || !has_gun(model.kind) {
+            continue;
+        }
+        let Tip::Node(name) = &lib.defs.enemy(model.kind).tip else {
+            continue;
+        };
+        let Some(&node) = ready.get(model.root).ok().and_then(|r| r.nodes.get(name)) else {
+            continue;
+        };
+        let e = spawn_tip(&mut commands, &a, node, Transform::default());
+        commands.entity(e).insert(KeepWorldScale {
+            scale: 1.0,
+            offset: Vec3::ZERO,
+        });
+        sphere.0 = Some(e);
+    }
+}
+
+/// Divides each [`KeepWorldScale`] entity's parent scale out of its local transform. Uses last
+/// frame's propagated parent transform (bone scales do not animate).
+fn keep_world_scale(
+    mut q: Query<(&KeepWorldScale, &ChildOf, &mut Transform)>,
+    globals: Query<&GlobalTransform>,
+) {
+    for (k, parent, mut t) in &mut q {
+        let Ok(g) = globals.get(parent.parent()) else {
+            continue;
+        };
+        let s = g.to_scale_rotation_translation().0;
+        if s.min_element().abs() < 1e-6 {
+            continue;
+        }
+        let want = Transform {
+            translation: k.offset / s,
+            rotation: t.rotation,
+            scale: Vec3::splat(k.scale) / s,
+        };
+        t.set_if_neq(want);
+    }
+}
+
+/// Shows each tip glow while its actor's [`TipGlow`] runs and the actor lives.
+fn glow_tips(
+    combat: Res<LevelCombat>,
+    roots: Query<(&ActorVisual, &TipGlow, &TipSphere)>,
+    mut vis: Query<&mut Visibility>,
+) {
+    for (g, glow, sphere) in &roots {
+        let (Some(e), Some(actor)) = (sphere.0, combat.0.actors.get(g.0)) else {
+            continue;
+        };
+        if let Ok(mut v) = vis.get_mut(e) {
+            v.set_if_neq(if glow.0 > 0.0 && actor.alive() {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            });
         }
     }
 }
@@ -275,167 +367,74 @@ fn flash_hits(time: Res<Time>, fx: Res<FxQueue>, mut q: Query<(&ActorVisual, &mu
     }
 }
 
-/// The body material. Priority: pain, then the hit flash, then the AI state's look. The flash
-/// shows only on a living actor that is not in pain, so it never fights the pain material and a
+/// The body look. Priority: pain, then the hit flash, then the AI state's look. The flash
+/// shows only on a living actor that is not in pain, so it never fights the pain look and a
 /// Dying actor keeps its death look.
-fn skin_look(state: SkinLook, alive: bool, hit_flash: f32) -> SkinLook {
-    if state != SkinLook::Pain && alive && hit_flash > 0.0 {
-        SkinLook::Hit
+fn skin_look(state: Look, alive: bool, hit_flash: f32) -> Look {
+    if state != Look::Pain && alive && hit_flash > 0.0 {
+        Look::Hit
     } else {
         state
     }
 }
 
-/// The pose of one walking gunner for its AI state.
-struct Pose {
-    /// Whole-body pitch about the feet, backwards (radians).
-    pitch: f32,
-    nod: f32,
-    /// Gun arm pitch: 0 = level, negative = lowered.
-    arm: f32,
-    skin: SkinLook,
-    visor_lit: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SkinLook {
-    Normal,
-    Dim,
-    Pain,
-    Hit,
-}
-
-fn pose(actor: &Actor, death_time: f32) -> Pose {
-    let base = Pose {
-        pitch: 0.0,
-        nod: 0.0,
-        arm: -0.6,
-        skin: SkinLook::Normal,
-        visor_lit: true,
-    };
-    match actor.state {
-        AiState::Sleep => Pose {
-            nod: SLEEP_NOD,
-            arm: -1.3,
-            skin: SkinLook::Dim,
-            visor_lit: false,
-            ..base
-        },
-        AiState::Alert { .. } | AiState::Chase => base,
-        AiState::Attack { .. } => Pose { arm: 0.0, ..base },
-        AiState::Pain { .. } => Pose {
-            pitch: PAIN_TILT,
-            arm: -0.3,
-            skin: SkinLook::Pain,
-            ..base
-        },
-        AiState::Dying { t } => Pose {
-            pitch: death_pitch(t, death_time),
-            arm: -1.3,
-            visor_lit: false,
-            ..base
-        },
-        AiState::Dead => Pose {
-            pitch: FRAC_PI_2,
-            arm: -1.3,
-            visor_lit: false,
-            ..base
-        },
+/// The look an AI state gives a kind's body: walkers dim asleep, everything that feels pain
+/// glows red in it; drones never sleep-dim and barrels only ever flash.
+fn pose(kind: ActorKind, state: AiState) -> Look {
+    match (kind, state) {
+        (ActorKind::Barrel, _) => Look::Normal,
+        (_, AiState::Pain { .. }) => Look::Pain,
+        (ActorKind::Drone, _) => Look::Normal,
+        (_, AiState::Sleep) => Look::Dim,
+        _ => Look::Normal,
     }
 }
 
-fn set_material(
-    mats: &mut Query<&mut MeshMaterial3d<StandardMaterial>>,
-    e: Entity,
-    want: &Handle<StandardMaterial>,
-) {
-    if let Ok(mut m) = mats.get_mut(e)
-        && m.0 != *want
-    {
-        m.0 = want.clone();
-    }
-}
-
-/// Places a walker's root between its last two ticks, pitched back by `pitch`. Lying back, the
-/// body's depth would sink into the floor, so the root lifts by the back's extent.
-fn place_walker(t: &mut Transform, actor: &Actor, alpha: f32, pitch: f32, back_half_depth: f32) {
-    let feet = actor.prev_pos.lerp(actor.body.pos, alpha);
-    let lift = back_half_depth * t.scale.y * pitch.sin();
-    t.translation = to_bevy(feet) + Vec3::Y * lift;
-    t.rotation =
-        Quat::from_rotation_y(core_angle_to_yaw(actor.angle)) * Quat::from_rotation_x(pitch);
-}
-
-/// The animated parts of a Grunt or Enforcer (children of its [`ActorVisual`] root).
-#[derive(Component)]
-struct GunnerRig {
-    /// Parts that take the body material (dimmed asleep, red in pain).
-    skin: Vec<Entity>,
-    neck: Entity,
-    visor: Entity,
-    arm: Entity,
-    tip: Entity,
-    /// Half the torso depth: how far the back sticks out behind the pivot when lying flat.
-    back_half_depth: f32,
-    mats: GunnerMats,
-}
-
-/// The materials a [`GunnerRig`] swaps between.
-#[derive(Clone)]
-struct GunnerMats {
-    skin: Skin,
-    visor_on: Handle<StandardMaterial>,
-    visor_off: Handle<StandardMaterial>,
-    tip_idle: Handle<StandardMaterial>,
-    tip_glow: Handle<StandardMaterial>,
-}
-
-/// Places every Grunt and Enforcer between its last two ticks and poses it from its AI state.
-fn pose_gunners(
-    fixed: Res<Time<Fixed>>,
+/// Swaps every mesh of each ready model to the [`TintCache`] variant of its original material
+/// for the actor's look, only when the look changes. The enemy's `tint` colours `Normal`/`Dim`.
+fn tint_enemies(
     combat: Res<LevelCombat>,
-    defs: Res<GameDefs>,
-    mut roots: Query<(
-        &ActorVisual,
-        &GunnerRig,
-        &TipGlow,
-        &HitFlash,
-        &mut Transform,
-    )>,
-    mut parts: Query<&mut Transform, Without<ActorVisual>>,
+    lib: Res<ModelLibrary>,
+    mut cache: ResMut<TintCache>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut roots: Query<(&ActorVisual, &ActorModel, &HitFlash, &mut ModelLook)>,
+    ready: Query<&ModelReady>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
-    let alpha = fixed.overstep_fraction();
-    for (g, rig, glow, hit, mut t) in &mut roots {
-        let Some(actor) = combat.0.actors.get(g.0) else {
+    for (g, model, hit, mut look) in &mut roots {
+        let (Some(actor), Ok(ready)) = (combat.0.actors.get(g.0), ready.get(model.root)) else {
             continue;
         };
-        let def = defs.0.enemy(actor.kind);
-        let p = pose(actor, def.death_time);
-        place_walker(&mut t, actor, alpha, p.pitch, rig.back_half_depth);
-        if let Ok(mut n) = parts.get_mut(rig.neck) {
-            n.rotation = Quat::from_rotation_x(p.nod);
+        let want = skin_look(pose(model.kind, actor.state), actor.alive(), hit.0);
+        if look.current == Some(want) {
+            continue;
         }
-        if let Ok(mut arm) = parts.get_mut(rig.arm) {
-            arm.rotation = Quat::from_rotation_x(p.arm);
+        let look = &mut *look;
+        let originals = look.originals.get_or_insert_with(|| {
+            ready
+                .meshes
+                .iter()
+                .filter_map(|&e| mats.get(e).ok().map(|m| (e, m.0.clone())))
+                .collect()
+        });
+        let tint = lib.enemy(model.kind).tint;
+        for (e, source) in originals.iter() {
+            if let Ok(mut m) = mats.get_mut(*e) {
+                let h = cache.get(&mut materials, source, want, tint);
+                if m.0 != h {
+                    m.0 = h;
+                }
+            }
         }
-        let skin = rig.mats.skin.pick(skin_look(p.skin, actor.alive(), hit.0));
-        for e in &rig.skin {
-            set_material(&mut mats, *e, skin);
-        }
-        let visor = if p.visor_lit {
-            &rig.mats.visor_on
-        } else {
-            &rig.mats.visor_off
-        };
-        set_material(&mut mats, rig.visor, visor);
-        let tip = if glow.0 > 0.0 && actor.alive() {
-            &rig.mats.tip_glow
-        } else {
-            &rig.mats.tip_idle
-        };
-        set_material(&mut mats, rig.tip, tip);
+        look.current = Some(want);
     }
+}
+
+/// Places a walker's root between its last two ticks, facing its heading (model forward −Z).
+fn place_walker(t: &mut Transform, actor: &Actor, alpha: f32) {
+    let feet = actor.prev_pos.lerp(actor.body.pos, alpha);
+    t.translation = to_bevy(feet);
+    t.rotation = Quat::from_rotation_y(core_angle_to_yaw(actor.angle));
 }
 
 #[cfg(test)]
@@ -470,11 +469,30 @@ mod tests {
 
     #[test]
     fn hit_flash_never_overrides_pain_or_death() {
-        use SkinLook::*;
+        use Look::*;
         assert_eq!(skin_look(Normal, true, 0.05), Hit);
         assert_eq!(skin_look(Dim, true, 0.05), Hit);
         assert_eq!(skin_look(Normal, true, 0.0), Normal);
         assert_eq!(skin_look(Pain, true, 0.05), Pain, "pain wins");
         assert_eq!(skin_look(Normal, false, 0.05), Normal, "dying: no flash");
+    }
+
+    #[test]
+    fn looks_per_kind_and_state() {
+        use ActorKind::*;
+        let pain = AiState::Pain { t: 0.1 };
+        for k in [Grunt, Enforcer, Slasher] {
+            assert_eq!(pose(k, AiState::Sleep), Look::Dim, "{k:?}");
+            assert_eq!(pose(k, pain), Look::Pain, "{k:?}");
+            assert_eq!(pose(k, AiState::Chase), Look::Normal, "{k:?}");
+            assert_eq!(pose(k, AiState::Dead), Look::Normal, "{k:?}");
+        }
+        assert_eq!(
+            pose(Drone, AiState::Sleep),
+            Look::Normal,
+            "drones never dim"
+        );
+        assert_eq!(pose(Drone, pain), Look::Pain);
+        assert_eq!(pose(Barrel, pain), Look::Normal, "barrels only flash");
     }
 }

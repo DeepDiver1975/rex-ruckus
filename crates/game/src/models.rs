@@ -87,11 +87,13 @@ pub struct AttachScene {
     pub model: ModelScene,
 }
 
-/// An enemy's animation graph and the node of each clip role it has.
+/// An enemy's animation graph and the node (and clip) of each clip role it has.
 #[derive(Clone, Debug)]
 pub struct EnemyGraph {
     pub graph: Handle<AnimationGraph>,
     pub nodes: ClipNodes,
+    /// The clip behind each node, e.g. to read its duration from `Assets<AnimationClip>`.
+    pub clips: HashMap<ClipRole, Handle<AnimationClip>>,
 }
 
 /// Everything loaded for one enemy kind.
@@ -169,6 +171,13 @@ impl ModelLibrary {
         &self.enemies[&kind]
     }
 
+    /// Mutable access, e.g. for tests that install a hand-built graph.
+    pub fn enemy_mut(&mut self, kind: ActorKind) -> &mut EnemyAssets {
+        self.enemies
+            .get_mut(&kind)
+            .expect("every enemy kind is loaded")
+    }
+
     /// `None` for weapons that stay code-built (the boot).
     pub fn weapon(&self, id: WeaponId) -> Option<&ModelScene> {
         self.weapons.get(&id)
@@ -226,10 +235,11 @@ pub fn build_graphs(
                 None => warn!("{}: no animation clip named {name:?}", model.scene),
             }
         }
-        let (graph, nodes) = AnimationGraph::from_clips(clips);
+        let (graph, nodes) = AnimationGraph::from_clips(clips.iter().cloned());
         enemy.graph = Some(EnemyGraph {
             graph: graphs.add(graph),
-            nodes: roles.into_iter().zip(nodes).collect(),
+            nodes: roles.iter().copied().zip(nodes).collect(),
+            clips: roles.into_iter().zip(clips).collect(),
         });
     }
 }
@@ -256,19 +266,29 @@ pub struct ModelReady {
 }
 
 /// Spawns `scene` as a child of `parent` at `place` and returns the model root. The root gets
-/// a default [`ModelSlot`]; insert your own on it (before the scene is ready) to bind an
-/// enemy graph or drop shadows.
+/// a default [`ModelSlot`]; use [`spawn_model_with`] to bind an enemy graph or drop shadows.
 pub fn spawn_model(
     commands: &mut Commands,
     parent: Entity,
     scene: &Handle<WorldAsset>,
     place: &Placement,
 ) -> Entity {
+    spawn_model_with(commands, parent, scene, place, ModelSlot::default())
+}
+
+/// [`spawn_model`] with an explicit [`ModelSlot`].
+pub fn spawn_model_with(
+    commands: &mut Commands,
+    parent: Entity,
+    scene: &Handle<WorldAsset>,
+    place: &Placement,
+    slot: ModelSlot,
+) -> Entity {
     commands
         .spawn((
             WorldAssetRoot(scene.clone()),
             placement_transform(place),
-            ModelSlot::default(),
+            slot,
             ChildOf(parent),
         ))
         .id()
@@ -288,7 +308,11 @@ pub fn placement_transform(p: &Placement) -> Transform {
     }
 }
 
+/// Any punctual light a glTF can bring along.
+type AnyLight = Or<(With<DirectionalLight>, With<PointLight>, With<SpotLight>)>;
+
 /// Collects a ready model's player, meshes and named nodes; binds the enemy graph if built.
+/// Lights exported with a model (the drone ships two suns) are despawned: the level lights it.
 #[allow(clippy::too_many_arguments)]
 fn on_model_ready(
     ev: On<WorldInstanceReady>,
@@ -299,6 +323,7 @@ fn on_model_ready(
     players: Query<(), With<AnimationPlayer>>,
     meshes: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
     names: Query<&Name>,
+    lights: Query<(), AnyLight>,
 ) {
     let root = ev.entity;
     let Ok(slot) = slots.get(root) else {
@@ -306,6 +331,10 @@ fn on_model_ready(
     };
     let mut ready = ModelReady::default();
     for e in children.iter_descendants(root) {
+        if lights.contains(e) {
+            commands.entity(e).despawn();
+            continue;
+        }
         if ready.player.is_none() && players.contains(e) {
             ready.player = Some(e);
         }
