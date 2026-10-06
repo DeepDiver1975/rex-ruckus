@@ -743,6 +743,7 @@ mod tests {
             lock: Some(Key::Blue),
             channel: Some(1),
             auto_return: None,
+            one_shot: false,
         });
         let (map, mut mech) = setup(map);
         assert_eq!(mech.movers.len(), 2);

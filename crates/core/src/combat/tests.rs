@@ -19,6 +19,7 @@ pub(super) fn spawn_at(map: &mut Map, x: f32, y: f32, angle: f32, asleep: bool) 
         angle,
         asleep,
         skill: Difficulty::Easy,
+        on_death: None,
     });
 }
 
@@ -624,6 +625,7 @@ pub(super) fn spawn_kind(map: &mut Map, kind: ActorKind, x: f32, y: f32, angle: 
         angle,
         asleep,
         skill: Difficulty::Easy,
+        on_death: None,
     });
 }
 

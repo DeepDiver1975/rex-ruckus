@@ -131,6 +131,7 @@ fn arena() -> Map {
         angle: std::f32::consts::PI,
         asleep: false,
         skill: Difficulty::Easy,
+        on_death: None,
     });
     map
 }

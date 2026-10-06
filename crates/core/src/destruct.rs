@@ -205,6 +205,7 @@ mod tests {
             angle: 0.0,
             asleep: true,
             skill: Difficulty::Easy,
+            on_death: None,
         });
         Combat::spawn(map, d, 1)
     }

@@ -49,7 +49,7 @@ proptest! {
         let mut map = fixture(map_id);
         let at = point(&map, start.0, start.1);
         prop_assume!(map.find_sector(at, None).is_some());
-        map.actors.push(ActorSpawn { kind: ActorKind::Drone, pos: at, angle: 0.0, asleep: false, skill: Difficulty::Easy });
+        map.actors.push(ActorSpawn { kind: ActorKind::Drone, pos: at, angle: 0.0, asleep: false, skill: Difficulty::Easy, on_death: None });
         let defs = Defs::builtin();
         let mut combat = Combat::spawn(&map, &defs, level_seed(&map.name) ^ seed);
         prop_assume!(combat.actors.len() == 1);

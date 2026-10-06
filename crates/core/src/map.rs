@@ -5,6 +5,8 @@
 //! sector that owns the edge b→a.
 
 use crate::difficulty::Difficulty;
+use crate::hazard::Hazard;
+use crate::props::{Prop, RawProp};
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -36,6 +38,12 @@ pub struct RawLevel {
     /// Level music track name.
     #[serde(default)]
     pub music: Option<String>,
+    #[serde(default)]
+    pub triggers: Vec<RawTrigger>,
+    #[serde(default)]
+    pub quakes: Vec<RawQuake>,
+    #[serde(default)]
+    pub props: Vec<RawProp>,
 }
 
 /// Material name the glass pane of a `Wall::glass` portal renders with. `Map::from_raw` appends
@@ -58,6 +66,8 @@ pub struct RawSector {
     /// A secret area: the level counts it once the player first stands in it.
     #[serde(default)]
     pub secret: bool,
+    #[serde(default)]
+    pub hazard: Option<Hazard>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -142,6 +152,9 @@ pub struct MoverDef {
     /// Seconds to wait at the far end before returning on its own.
     #[serde(default)]
     pub auto_return: Option<f32>,
+    /// Once at its end it stays there (a floor that collapses for good).
+    #[serde(default)]
+    pub one_shot: bool,
 }
 
 fn default_mover_speed() -> f32 {
@@ -225,6 +238,27 @@ pub struct RawActor {
     /// Minimum skill this actor appears on.
     #[serde(default = "always")]
     pub skill: Difficulty,
+    /// Runs when the actor is dead (after its dying time).
+    #[serde(default)]
+    pub on_death: Option<SwitchAction>,
+}
+
+/// A sector that runs `action` when the player walks into it (once, unless `once: false`).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct RawTrigger {
+    pub sector: SectorId,
+    pub action: SwitchAction,
+    #[serde(default = "yes")]
+    pub once: bool,
+}
+
+/// Screen shake while channel `channel` fires: `strength` in (0, 1], held for `duration`
+/// seconds and faded out over the last 30 %.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct RawQuake {
+    pub channel: Channel,
+    pub duration: f32,
+    pub strength: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -236,6 +270,8 @@ pub struct ActorSpawn {
     pub asleep: bool,
     /// Minimum skill this actor appears on.
     pub skill: Difficulty,
+    /// Runs when the actor is dead (after its dying time).
+    pub on_death: Option<SwitchAction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -300,6 +336,7 @@ pub struct Sector {
     pub face_mat: Option<MaterialId>,
     pub mover: Option<MoverDef>,
     pub secret: bool,
+    pub hazard: Option<Hazard>,
 }
 
 impl Sector {
@@ -321,6 +358,9 @@ pub struct Map {
     pub actors: Vec<ActorSpawn>,
     /// Level music track name, if the level names one.
     pub music: Option<String>,
+    pub triggers: Vec<RawTrigger>,
+    pub quakes: Vec<RawQuake>,
+    pub props: Vec<Prop>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -363,6 +403,19 @@ pub enum MapError {
         from: usize,
         to: usize,
     },
+    #[error("trigger {index}: sector {sector} does not exist")]
+    BadTrigger { index: usize, sector: usize },
+    #[error("quake {index}: {reason}")]
+    BadQuake { index: usize, reason: &'static str },
+    #[error("prop {index} is outside every sector")]
+    PropOutside { index: usize },
+    #[error("sector {sector}: invalid hazard: {reason}")]
+    BadHazard {
+        sector: SectorId,
+        reason: &'static str,
+    },
+    #[error("sector {sector}: the player starts on a hazard floor")]
+    HazardAtStart { sector: SectorId },
 }
 
 impl Map {
@@ -399,6 +452,7 @@ impl Map {
                 }
             }
             check_mover(si, rs)?;
+            check_hazard(si, rs)?;
             let mut loops = Vec::with_capacity(rs.loops.len());
             for (li, lp) in rs.loops.iter().enumerate() {
                 if lp.len() < 3 {
@@ -441,6 +495,7 @@ impl Map {
                 face_mat: rs.face_mat,
                 mover: rs.mover,
                 secret: rs.secret,
+                hazard: rs.hazard,
             });
         }
 
@@ -512,11 +567,12 @@ impl Map {
                     angle: a.angle_deg.to_radians(),
                     asleep: a.asleep,
                     skill: a.skill,
+                    on_death: a.on_death,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Map {
+        let mut map = Map {
             name: raw.name,
             materials,
             sectors,
@@ -527,7 +583,58 @@ impl Map {
             items,
             actors,
             music: raw.music,
-        })
+            triggers: Vec::new(),
+            quakes: Vec::new(),
+            props: Vec::new(),
+        };
+        for (index, t) in raw.triggers.iter().enumerate() {
+            if t.sector >= map.sectors.len() {
+                return Err(MapError::BadTrigger {
+                    index,
+                    sector: t.sector,
+                });
+            }
+        }
+        for (index, q) in raw.quakes.iter().enumerate() {
+            let bad = |reason| Err(MapError::BadQuake { index, reason });
+            if q.channel == 0 {
+                return bad("channel must not be 0");
+            }
+            if !(q.duration > 0.0 && q.duration.is_finite()) {
+                return bad("duration must be positive");
+            }
+            if !(q.strength > 0.0 && q.strength <= 1.0) {
+                return bad("strength must be in (0, 1]");
+            }
+        }
+        map.triggers = raw.triggers;
+        map.quakes = raw.quakes;
+        map.props = raw
+            .props
+            .iter()
+            .enumerate()
+            .map(|(index, p)| {
+                let pos = Vec2::new(p.pos.0, p.pos.1);
+                let sector = map
+                    .find_sector(pos, None)
+                    .filter(|_| p.angle_deg.is_finite())
+                    .ok_or(MapError::PropOutside { index })?;
+                Ok(Prop {
+                    kind: p.kind,
+                    pos,
+                    angle: p.angle_deg.to_radians(),
+                    stock: p.stock,
+                    sector,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
+        if let Some(s) = map.find_sector(start, None)
+            && map.sectors[s].hazard.is_some()
+        {
+            return Err(MapError::HazardAtStart { sector: s });
+        }
+        Ok(map)
     }
 }
 
@@ -546,6 +653,18 @@ impl Map {
     }
 }
 
+fn check_hazard(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
+    let Some(h) = rs.hazard else { return Ok(()) };
+    let bad = |reason| Err(MapError::BadHazard { sector, reason });
+    if h.damage <= 0 {
+        return bad("damage must be positive");
+    }
+    if !(h.interval > 0.0 && h.interval.is_finite()) {
+        return bad("interval must be positive");
+    }
+    Ok(())
+}
+
 fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
     let Some(m) = rs.mover else { return Ok(()) };
     let bad = |reason| Err(MapError::BadMover { sector, reason });
@@ -554,6 +673,9 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
     }
     if m.auto_return.is_some_and(|t| t.is_nan() || t < 0.0) {
         return bad("auto_return must not be negative");
+    }
+    if m.one_shot && m.auto_return.is_some() {
+        return bad("a one-shot mover cannot auto_return");
     }
     if let MoverKind::Lift { to } = m.kind {
         if !to.is_finite() {
@@ -573,6 +695,136 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
 mod tests {
     use super::*;
     use crate::fixtures::{pillar_room, two_rooms};
+
+    use crate::hazard::{Hazard, HazardKind};
+    use crate::props::PropKind;
+
+    #[test]
+    fn shipped_levels_parse_without_engine_fields() {
+        for src in [
+            include_str!("../../../assets/levels/arsenal_depot.ron"),
+            include_str!("../../../assets/levels/combat_arena.ron"),
+            include_str!("../../../assets/levels/mechanics_lab.ron"),
+            include_str!("../../../assets/levels/test_yard.ron"),
+        ] {
+            let map = Map::from_ron(src).expect("shipped level parses");
+            assert!(map.triggers.is_empty() && map.quakes.is_empty() && map.props.is_empty());
+            assert!(map.sectors.iter().all(|s| s.hazard.is_none()));
+            assert!(
+                map.sectors
+                    .iter()
+                    .all(|s| !s.mover.is_some_and(|m| m.one_shot))
+            );
+            assert!(map.actors.iter().all(|a| a.on_death.is_none()));
+        }
+    }
+
+    #[test]
+    fn parses_engine_fields() {
+        let map = crate::fixtures::engine_room(
+            "actors: [(kind: Grunt, pos: (3.0, 2.0), on_death: Some(Channel(7)))],",
+        );
+        assert_eq!(
+            map.sectors[3].hazard,
+            Some(Hazard {
+                damage: 4,
+                interval: 0.75,
+                kind: HazardKind::Slime
+            })
+        );
+        let lift = map.sectors[2].mover.unwrap();
+        assert!(lift.one_shot && lift.channel == Some(7));
+        assert_eq!(
+            map.triggers,
+            vec![RawTrigger {
+                sector: 1,
+                action: SwitchAction::Channel(7),
+                once: true
+            }]
+        );
+        assert_eq!(
+            map.quakes,
+            vec![RawQuake {
+                channel: 7,
+                duration: 2.0,
+                strength: 0.8
+            }]
+        );
+        let kinds: Vec<PropKind> = map.props.iter().map(|p| p.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![PropKind::Toilet, PropKind::Vending, PropKind::PoolTable]
+        );
+        assert_eq!((map.props[1].stock, map.props[0].stock), (2, 3));
+        assert!((map.props[0].angle - 270f32.to_radians()).abs() < 1e-6);
+        assert_eq!(
+            map.props.iter().map(|p| p.sector).collect::<Vec<_>>(),
+            vec![4, 4, 4]
+        );
+        assert_eq!(map.actors[0].on_death, Some(SwitchAction::Channel(7)));
+    }
+
+    #[test]
+    fn rejects_bad_engine_fields() {
+        let err = |from: &str, to: &str| {
+            let src = crate::fixtures::engine_room_ron("");
+            assert!(src.contains(from), "fixture text changed: {from}");
+            Map::from_ron(&src.replacen(from, to, 1)).unwrap_err()
+        };
+        assert_eq!(
+            err(
+                "(sector: 1, action: Channel(7))",
+                "(sector: 9, action: Channel(7))"
+            ),
+            MapError::BadTrigger {
+                index: 0,
+                sector: 9
+            }
+        );
+        assert!(matches!(
+            err("(channel: 7, duration: 2.0", "(channel: 0, duration: 2.0"),
+            MapError::BadQuake { index: 0, .. }
+        ));
+        assert!(matches!(
+            err(
+                "duration: 2.0, strength: 0.8",
+                "duration: 2.0, strength: 1.5"
+            ),
+            MapError::BadQuake { index: 0, .. }
+        ));
+        assert_eq!(
+            err("pos: (16.0, 1.2)", "pos: (30.0, 1.2)"),
+            MapError::PropOutside { index: 2 }
+        );
+        assert_eq!(
+            err(
+                "pos: (1.0, 2.0), angle_deg: 0.0)",
+                "pos: (11.0, 2.0), angle_deg: 0.0)"
+            ),
+            MapError::HazardAtStart { sector: 3 }
+        );
+        assert_eq!(
+            err("damage: 4, interval: 0.75", "damage: 4, interval: 0.0"),
+            MapError::BadHazard {
+                sector: 3,
+                reason: "interval must be positive"
+            }
+        );
+        assert_eq!(
+            err("damage: 4, interval: 0.75", "damage: 0, interval: 0.75"),
+            MapError::BadHazard {
+                sector: 3,
+                reason: "damage must be positive"
+            }
+        );
+        assert_eq!(
+            err("one_shot: true", "one_shot: true, auto_return: Some(2.0)"),
+            MapError::BadMover {
+                sector: 2,
+                reason: "a one-shot mover cannot auto_return"
+            }
+        );
+    }
 
     #[test]
     fn sector_centre_is_the_middle_of_the_outer_loop() {
@@ -839,6 +1091,7 @@ mod tests {
             angle_deg: 0.0,
             asleep: true,
             skill: Difficulty::Easy,
+            on_death: None,
         });
         assert!(matches!(
             Map::from_raw(raw.clone()),

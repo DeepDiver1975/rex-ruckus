@@ -656,6 +656,7 @@ mod tests {
             lock: Some(Key::Blue),
             channel: Some(1),
             auto_return: None,
+            one_shot: false,
         });
         let need = channel_required_keys(&map, 1);
         assert!(need.contains(Key::Red) && need.contains(Key::Blue) && !need.contains(Key::Yellow));
@@ -779,6 +780,7 @@ mod tests {
             angle: 0.0,
             asleep: true,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         // Pillar occupies x 4..6, y 4..6: 0.2 m from its west face is inside the 0.35 m radius.
         map.actors = vec![spawn(3.8, 5.0), spawn(3.0, 5.0)];

@@ -135,6 +135,7 @@ mod tests {
             angle: 0.0,
             asleep: true,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         map.actors.push(spawn(ActorKind::Grunt, 2.0));
         map.actors.push(spawn(ActorKind::Barrel, 6.0));

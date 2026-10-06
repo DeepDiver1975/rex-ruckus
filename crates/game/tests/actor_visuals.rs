@@ -40,6 +40,7 @@ fn app_with(kinds: &[ActorKind]) -> App {
             angle: std::f32::consts::PI,
             asleep: true,
             skill: Difficulty::Easy,
+            on_death: None,
         });
     }
     let mut app = App::new();

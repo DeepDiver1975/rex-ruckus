@@ -641,6 +641,7 @@ mod tests {
             angle,
             asleep,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         Actor::new(map, def, &spawn).expect("spawn inside the map")
     }
@@ -1118,6 +1119,7 @@ mod tests {
             angle: 0.0,
             asleep: false,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         let mut a = Actor::new(&map, &def, &spawn).unwrap();
         a.state = AiState::Chase;

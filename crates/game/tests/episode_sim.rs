@@ -93,6 +93,7 @@ fn grunt(x: f32, y: f32) -> ActorSpawn {
         angle: std::f32::consts::PI,
         asleep: true,
         skill: Difficulty::Easy,
+        on_death: None,
     }
 }
 

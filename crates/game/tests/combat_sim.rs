@@ -208,6 +208,7 @@ fn pistol_kills_grunt_headless() {
         angle: std::f32::consts::PI,
         asleep: true,
         skill: Difficulty::Easy,
+        on_death: None,
     });
     let mut app = app(map);
     input(&mut app).fire = true;
