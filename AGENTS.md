@@ -15,8 +15,10 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | Path | What lives there |
 |---|---|
 | `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors. **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
-| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
+| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback; `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
 | `crates/tools` (`rr-tools`) | `validate` and `render-svg` for level files. |
+| `assets/episode.ron` | The episode: its name and the levels in play order. |
+| `assets/fonts/` | The UI/HUD font (CC0 TTF). |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). |
 | `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons and pickups to models (scale, placement, clip names, muzzles). |
 | `assets/models/` | CC0 glTF (`.glb`) for enemies, viewmodel weapons and pickups. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
