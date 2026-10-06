@@ -92,7 +92,7 @@ fn check_quips(assets: &Path, errors: &mut Vec<String>) -> BTreeSet<String> {
             errors.push(format!("quips: quips/{id}.ogg is missing"));
         }
     }
-    for rel in audio_files(&assets.join("quips"), "quips") {
+    for rel in audio_files(&assets.join("quips"), "quips", errors) {
         let stem = rel
             .strip_prefix("quips/")
             .and_then(|f| f.strip_suffix(".ogg"));
@@ -123,7 +123,7 @@ fn check_provenance(
         errors.push("provenance: CREDITS.md does not mention scripts/gen-quips.sh".into());
     }
     for dir in ["sounds", "music", "quips"] {
-        for rel in audio_files(&assets.join(dir), dir) {
+        for rel in audio_files(&assets.join(dir), dir, errors) {
             let synth = rel
                 .strip_prefix("sounds/synth/")
                 .and_then(|f| f.strip_suffix(".wav"))
@@ -142,13 +142,19 @@ fn check_provenance(
 }
 
 /// `.wav`/`.ogg` files under `dir` (recursively), as `/`-separated paths starting with `prefix`,
-/// sorted.
-fn audio_files(dir: &Path, prefix: &str) -> Vec<String> {
+/// sorted. Extensions match case-insensitively. A missing `dir` itself is fine; an unreadable
+/// subdirectory is a validation error.
+fn audio_files(dir: &Path, prefix: &str, errors: &mut Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     let mut stack: Vec<(PathBuf, String)> = vec![(dir.to_path_buf(), prefix.to_string())];
     while let Some((d, rel)) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else {
-            continue;
+        let entries = match std::fs::read_dir(&d) {
+            Ok(entries) => entries,
+            Err(_) if d == dir => continue,
+            Err(e) => {
+                errors.push(format!("provenance: cannot read {rel}/: {e}"));
+                continue;
+            }
         };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -156,10 +162,11 @@ fn audio_files(dir: &Path, prefix: &str) -> Vec<String> {
             let path = e.path();
             if path.is_dir() {
                 stack.push((path, child));
-            } else if matches!(
-                path.extension().and_then(|x| x.to_str()),
-                Some("wav" | "ogg")
-            ) {
+            } else if path
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("wav") || x.eq_ignore_ascii_case("ogg"))
+            {
                 out.push(child);
             }
         }
@@ -303,6 +310,13 @@ mod tests {
         let f = good();
         f.write("sounds/cc0/b.ogg", "x");
         fails_with(&f, &[], "sounds/cc0/b.ogg is not a synth output");
+    }
+
+    #[test]
+    fn uncredited_uppercase_extension() {
+        let f = good();
+        f.write("sounds/cc0/LOUD.OGG", "x");
+        fails_with(&f, &[], "sounds/cc0/LOUD.OGG is not a synth output");
     }
 
     #[test]

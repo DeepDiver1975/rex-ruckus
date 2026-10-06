@@ -2,11 +2,9 @@
 
 All code and procedural content (including the synthesised sounds) are original.
 Textures are generated procedurally at runtime, and weapons, enemies and effects are
-built from Bevy primitives at runtime. The third-party CC0 and public-domain files
-used for sound effects, voice and music are listed below.
-
-Third-party CC0 assets added in later milestones are listed here with their
-source URL and licence.
+built from Bevy primitives at runtime. The third-party CC0 recordings for sound effects
+and music, and the public-domain Piper voice used to generate the quips, are listed below
+with their source URL and licence.
 
 All third-party files below are CC0 1.0 (public domain dedication,
 https://creativecommons.org/publicdomain/zero/1.0/). Each was converted with
