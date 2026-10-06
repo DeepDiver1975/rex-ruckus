@@ -80,6 +80,18 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Cmd::Synth { recipes, out } => match synth_file(&recipes, &out) {
+            Ok(lines) => {
+                for line in lines {
+                    println!("{line}");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Cmd::QuipsList { quips } => {
             match std::fs::read_to_string(&quips)
                 .map_err(|e| e.to_string())
@@ -97,17 +109,5 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Cmd::Synth { recipes, out } => match synth_file(&recipes, &out) {
-            Ok(lines) => {
-                for line in lines {
-                    println!("{line}");
-                }
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("error: {e}");
-                ExitCode::FAILURE
-            }
-        },
     }
 }
