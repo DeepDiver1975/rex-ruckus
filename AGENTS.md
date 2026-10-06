@@ -20,6 +20,10 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). |
 | `assets/defs/*.ron` | Weapon and enemy stats. |
 | `assets/demo/*.ron` | Scripted demo runs (`--demo`). |
+| `assets/sounds/` | `bank.ron` (event to sound map), `synth.ron` recipes, `synth/` rendered output, `cc0/` curated CC0 recordings. |
+| `assets/music/` | Level music (OGG). |
+| `assets/quips/` | Hero voice quips (OGG) and `quips.ron` (texts). |
+| `scripts/` | `gen-quips.sh` (Piper voice quips), `import-sfx.sh` (CC0 import via sox), `record-demo.sh` (README demo). |
 | `installer/` | Inno Setup script for the Windows installer. |
 
 Assets are found via `$RR_ASSETS`, else the workspace `assets/`, else `assets/` next to the exe.
@@ -43,6 +47,12 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   together with Bevy; Dependabot is told to ignore glam minor/major bumps.
 - Keep simulation logic in `rr-core` with unit/property tests; `rr-game` systems should stay
   thin. Headless Bevy tests live in `crates/game/tests/` (see `restart_sim.rs` for the setup).
+- Audio assets are generated or curated offline and their outputs are committed (`rr-tools synth`,
+  `scripts/gen-quips.sh`, `scripts/import-sfx.sh`). `rr-tools validate` enforces sound-bank
+  coverage, quip files, level music and `CREDITS.md` provenance. The voice must stay a
+  public-domain Piper voice (`en_US-norman`); never use `en_US-lessac` (research-only licence).
+- Headless tests do not add `AudioPlugin`; audio systems are gated on the `SoundBank` resource,
+  so tests without audio need no changes.
 - Bevy debug builds are large; dependencies are built without debuginfo on purpose.
 
 ## Git and pull requests
