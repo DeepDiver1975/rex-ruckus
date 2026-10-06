@@ -9,7 +9,7 @@ use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Map, SwitchAction};
-use rr_core::mechanics::Motion;
+use rr_core::mechanics::{Motion, UseTarget};
 use rr_core::projectile::Shooter;
 use rr_game::audio::{AudioFxPlugin, QuipVoice};
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, PlayerVitals, insert_defs};
@@ -18,7 +18,7 @@ use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::fx::{FxPlugin, ScreenShake};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
-    HudMessage, HudSubtitle, LevelMechanics, MechanicsSimPlugin, insert_level,
+    HudMessage, HudSubtitle, LevelMechanics, MechanicsSimPlugin, UsePrompt, insert_level,
 };
 use rr_game::paths::assets_dir;
 use rr_game::player::{EYE_BELOW_TOP, Look, PendingInput, PlayerBody, PlayerSimPlugin, PrevFeet};
@@ -243,4 +243,23 @@ fn an_infight_kill_counts_in_the_stats_but_is_not_the_players() {
     let after: Vec<_> = q.iter(app.world()).map(|(e, _)| e).collect();
     assert_eq!(after, opening, "no kill quip");
     assert_eq!(subtitle(&app), before);
+}
+
+#[test]
+fn the_toilet_heals_and_says_so() {
+    let mut app = app(engine_room(""));
+    teleport(&mut app, 14.0, 2.5, 90.0);
+    vitals(&mut app).0.damage(30);
+    ticks(&mut app, 1);
+    assert_eq!(
+        app.world().resource::<UsePrompt>().0,
+        Some(UseTarget::Prop(0))
+    );
+    input(&mut app).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(vitals(&mut app).0.health.hp, 80);
+    assert_eq!(
+        app.world().resource::<HudMessage>().text,
+        "+10 health. Much better."
+    );
 }

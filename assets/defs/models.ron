@@ -129,6 +129,11 @@
         (kind: NightVision, scene: "models/pickups/night_vision.glb", place: (scale: 0.76, offset: (18.61, -0.16, -1.14))), // 0.35 / 0.46; mesh sits off-origin, centred
         (kind: Key, scene: "models/pickups/keycard.glb", place: (scale: 0.34)), // 0.35 / 1.04
     ],
+    // Gag props; the vending machine and the pool table stay code-built.
+    props: [
+        // 0.46 m deep model, front on +Z natively; footprint is 0.7 x 0.5 m.
+        (kind: Toilet, scene: "models/props/toilet.glb", place: (scale: 1.45, yaw_deg: 180.0, offset: (0.0, 0.0, 0.12))),
+    ],
     extras: (
         held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 0.5, offset: (0.0, 0.015, 0.0))), // 0.11 / 0.21
         detonator: (scene: "models/weapons/detonator.glb", place: (scale: 0.05, offset: (-0.09, -0.07, -0.02))), // 0.15 / 2.10

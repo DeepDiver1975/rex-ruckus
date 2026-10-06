@@ -18,6 +18,7 @@ use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use rr_core::defs::WeaponId;
 use rr_core::map::{ActorKind, ItemKind};
 use rr_core::models::{Clips, ItemKindModel, ModelDefs, Placement};
+use rr_core::props::PropKind;
 
 /// Loads the model library, builds animation graphs and binds them to spawned enemy models.
 pub struct ModelsPlugin;
@@ -116,6 +117,7 @@ pub struct ModelLibrary {
     enemies: HashMap<ActorKind, EnemyAssets>,
     weapons: HashMap<WeaponId, ModelScene>,
     items: HashMap<ItemKindModel, ModelScene>,
+    props: HashMap<PropKind, ModelScene>,
     pub held_bomb: ModelScene,
     pub detonator: ModelScene,
 }
@@ -158,12 +160,18 @@ impl ModelLibrary {
             .iter()
             .map(|i| (i.kind, scene(&i.scene, &i.place)))
             .collect();
+        let props = defs
+            .props
+            .iter()
+            .map(|p| (p.kind, scene(&p.scene, &p.place)))
+            .collect();
         ModelLibrary {
             held_bomb: scene(&defs.extras.held_bomb.scene, &defs.extras.held_bomb.place),
             detonator: scene(&defs.extras.detonator.scene, &defs.extras.detonator.place),
             enemies,
             weapons,
             items,
+            props,
             defs,
         }
     }
@@ -187,6 +195,11 @@ impl ModelLibrary {
     /// Every keycard colour shares one scene.
     pub fn item(&self, kind: ItemKind) -> &ModelScene {
         &self.items[&ItemKindModel::of(kind)]
+    }
+
+    /// `None` for props that stay code-built.
+    pub fn prop(&self, kind: PropKind) -> Option<&ModelScene> {
+        self.props.get(&kind)
     }
 
     /// The graph node playing `role` for `kind`; `None` until the graph is built or if the

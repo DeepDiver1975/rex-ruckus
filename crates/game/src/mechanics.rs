@@ -14,6 +14,7 @@ use rr_core::interact::use_target;
 use rr_core::map::{Map, MaterialId, MoverKind, SectorId};
 use rr_core::mechanics::{Mechanics, UseOutcome, UseTarget};
 use rr_core::pickups::{Loadout, apply_pickup};
+use rr_core::props::PropOutcome;
 use std::collections::BTreeSet;
 
 /// How long a HUD message stays up, in seconds.
@@ -165,21 +166,51 @@ impl Plugin for MechanicsSimPlugin {
     }
 }
 
+/// The HUD line for using a prop.
+pub fn prop_message(o: PropOutcome) -> Option<String> {
+    Some(match o {
+        PropOutcome::Healed(n) => format!("+{n} health. Much better."),
+        PropOutcome::Flushed => "Flush. Nothing like it.".into(),
+        PropOutcome::Dispensed(0) => "Soda. Already topped up.".into(),
+        PropOutcome::Dispensed(n) => format!("Soda! +{n} health"),
+        PropOutcome::SoldOut => "Sold out.".into(),
+        PropOutcome::Racked => "Racked 'em. No time for a game.".into(),
+        PropOutcome::Busy => return None,
+    })
+}
+
+/// What `use_key` reads per player; vitals are optional so headless tests may omit them.
+type UseQuery = (
+    &'static PlayerBody,
+    &'static Look,
+    &'static Inventory,
+    &'static mut PendingInput,
+    Option<&'static mut PlayerVitals>,
+);
+
 pub fn use_key(
     map: Res<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
     mut prompt: ResMut<UsePrompt>,
     mut msg: ResMut<HudMessage>,
     mut state: ResMut<PlayState>,
-    mut q: Query<(&PlayerBody, &Look, &Inventory, &mut PendingInput), With<Player>>,
+    mut q: Query<UseQuery, With<Player>>,
 ) {
-    for (body, look, inv, mut input) in &mut q {
+    for (body, look, inv, mut input, mut vitals) in &mut q {
         let target = use_target(&map.0, &mech.0, &body.0, look.angle);
         prompt.0 = target;
         if !std::mem::take(&mut input.use_pressed) {
             continue;
         }
         let Some(t) = target else { continue };
+        if let UseTarget::Prop(i) = t {
+            if let Some(v) = vitals.as_deref_mut()
+                && let Some(text) = prop_message(mech.0.use_prop(i, &mut v.0))
+            {
+                msg.show(text);
+            }
+            continue;
+        }
         match mech.0.activate(&map.0, t, inv.keys) {
             UseOutcome::Activated => {}
             UseOutcome::NeedKey(k) => msg.show(format!("You need the {} keycard", k.name())),
@@ -256,5 +287,23 @@ pub fn pickup_items(
                 .map(|text| msg.show(text))
                 .is_some()
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prop_messages() {
+        assert_eq!(
+            prop_message(PropOutcome::Healed(10)).as_deref(),
+            Some("+10 health. Much better.")
+        );
+        assert_eq!(
+            prop_message(PropOutcome::SoldOut).as_deref(),
+            Some("Sold out.")
+        );
+        assert_eq!(prop_message(PropOutcome::Busy), None);
     }
 }

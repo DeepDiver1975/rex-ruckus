@@ -4,6 +4,7 @@
 
 use crate::defs::WeaponId;
 use crate::map::{ActorKind, ItemKind};
+use crate::props::PropKind;
 use serde::Deserialize;
 
 fn finite3((x, y, z): (f32, f32, f32)) -> bool {
@@ -183,6 +184,15 @@ pub struct ItemModel {
     pub place: Placement,
 }
 
+/// A gag prop's glTF model; kinds without one are code-built in the game.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PropModel {
+    pub kind: PropKind,
+    pub scene: String,
+    #[serde(default)]
+    pub place: Placement,
+}
+
 /// A scene plus its placement (used where a bare tuple would be awkward in RON).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct SceneRef {
@@ -204,6 +214,9 @@ pub struct ModelDefs {
     pub enemies: Vec<EnemyModel>,
     pub weapons: Vec<WeaponModel>,
     pub items: Vec<ItemModel>,
+    /// Gag props with a model; the others are code-built.
+    #[serde(default)]
+    pub props: Vec<PropModel>,
     pub extras: ExtraModels,
 }
 
@@ -237,6 +250,11 @@ impl ModelDefs {
             .unwrap_or_else(|| panic!("no model for item {k:?}; run validate()"))
     }
 
+    /// `None` for props that stay code-built.
+    pub fn prop(&self, kind: PropKind) -> Option<&PropModel> {
+        self.props.iter().find(|p| p.kind == kind)
+    }
+
     /// Checks coverage (each kind exactly once, no weapon model for the boot or the pipe bombs) and sane numbers.
     pub fn validate(&self) -> Result<(), String> {
         for k in ActorKind::ALL {
@@ -265,6 +283,12 @@ impl ModelDefs {
                 1 => {}
                 0 => return Err(format!("item {k:?}: no model")),
                 n => return Err(format!("item {k:?}: {n} models, expected exactly one")),
+            }
+        }
+        for k in PropKind::ALL {
+            let n = self.props.iter().filter(|p| p.kind == k).count();
+            if n > 1 {
+                return Err(format!("prop {k:?}: {n} models, expected at most one"));
             }
         }
         for e in &self.enemies {
@@ -298,6 +322,9 @@ impl ModelDefs {
         for i in &self.items {
             i.place.check(&format!("item {:?}", i.kind))?;
         }
+        for p in &self.props {
+            p.place.check(&format!("prop {:?}", p.kind))?;
+        }
         self.extras.held_bomb.place.check("extras held_bomb")?;
         self.extras.detonator.place.check("extras detonator")?;
         Ok(())
@@ -308,6 +335,25 @@ impl ModelDefs {
 mod tests {
     use super::*;
     use crate::map::Key;
+
+    #[test]
+    fn props_are_optional_but_unique() {
+        let mut d = ModelDefs::builtin();
+        assert_eq!(d.validate(), Ok(()));
+        d.props.clear();
+        assert_eq!(d.validate(), Ok(()), "code-built fallback");
+        d.props.push(PropModel {
+            kind: PropKind::Toilet,
+            scene: "a.glb".into(),
+            place: Placement::default(),
+        });
+        d.props.push(PropModel {
+            kind: PropKind::Toilet,
+            scene: "b.glb".into(),
+            place: Placement::default(),
+        });
+        assert!(d.validate().unwrap_err().contains("prop Toilet"));
+    }
 
     #[test]
     fn builtin_parses_and_validates() {

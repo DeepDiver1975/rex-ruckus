@@ -121,6 +121,9 @@ fn check_scenes(assets: &Path, defs: &ModelDefs, errors: &mut Vec<String>) -> BT
     for i in &defs.items {
         refs.push((format!("item {:?}", i.kind), &i.scene));
     }
+    for p in &defs.props {
+        refs.push((format!("prop {:?}", p.kind), &p.scene));
+    }
     refs.push(("extras held_bomb".into(), &defs.extras.held_bomb.scene));
     refs.push(("extras detonator".into(), &defs.extras.detonator.scene));
     let mut referenced = BTreeSet::new();
