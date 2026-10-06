@@ -49,6 +49,8 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
             }
         }
         CombatEvent::SecretFound => out.push((Cue::Secret, None)),
+        // Silent until the engine-room sounds land.
+        CombatEvent::HazardBurn { .. } => {}
         CombatEvent::Impact { point, .. } => out.push((Cue::Impact, Some(point))),
         CombatEvent::Explosion { point, .. } => out.push((Cue::Explosion, Some(point))),
         CombatEvent::GlassBroken { wall, .. } => {
@@ -161,6 +163,9 @@ mod tests {
             CombatEvent::CrackOpened(1),
             CombatEvent::LightBroken(0),
             CombatEvent::SecretFound,
+            CombatEvent::HazardBurn {
+                kind: crate::hazard::HazardKind::Slime,
+            },
             CombatEvent::Impact {
                 point: p,
                 normal: Vec3::Z,
@@ -189,6 +194,7 @@ mod tests {
                 | CombatEvent::CrackOpened(_)
                 | CombatEvent::LightBroken(_)
                 | CombatEvent::SecretFound
+                | CombatEvent::HazardBurn { .. }
                 | CombatEvent::Impact { .. }
                 | CombatEvent::ProjectileGone(_)
                 | CombatEvent::Explosion { .. }
@@ -221,6 +227,7 @@ mod tests {
             vec![(Cue::CrackOpen, Some(map.sector_centre(1)))],
             vec![(Cue::LightBreak, Some(p.with_z(2.5)))],
             vec![(Cue::Secret, None)],
+            vec![],
             vec![(Cue::Impact, Some(p))],
             vec![],
             vec![(Cue::Explosion, Some(p))],

@@ -24,6 +24,7 @@ use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
 use crate::destruct::{Destruct, hits_pane};
 use crate::explosion::Blast;
+use crate::hazard::{HazardClock, HazardKind};
 use crate::health::DamageOutcome;
 use crate::map::{Map, SectorId, WallId};
 use crate::mechanics::Mechanics;
@@ -74,6 +75,10 @@ pub enum CombatEvent {
     LightBroken(usize),
     /// The player entered a secret sector for the first time.
     SecretFound,
+    /// The player's floor burned them; a `PlayerHurt` follows.
+    HazardBurn {
+        kind: HazardKind,
+    },
     /// A shot or projectile hit the world at `point` (in `sector`).
     Impact {
         point: Vec3,
@@ -134,6 +139,8 @@ pub struct Combat {
     pub destruct: Destruct,
     /// Multiplier on damage the player takes; the difficulty sets it. 1.0 at spawn.
     pub damage_scale: f32,
+    /// The player's hazard-floor clock; reset with the level.
+    pub hazard: HazardClock,
     next_id: u32,
 }
 
@@ -186,6 +193,7 @@ impl Combat {
             rng: Rng::new(seed),
             destruct: Destruct::new(map),
             damage_scale: 1.0,
+            hazard: HazardClock::default(),
             next_id: 0,
         }
     }
@@ -304,6 +312,14 @@ impl Combat {
         let mut out = Vec::new();
         if self.destruct.enter_sector(map, player.body.sector) {
             out.push(CombatEvent::SecretFound);
+        }
+        let touching = crate::hazard::contact(map, player.body);
+        if let Some(h) = self.hazard.tick(touching, dt)
+            && player.vitals.health.alive()
+        {
+            out.push(CombatEvent::HazardBurn { kind: h.kind });
+            let at = player.body.pos;
+            hurt_player(player, h.damage, self.damage_scale, at, &mut out);
         }
         for a in &mut self.actors {
             a.prev_pos = a.body.pos;
@@ -588,6 +604,8 @@ mod crack_tests;
 mod drone_tests;
 #[cfg(test)]
 mod glass_tests;
+#[cfg(test)]
+mod hazard_tests;
 #[cfg(test)]
 mod light_tests;
 #[cfg(test)]
