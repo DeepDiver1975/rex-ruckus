@@ -74,10 +74,10 @@
     ],
     weapons: [
         // Viewmodel guns: about 0.18-0.3 m long; they lie along x (orientation tuned later).
-        (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.12)), // 0.22 / 1.82
-        (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081)), // 0.3 / 3.69
-        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.058)), // 0.3 / 5.17
-        (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 1.0)), // TODO tune
+        (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.12), muzzle: Some((0.0, 0.0, -0.09))), // 0.22 / 1.82
+        (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081), muzzle: Some((0.0, 0.01, -0.12))), // 0.3 / 3.69
+        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.058), muzzle: Some((0.0, 0.01, -0.12))), // 0.3 / 5.17
+        (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 1.0), muzzle: Some((0.0, 0.01, -0.12))), // TODO tune
         (id: PipeBombs, scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.0)), // TODO tune
     ],
     items: [
@@ -99,6 +99,6 @@
     ],
     extras: (
         held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.0)), // TODO tune
-        detonator: (scene: "models/weapons/detonator.glb", place: (scale: 0.071)), // 0.15 / 2.10
+        detonator: (scene: "models/weapons/detonator.glb", place: (scale: 0.071, offset: (-0.07, -0.05, 0.0))), // 0.15 / 2.10
     ),
 )

@@ -1,12 +1,15 @@
 //! Viewmodel headless: one model per weapon under the persistent camera, surviving restarts.
 
+use bevy::gltf::Gltf;
 use bevy::prelude::*;
+use bevy::world_serialization::WorldAsset;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::fixtures::combat_room;
 use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{CombatSimPlugin, FxQueue, insert_defs};
 use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, restart_level};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
+use rr_game::models::ModelsPlugin;
 use rr_game::player::{DEATH_ROLL, PlayerCamera, PlayerSimPlugin, ViewRoll, spawn_camera};
 use rr_game::viewmodel::{
     BarrelCluster, Detonator, HeldBomb, KickLeg, MuzzleFlash, Recoil, ViewModel, ViewModelPlugin,
@@ -17,10 +20,16 @@ fn app() -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
-        .init_asset::<StandardMaterial>();
+        .init_asset::<StandardMaterial>()
+        // The asset types ModelsPlugin loads (no loaders: loads just fail).
+        .init_asset::<WorldAsset>()
+        .init_asset::<Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
     insert_level(&mut app, combat_room());
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
+        ModelsPlugin,
         FlowPlugin,
         PlayerSimPlugin,
         MechanicsSimPlugin,
