@@ -1,6 +1,6 @@
 //! glTF models: the shared plumbing behind enemies, viewmodel weapons and pickups.
 //!
-//! [`ModelLibrary`] is loaded once at startup from [`ModelDefs::builtin`] and survives restarts:
+//! [`ModelLibrary`] is loaded once at startup from `assets/defs/models.ron` ([`load_model_defs`]) and survives restarts:
 //! one scene handle per enemy, weapon, item and extra, plus per enemy an [`AnimationGraph`] whose
 //! [`ClipRole`] nodes are resolved by clip name once the enemy's `Gltf` has loaded
 //! ([`build_graphs`]). [`spawn_model`] parents a scene to an entity with its [`Placement`]; when
@@ -9,6 +9,7 @@
 //! [`bind_late_graphs`]). [`TintCache`] hands out per-[`Look`] variants of the glTF materials.
 
 use crate::flow::run_spawn_level;
+use crate::paths::assets_dir;
 use bevy::gltf::{Gltf, GltfAssetLabel};
 use bevy::light::NotShadowCaster;
 use bevy::platform::collections::HashMap;
@@ -195,8 +196,18 @@ impl ModelLibrary {
     }
 }
 
+/// Loads `assets/defs/models.ron`, panicking with the path on failure (the library then
+/// validates it).
+pub fn load_model_defs() -> ModelDefs {
+    let path = assets_dir().join("defs").join("models.ron");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read defs {}: {e}", path.display()));
+    ModelDefs::from_ron(&text)
+        .unwrap_or_else(|e| panic!("invalid defs in {}: {e:?}", path.display()))
+}
+
 fn load_library(mut commands: Commands, server: Res<AssetServer>) {
-    commands.insert_resource(ModelLibrary::load(ModelDefs::builtin(), &server));
+    commands.insert_resource(ModelLibrary::load(load_model_defs(), &server));
 }
 
 /// Builds each enemy's animation graph once its `Gltf` is loaded, resolving clips by name.

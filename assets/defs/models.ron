@@ -86,7 +86,6 @@
         (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.27))), // 0.3 / 3.69
         (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.058, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.21))), // 0.3 / 5.17
         (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.14, offset: (0.0, 0.02, -0.13)), muzzle: Some((0.0, 0.02, -0.35))), // 0.44 / 3.14
-        (id: PipeBombs, scene: "models/weapons/pipe_bomb.glb", place: (scale: 0.5, offset: (0.0, 0.015, 0.0))), // as extras.held_bomb
     ],
     items: [
         // Pickups: about 0.35-0.5 m on the longest side.

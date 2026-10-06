@@ -224,7 +224,7 @@ impl ModelDefs {
             .unwrap_or_else(|| panic!("no model for enemy {kind:?}; run validate()"))
     }
 
-    /// `None` for weapons that stay code-built (the boot).
+    /// `None` for weapons that stay code-built (the boot and the pipe-bomb fist).
     pub fn weapon(&self, id: WeaponId) -> Option<&WeaponModel> {
         self.weapons.iter().find(|w| w.id == id)
     }
@@ -237,7 +237,7 @@ impl ModelDefs {
             .unwrap_or_else(|| panic!("no model for item {k:?}; run validate()"))
     }
 
-    /// Checks coverage (each kind exactly once, no model for the boot) and sane numbers.
+    /// Checks coverage (each kind exactly once, no weapon model for the boot or the pipe bombs) and sane numbers.
     pub fn validate(&self) -> Result<(), String> {
         for k in ActorKind::ALL {
             match self.enemies.iter().filter(|e| e.kind == k).count() {
@@ -249,9 +249,11 @@ impl ModelDefs {
         for w in WeaponId::ALL {
             let n = self.weapons.iter().filter(|m| m.id == w).count();
             match (w, n) {
-                (WeaponId::Boot, 0) => {}
-                (WeaponId::Boot, _) => {
-                    return Err("weapon Boot: must not have a model (it is code-built)".into());
+                (WeaponId::Boot | WeaponId::PipeBombs, 0) => {}
+                (WeaponId::Boot | WeaponId::PipeBombs, _) => {
+                    return Err(format!(
+                        "weapon {w:?}: must not have a model (it is code-built; the held bomb is an extra)"
+                    ));
                 }
                 (_, 1) => {}
                 (_, 0) => return Err(format!("weapon {w:?}: no model")),
@@ -315,6 +317,7 @@ mod tests {
             assert_eq!(d.enemy(k).kind, k);
         }
         assert!(d.weapon(WeaponId::Boot).is_none());
+        assert!(d.weapon(WeaponId::PipeBombs).is_none());
         assert!(d.weapon(WeaponId::Pistol).is_some());
         assert_eq!(
             d.item(ItemKind::Key(Key::Red)).kind,
@@ -352,6 +355,19 @@ mod tests {
         w.id = WeaponId::Boot;
         d.weapons.push(w);
         assert!(d.validate().unwrap_err().contains("Boot"));
+    }
+
+    #[test]
+    fn pipe_bombs_weapon_model_is_rejected() {
+        let mut d = ModelDefs::builtin();
+        let mut w = d.weapons[0].clone();
+        w.id = WeaponId::PipeBombs;
+        d.weapons.push(w);
+        assert!(d.validate().unwrap_err().contains("PipeBombs"));
+        // The pickup model is a separate list and stays required.
+        let mut d = ModelDefs::builtin();
+        d.items.retain(|i| i.kind != ItemKindModel::PipeBombs);
+        assert_eq!(d.validate(), Err("item PipeBombs: no model".into()));
     }
 
     #[test]

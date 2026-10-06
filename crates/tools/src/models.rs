@@ -305,7 +305,10 @@ mod tests {
         }
         s.push_str("], weapons: [");
         for w in rr_core::defs::WeaponId::ALL {
-            if w != rr_core::defs::WeaponId::Boot {
+            if !matches!(
+                w,
+                rr_core::defs::WeaponId::Boot | rr_core::defs::WeaponId::PipeBombs
+            ) {
                 s.push_str(&format!("(id: {w:?}, scene: \"models/a.gltf\"),"));
             }
         }
