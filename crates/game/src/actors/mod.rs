@@ -399,9 +399,9 @@ fn pose(kind: ActorKind, state: AiState) -> Look {
 const PULSE_HZ: f32 = 4.0;
 
 /// A boss past its first phase pulses with the hit glow (half of each 1/4 s period), unless it
-/// shows pain or is flashing anyway.
-pub fn phase_look(look: Look, phase: u8, t: f32) -> Look {
-    if phase > 0 && look == Look::Normal && (t * PULSE_HZ).fract() < 0.5 {
+/// shows pain or is flashing anyway. Only a living boss pulses.
+pub fn phase_look(look: Look, phase: u8, alive: bool, t: f32) -> Look {
+    if alive && phase > 0 && look == Look::Normal && (t * PULSE_HZ).fract() < 0.5 {
         Look::Hit
     } else {
         look
@@ -428,6 +428,7 @@ fn tint_enemies(
         let want = phase_look(
             skin_look(pose(model.kind, actor.state), actor.alive(), hit.0),
             actor.phase,
+            actor.alive(),
             time.elapsed_secs(),
         );
         if look.current == Some(want) {
@@ -475,10 +476,19 @@ mod tests {
 
     #[test]
     fn phase_two_pulses_between_normal_and_hit() {
-        assert_eq!(phase_look(Look::Normal, 0, 0.1), Look::Normal);
-        assert_eq!(phase_look(Look::Normal, 1, 0.05), Look::Hit);
-        assert_eq!(phase_look(Look::Normal, 1, 0.2), Look::Normal);
-        assert_eq!(phase_look(Look::Pain, 1, 0.05), Look::Pain, "pain wins");
+        assert_eq!(phase_look(Look::Normal, 0, true, 0.1), Look::Normal);
+        assert_eq!(phase_look(Look::Normal, 1, true, 0.05), Look::Hit);
+        assert_eq!(phase_look(Look::Normal, 1, true, 0.2), Look::Normal);
+        assert_eq!(
+            phase_look(Look::Pain, 1, true, 0.05),
+            Look::Pain,
+            "pain wins"
+        );
+        assert_eq!(
+            phase_look(Look::Normal, 1, false, 0.05),
+            Look::Normal,
+            "a dying or dead boss does not pulse"
+        );
         assert!(has_gun(ActorKind::Boss));
     }
 

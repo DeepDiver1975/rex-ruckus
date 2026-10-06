@@ -623,13 +623,14 @@ fn update_overlay(
 mod tests {
     use super::*;
 
+    use rr_core::fixtures::{door_rooms, lift_shaft};
+
     #[test]
     fn boss_bar_follows_the_boss() {
         assert_eq!(boss_bar_percent(None), None);
         assert_eq!(boss_bar_percent(Some(0.5)), Some(50.0));
         assert_eq!(boss_bar_percent(Some(-0.2)), Some(0.0));
     }
-    use rr_core::fixtures::{door_rooms, lift_shaft};
 
     #[test]
     fn prompt_names_the_target() {

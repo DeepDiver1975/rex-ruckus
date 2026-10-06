@@ -196,8 +196,11 @@ pub(super) fn animate_enemies(
             && let Some(active) = player.animation_mut(node)
         {
             active.replay();
-            // A boss that crossed into a later phase mid-attack speeds up on the next shot.
-            active.set_speed(cmd.speed);
+            // A boss that crossed into a later phase mid-attack speeds up on the next shot
+            // (not for a stand-in clip, which keeps its own speed).
+            if role == cmd.role {
+                active.set_speed(cmd.speed);
+            }
         }
     }
 }
