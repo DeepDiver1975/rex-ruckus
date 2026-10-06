@@ -46,14 +46,14 @@ Click to capture the mouse (that first click does not fire) Â· Esc releases it Â
 
 Sound effects are a mix of synthesised sounds (recipes in `assets/sounds/synth.ron`, rendered to
 `assets/sounds/synth/`) and curated CC0 recordings (`assets/sounds/cc0/`); `assets/sounds/bank.ron`
-maps game events to them. Rex's voice quips are generated with the public-domain Piper voice
-`en_US-norman` (`assets/quips/`) and shown as a subtitle on their own HUD line. Each level can
+maps game events to them. Rex's voice quips are generated with Kokoro-82M (voice `am_onyx`,
+`assets/quips/`) and shown as a subtitle on their own HUD line. Each level can
 name a music track (`assets/music/`). Pass `--mute` to start silent; `--record` is always silent
 and skips music. The outputs are committed, so you only regenerate them after changing a recipe
 or a quip:
 
     cargo run -p rr-tools -- synth assets/sounds/synth.ron -o assets/sounds/synth
-    scripts/gen-quips.sh                       # needs piper and sox
+    scripts/gen-quips.sh                       # needs Python 3.10-3.12, sox, espeak-ng
     scripts/import-sfx.sh SRC DEST             # imports a CC0 recording (sox)
 
 `import-sfx.sh` honours `LOOP="START LEN"`, `CHANNELS=2` and `NO_TRIM=1`; see the script header.
