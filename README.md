@@ -68,7 +68,7 @@ writes the settings file.
 
 ## Controls
 
-Defaults (all rebindable under Options, except Esc). Click to capture the mouse (that first click does not fire) · Esc pauses and releases the mouse · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
+Defaults (the actions are rebindable under Options, except Esc; the M, `[` and `]` sound keys are fixed, and yield to any action bound to them). Click to capture the mouse (that first click does not fire) · Esc pauses and releases the mouse · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
 
 ## Audio
 
