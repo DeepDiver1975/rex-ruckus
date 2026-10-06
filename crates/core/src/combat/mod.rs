@@ -26,7 +26,7 @@ use crate::destruct::{Destruct, hits_pane};
 use crate::explosion::Blast;
 use crate::hazard::{HazardClock, HazardKind};
 use crate::health::DamageOutcome;
-use crate::map::{Map, SectorId, SwitchAction, WallId};
+use crate::map::{Map, OPEN_GAP, SectorId, SwitchAction, WallId};
 use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_flyer, step_player};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
@@ -39,9 +39,6 @@ use glam::{Vec2, Vec3};
 /// Index of the player in the bodies slice `[player, actor 0, actor 1, ...]`; actor `i` is
 /// body `i + 1`.
 pub const BODY_PLAYER: usize = 0;
-
-/// A portal carries sound only while its live opening is taller than this (metres).
-const NOISE_GAP: f32 = 0.1;
 
 /// What a combat tick did, for the game's presentation. `ActorWoke`, `PlayerKilled`,
 /// `CrackOpened`, `BombsDetonated`, `ProjectileGone`, `PhaseChanged` and `DeathAction` have no
@@ -302,7 +299,7 @@ impl Combat {
             for n in map.passages(s) {
                 let there = &map.sectors[n];
                 let gap = here.ceil_z.min(there.ceil_z) - here.floor_z.max(there.floor_z);
-                if !heard[n] && gap > NOISE_GAP {
+                if !heard[n] && gap > OPEN_GAP {
                     heard[n] = true;
                     queue.push_back(n);
                 }

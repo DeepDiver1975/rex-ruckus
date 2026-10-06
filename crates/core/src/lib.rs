@@ -3,6 +3,7 @@
 
 pub mod actors;
 pub mod audio;
+pub mod automap;
 pub mod carry;
 pub mod collide;
 pub mod combat;

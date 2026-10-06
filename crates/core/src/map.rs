@@ -301,6 +301,10 @@ pub struct Item {
     pub skill: Difficulty,
 }
 
+/// A portal carries sound and reveals the automap only while its live opening is taller than
+/// this (metres); a closed door is shorter.
+pub(crate) const OPEN_GAP: f32 = 0.1;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Wall {
     pub a: Vec2,
