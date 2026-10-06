@@ -88,10 +88,19 @@ impl Settings {
         self
     }
 
-    /// Reads `path`: defaults if missing, defaults plus a warning text if unparsable.
+    /// Reads `path`: defaults if missing, defaults plus a warning text if unreadable or unparsable.
     pub fn load_from(path: &Path) -> (Settings, Option<String>) {
-        let Ok(src) = std::fs::read_to_string(path) else {
-            return (Settings::default(), None);
+        let src = match std::fs::read_to_string(path) {
+            Ok(src) => src,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return (Settings::default(), None);
+            }
+            Err(e) => {
+                return (
+                    Settings::default(),
+                    Some(format!("cannot read {}: {e}", path.display())),
+                );
+            }
         };
         match ron::from_str::<Settings>(&src) {
             Ok(s) => (s.clamp(), None),
@@ -167,5 +176,15 @@ mod tests {
         assert_eq!(s.fov_deg, FOV_MAX);
         assert_eq!(s.mouse_sensitivity, Settings::default().mouse_sensitivity);
         assert_eq!(warn, None);
+    }
+
+    #[test]
+    fn unreadable_file_gives_defaults_and_a_warning() {
+        let dir = tempdir();
+        let p = dir.join("settings.ron");
+        std::fs::write(&p, [0xff, 0xfe, 0x00]).unwrap();
+        let (s, warn) = Settings::load_from(&p);
+        assert_eq!(s, Settings::default());
+        assert!(warn.unwrap().contains("settings.ron"));
     }
 }

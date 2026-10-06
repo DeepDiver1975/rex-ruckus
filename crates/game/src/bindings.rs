@@ -173,13 +173,39 @@ impl Bindings {
         taken
     }
 
-    /// Repairs a loaded table: Escape back on Pause and nowhere else, at most two per action.
+    /// Repairs a loaded table: Escape on Pause and nowhere else, at most two per action, a key or
+    /// button owned by one action only (first in `Action::ALL` order wins), and default bindings
+    /// for actions the file leaves out (unless a default input is already taken).
     pub fn sanitise(&mut self) {
-        for (a, list) in self.0.iter_mut() {
-            if *a != Action::Pause {
-                list.retain(|x| *x != PAUSE_KEY);
+        let mut seen = vec![PAUSE_KEY];
+        for a in Action::ALL {
+            if a == Action::Pause {
+                continue;
             }
-            list.truncate(MAX_PER_ACTION);
+            if let Some(list) = self.0.get_mut(&a) {
+                let mut kept = Vec::new();
+                for b in list.iter() {
+                    if !seen.contains(b) && !kept.contains(b) {
+                        kept.push(*b);
+                    }
+                }
+                kept.truncate(MAX_PER_ACTION);
+                seen.extend(kept.iter().copied());
+                *list = kept;
+            }
+        }
+        let defaults = Bindings::default();
+        for a in Action::ALL {
+            if a != Action::Pause && !self.0.contains_key(&a) {
+                let list: Vec<Binding> = defaults
+                    .of(a)
+                    .iter()
+                    .copied()
+                    .filter(|b| !seen.contains(b))
+                    .collect();
+                seen.extend(list.iter().copied());
+                self.0.insert(a, list);
+            }
         }
         self.0.insert(Action::Pause, vec![PAUSE_KEY]);
     }
@@ -256,5 +282,33 @@ mod tests {
         b.bind(Action::Jump, Binding::Key(KeyCode::Escape));
         assert_eq!(b.of(Action::Pause), &[Binding::Key(KeyCode::Escape)]);
         assert_ne!(b.of(Action::Jump)[0], Binding::Key(KeyCode::Escape));
+    }
+
+    #[test]
+    fn partial_table_keeps_defaults_for_missing_actions() {
+        let mut b: Bindings = ron::from_str("{Jump: [Key(KeyX)]}").unwrap();
+        b.sanitise();
+        assert_eq!(b.of(Action::Forward), &[Binding::Key(KeyCode::KeyW)]);
+        assert_eq!(b.of(Action::Fire), &[Binding::Mouse(MouseButton::Left)]);
+        assert_eq!(b.of(Action::Jump), &[Binding::Key(KeyCode::KeyX)]);
+        assert_eq!(b.of(Action::Pause), &[Binding::Key(KeyCode::Escape)]);
+    }
+
+    #[test]
+    fn default_taken_by_another_action_is_not_duplicated() {
+        // Jump owns W in the file, so Forward's default W is skipped.
+        let mut b: Bindings = ron::from_str("{Jump: [Key(KeyW)]}").unwrap();
+        b.sanitise();
+        assert_eq!(b.of(Action::Jump), &[Binding::Key(KeyCode::KeyW)]);
+        assert_eq!(b.of(Action::Forward), &[] as &[Binding]);
+    }
+
+    #[test]
+    fn key_listed_under_two_actions_keeps_the_first_owner() {
+        let mut b: Bindings =
+            ron::from_str("{Forward: [Key(KeyX)], Jump: [Key(KeyX), Key(KeyZ)]}").unwrap();
+        b.sanitise();
+        assert_eq!(b.of(Action::Forward), &[Binding::Key(KeyCode::KeyX)]);
+        assert_eq!(b.of(Action::Jump), &[Binding::Key(KeyCode::KeyZ)]);
     }
 }
