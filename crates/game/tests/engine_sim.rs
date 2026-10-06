@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use rr_core::audio::COOLDOWN;
 use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
@@ -11,7 +12,7 @@ use rr_core::fixtures::{combat_room, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Map, SwitchAction};
 use rr_core::mechanics::{Motion, UseTarget};
 use rr_core::projectile::Shooter;
-use rr_game::audio::{AudioFxPlugin, QuipVoice};
+use rr_game::audio::{AudioFxPlugin, QuipState, QuipVoice};
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, PlayerVitals, insert_defs};
 use rr_game::episode::{EpisodePlugin, Stats};
 use rr_game::flow::{FlowPlugin, PlayState};
@@ -221,30 +222,47 @@ fn an_infight_kill_counts_in_the_stats_but_is_not_the_players() {
     ));
     app.update();
     assert_eq!(app.world().resource::<Stats>().0.kills, 0);
-    // Let the level-start line finish its cooldown so a kill quip would be allowed.
-    let mut q = app.world_mut().query::<(Entity, &QuipVoice)>();
-    let opening: Vec<_> = q.iter(app.world()).map(|(e, _)| e).collect();
+    let voices = |app: &mut App| {
+        let mut q = app.world_mut().query_filtered::<Entity, With<QuipVoice>>();
+        q.iter(app.world()).collect::<Vec<_>>()
+    };
     let subtitle = |app: &App| app.world().resource::<HudSubtitle>().text.clone();
-    let before = subtitle(&app);
-    app.world_mut()
-        .resource_mut::<FxQueue>()
-        .combat
-        .push(CombatEvent::ActorKilled {
-            actor: 0,
-            by: Shooter::Actor(1),
-        });
-    app.update();
+    let burst = |app: &mut App, by: Shooter| {
+        // Past the quip cooldown, so only the kill's owner decides whether a line plays.
+        app.world_mut().resource_mut::<QuipState>().clock += COOLDOWN + 1.0;
+        for _ in 0..3 {
+            app.world_mut()
+                .resource_mut::<FxQueue>()
+                .combat
+                .push(CombatEvent::ActorKilled { actor: 0, by });
+        }
+        app.update();
+    };
+
+    // Control: the player's own kills do earn a (multi-kill) line.
+    let opening = (voices(&mut app), subtitle(&app));
+    burst(&mut app, Shooter::Player);
+    assert_ne!(
+        (voices(&mut app), subtitle(&app)),
+        opening,
+        "player kills quip"
+    );
+    assert_eq!(app.world().resource::<Stats>().0.kills, 3);
+
+    // Infight kills are counted but silent.
+    let after_player = (voices(&mut app), subtitle(&app));
+    burst(&mut app, Shooter::Actor(1));
     assert_eq!(
         app.world().resource::<Stats>().0.kills,
-        1,
+        6,
         "stats count every death"
     );
-    let mut q = app.world_mut().query::<(Entity, &QuipVoice)>();
-    let after: Vec<_> = q.iter(app.world()).map(|(e, _)| e).collect();
-    assert_eq!(after, opening, "no kill quip");
-    assert_eq!(subtitle(&app), before);
+    assert_eq!(
+        (voices(&mut app), subtitle(&app)),
+        after_player,
+        "no kill quip"
+    );
 }
-
 #[test]
 fn the_toilet_heals_and_says_so() {
     let mut app = app(engine_room(""));
@@ -262,4 +280,23 @@ fn the_toilet_heals_and_says_so() {
         app.world().resource::<HudMessage>().text,
         "+10 health. Much better."
     );
+}
+
+/// Mechanics freeze while paused, so a running quake must not keep the screen shaking.
+#[test]
+fn a_paused_quake_does_not_shake() {
+    let mut app = app(engine_room(""));
+    app.world_mut()
+        .resource_mut::<LevelMechanics>()
+        .0
+        .apply(SwitchAction::Channel(7));
+    app.update();
+    assert!(
+        app.world().resource::<ScreenShake>().trauma > 0.0,
+        "control: playing shakes"
+    );
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    app.world_mut().resource_mut::<ScreenShake>().trauma = 0.0;
+    app.update();
+    assert_eq!(app.world().resource::<ScreenShake>().trauma, 0.0);
 }
