@@ -3,6 +3,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::defs::{Defs, WeaponId};
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, door_rooms};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map, Switch, SwitchAction};
 use rr_core::mechanics::Motion;
@@ -114,6 +115,7 @@ fn red_key(x: f32, y: f32) -> Item {
     Item {
         kind: ItemKind::Key(Key::Red),
         pos: Vec2::new(x, y),
+        skill: Difficulty::Easy,
     }
 }
 
@@ -125,6 +127,7 @@ fn arena() -> Map {
         pos: Vec2::new(7.0, 1.5),
         angle: std::f32::consts::PI,
         asleep: false,
+        skill: Difficulty::Easy,
     });
     map
 }

@@ -91,7 +91,7 @@ impl Combat {
         };
         for hit in solve(map, blast, &bodies, skip) {
             if hit.body == BODY_PLAYER {
-                hurt_player(player, hit.damage, blast.center, out);
+                hurt_player(player, hit.damage, self.damage_scale, blast.center, out);
             } else {
                 out.extend(self.damage_actor(defs, hit.body - 1, hit.damage));
             }

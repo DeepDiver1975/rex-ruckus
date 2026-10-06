@@ -4,6 +4,7 @@ use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use bevy::world_serialization::WorldAsset;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
 use rr_core::map::{Item, ItemKind, Key};
 use rr_game::combat::{CombatSimPlugin, insert_defs};
@@ -28,6 +29,7 @@ fn every_item_has_a_model_child() {
         map.items.push(Item {
             kind: *kind,
             pos: Vec2::new(2.0 + i as f32 * 0.5, 1.5),
+            skill: Difficulty::Easy,
         });
     }
     let n = map.items.len();
@@ -71,6 +73,7 @@ fn keycard_is_tinted_once_its_material_has_loaded() {
     map.items.push(Item {
         kind: ItemKind::Key(Key::Red),
         pos: Vec2::new(2.0, 1.5),
+        skill: Difficulty::Easy,
     });
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))

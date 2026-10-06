@@ -115,6 +115,7 @@ mod tests {
     use super::*;
     use crate::audio::PickupClass;
     use crate::defs::WeaponId;
+    use crate::difficulty::Difficulty;
     use crate::fixtures::{defs, door_rooms};
     use crate::map::{ActorSpawn, ItemKind, Key};
     use glam::Vec2;
@@ -133,6 +134,7 @@ mod tests {
             pos: Vec2::new(x, 2.0),
             angle: 0.0,
             asleep: true,
+            skill: Difficulty::Easy,
         };
         map.actors.push(spawn(ActorKind::Grunt, 2.0));
         map.actors.push(spawn(ActorKind::Barrel, 6.0));

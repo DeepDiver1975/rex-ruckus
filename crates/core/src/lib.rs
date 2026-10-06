@@ -7,6 +7,7 @@ pub mod collide;
 pub mod combat;
 pub mod defs;
 pub mod destruct;
+pub mod difficulty;
 pub mod explosion;
 pub mod extrude;
 pub mod fixtures;

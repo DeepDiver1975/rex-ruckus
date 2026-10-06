@@ -622,6 +622,7 @@ pub fn hurt(a: &mut Actor, def: &EnemyDef, n: i32, rng: &mut Rng) -> DamageOutco
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::difficulty::Difficulty;
     use crate::fixtures::{defs, door_rooms, pillar_room};
     use crate::mechanics::Mechanics;
     use crate::movement::step_player;
@@ -639,6 +640,7 @@ mod tests {
             pos: Vec2::new(x, y),
             angle,
             asleep,
+            skill: Difficulty::Easy,
         };
         Actor::new(map, def, &spawn).expect("spawn inside the map")
     }
@@ -1115,6 +1117,7 @@ mod tests {
             pos: Vec2::new(2.0, 5.0),
             angle: 0.0,
             asleep: false,
+            skill: Difficulty::Easy,
         };
         let mut a = Actor::new(&map, &def, &spawn).unwrap();
         a.state = AiState::Chase;

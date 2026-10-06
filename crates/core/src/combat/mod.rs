@@ -131,6 +131,8 @@ pub struct Combat {
     pub rng: Rng,
     /// What shots and blasts have broken (glass so far).
     pub destruct: Destruct,
+    /// Multiplier on damage the player takes; the difficulty sets it. 1.0 at spawn.
+    pub damage_scale: f32,
     next_id: u32,
 }
 
@@ -142,7 +144,14 @@ pub fn level_seed(name: &str) -> u64 {
 }
 
 /// Damages the player and reports `PlayerHurt { from }` (and `PlayerKilled` on the fatal hit).
-fn hurt_player(player: &mut PlayerTarget, amount: i32, from: Vec3, out: &mut Vec<CombatEvent>) {
+fn hurt_player(
+    player: &mut PlayerTarget,
+    amount: i32,
+    scale: f32,
+    from: Vec3,
+    out: &mut Vec<CombatEvent>,
+) {
+    let amount = ((amount as f32) * scale).round().max(1.0) as i32;
     match player.vitals.damage(amount) {
         DamageOutcome::Ignored => {}
         outcome => {
@@ -175,6 +184,7 @@ impl Combat {
             pending_blasts: Vec::new(),
             rng: Rng::new(seed),
             destruct: Destruct::new(map),
+            damage_scale: 1.0,
             next_id: 0,
         }
     }
@@ -350,13 +360,13 @@ impl Combat {
                         }
                         if v.player_damage > 0 {
                             let from = effective_muzzle(map, &self.actors[i]).0;
-                            hurt_player(player, v.player_damage, from, &mut out);
+                            hurt_player(player, v.player_damage, self.damage_scale, from, &mut out);
                         }
                     }
                     EnemyAttack::Melee { damage, .. } => {
                         let a = &self.actors[i];
                         if swipe_reaches(a, def, player.body) {
-                            hurt_player(player, damage, a.eye(), &mut out);
+                            hurt_player(player, damage, self.damage_scale, a.eye(), &mut out);
                         }
                     }
                     EnemyAttack::None => {}
@@ -480,7 +490,7 @@ impl Combat {
                     p.sector = sector_of(map, p.pos, h.sector);
                 }
                 ProjectileStep::HitBody(BODY_PLAYER) => {
-                    hurt_player(player, p.damage, p.prev, &mut out);
+                    hurt_player(player, p.damage, self.damage_scale, p.prev, &mut out);
                 }
                 ProjectileStep::HitBody(i) => {
                     out.extend(self.damage_actor(defs, i - 1, p.damage));

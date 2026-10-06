@@ -1,5 +1,6 @@
 use super::*;
 use crate::defs::WeaponId;
+use crate::difficulty::Difficulty;
 use crate::fixtures::{combat_room, defs, door_rooms, lift_shaft};
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::{ActorKind, ActorSpawn};
@@ -17,6 +18,7 @@ pub(super) fn spawn_at(map: &mut Map, x: f32, y: f32, angle: f32, asleep: bool) 
         pos: Vec2::new(x, y),
         angle,
         asleep,
+        skill: Difficulty::Easy,
     });
 }
 
@@ -621,6 +623,7 @@ pub(super) fn spawn_kind(map: &mut Map, kind: ActorKind, x: f32, y: f32, angle: 
         pos: Vec2::new(x, y),
         angle,
         asleep,
+        skill: Difficulty::Easy,
     });
 }
 
@@ -750,6 +753,32 @@ fn slasher_lunges_and_hits() {
                 (from.z - eye.z).abs() < 1e-4 && from.truncate().distance(eye.truncate()) < 0.3
             );
             assert!(top_speed > def.speed, "lunge speed {top_speed}");
+            return;
+        }
+    }
+    panic!("the Slasher never hit");
+}
+
+#[test]
+fn damage_scale_multiplies_player_damage() {
+    let mut map = combat_room();
+    spawn_kind(&mut map, ActorKind::Slasher, 2.0, 1.5, 0.0, false);
+    let d = defs();
+    let EnemyAttack::Melee { damage, .. } = d.enemy(ActorKind::Slasher).attack else {
+        panic!("the Slasher is a melee enemy");
+    };
+    let mut c = Combat::spawn(&map, &d, 5);
+    assert_eq!(c.damage_scale, 1.0);
+    c.damage_scale = 0.5;
+    c.actors[0].state = AiState::Chase;
+    let mut p = Player::at(&map, 3.4, 1.5);
+    for _ in 0..120 {
+        let ev = p.tick(&mut c, &mut map, &d);
+        if let Some(CombatEvent::PlayerHurt { amount, .. }) = ev
+            .iter()
+            .find(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
+        {
+            assert_eq!(*amount, (damage as f32 * 0.5).round() as i32);
             return;
         }
     }

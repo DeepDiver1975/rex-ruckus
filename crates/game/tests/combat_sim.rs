@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rr_core::defs::{Defs, WeaponId};
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, door_rooms, glass_rooms, lift_shaft};
 use rr_core::map::{ActorKind, ActorSpawn, Map};
 use rr_core::mechanics::Motion;
@@ -206,6 +207,7 @@ fn pistol_kills_grunt_headless() {
         pos: Vec2::new(10.0, 1.5),
         angle: std::f32::consts::PI,
         asleep: true,
+        skill: Difficulty::Easy,
     });
     let mut app = app(map);
     input(&mut app).fire = true;

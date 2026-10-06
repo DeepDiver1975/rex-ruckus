@@ -4,6 +4,7 @@
 //! counter-clockwise; further loops are holes, clockwise. A wall a→b becomes a portal into the
 //! sector that owns the edge b→a.
 
+use crate::difficulty::Difficulty;
 use glam::{Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -207,6 +208,12 @@ fn yes() -> bool {
     true
 }
 
+/// Spawn default for `skill`: untagged actors and items appear on every skill. (Unlike
+/// `Difficulty::default()`, which is the chosen-skill default, `Normal`.)
+fn always() -> Difficulty {
+    Difficulty::Easy
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub struct RawActor {
     pub kind: ActorKind,
@@ -215,6 +222,9 @@ pub struct RawActor {
     pub angle_deg: f32,
     #[serde(default = "yes")]
     pub asleep: bool,
+    /// Minimum skill this actor appears on.
+    #[serde(default = "always")]
+    pub skill: Difficulty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -224,12 +234,17 @@ pub struct ActorSpawn {
     /// Heading in radians (0 = +x, counter-clockwise).
     pub angle: f32,
     pub asleep: bool,
+    /// Minimum skill this actor appears on.
+    pub skill: Difficulty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 pub struct RawItem {
     pub kind: ItemKind,
     pub pos: (f32, f32),
+    /// Minimum skill this item appears on.
+    #[serde(default = "always")]
+    pub skill: Difficulty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -243,6 +258,8 @@ pub struct Switch {
 pub struct Item {
     pub kind: ItemKind,
     pub pos: Vec2,
+    /// Minimum skill this item appears on.
+    pub skill: Difficulty,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -469,6 +486,7 @@ impl Map {
             .map(|i| Item {
                 kind: i.kind,
                 pos: Vec2::new(i.pos.0, i.pos.1),
+                skill: i.skill,
             })
             .collect();
         let actors = raw
@@ -493,6 +511,7 @@ impl Map {
                     pos: Vec2::new(a.pos.0, a.pos.1),
                     angle: a.angle_deg.to_radians(),
                     asleep: a.asleep,
+                    skill: a.skill,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -761,7 +780,8 @@ mod tests {
             map.items,
             vec![Item {
                 kind: ItemKind::Key(Key::Red),
-                pos: Vec2::new(2.0, 3.0)
+                pos: Vec2::new(2.0, 3.0),
+                skill: Difficulty::Easy,
             }]
         );
         assert_eq!(
@@ -818,6 +838,7 @@ mod tests {
             pos: (f32::NAN, 0.0),
             angle_deg: 0.0,
             asleep: true,
+            skill: Difficulty::Easy,
         });
         assert!(matches!(
             Map::from_raw(raw.clone()),
