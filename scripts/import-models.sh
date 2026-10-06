@@ -7,6 +7,9 @@
 #
 # Sources are poly.pizza model pages (https://poly.pizza/m/ID, licence checked per model: CC0 1.0);
 # the file itself is served from https://static.poly.pizza/UUID.glb.
+# The jetpack is only published as .blend (OpenGameArt, CC0): its pinned source is converted with
+# Blender by scripts/blend_to_glb.py. That step runs only when the .glb is missing or FORCE=1, and
+# needs `blender` on PATH (the export is not byte-reproducible across Blender versions).
 # Needs curl and sha256sum.
 set -euo pipefail
 
@@ -35,7 +38,6 @@ pickups/armour.glb           TMUoxILh9w 60ccfcdb-6aa7-4caf-a688-9b16a2a5f300.glb
 pickups/keycard.glb          EDvCEBvs8k 1dd9cceb-d8ce-48bc-b747-fc0420ae58d3.glb 51ed8a7045f018bf1a45fb57e07bfa6d5ce98087bfd0f58eb679ce906a6a36bc
 pickups/atom.glb             1xtAc12dmv 6a161332-261b-480c-aec2-8464ae78055f.glb 6ef9dd5963101a757174865cf49a3e6f5c5e3f9db23db238d7045983aa4d3b8a
 pickups/night_vision.glb     PLmfHOiB08 2c2a1082-c325-47c0-bf23-93b0effa6392.glb 515918afbab1162f9b2fb2f88bdd44e74be7113a4a8df14cceebfac045a0d691
-pickups/jetpack.glb          vF7TuXCPDH 2eb5178b-0c98-4a0d-b0ea-ad8925525d1e.glb 404af15a4bc0a955d9d8133d16de7a4b900663f3a11f5364624ab8e7e9b6f68a
 EOF
 )
 
@@ -58,4 +60,25 @@ while read -r dest id file sha; do
     fi
     mv "$path.part" "$path"
 done <<<"$manifest"
+
+# Jetpack: OpenGameArt "Lowpoly Jetpack" by snabisch, .blend only.
+jetpack="$out/pickups/jetpack.glb"
+blend_url=https://opengameart.org/sites/default/files/Jetpacks.blend
+blend_sha=da8855ef32deff0310bcc43a54fc178591f59e8417a6204b2807b98538ee3d5f
+if [ ! -f "$jetpack" ] || [ "${FORCE:-0}" = 1 ]; then
+    command -v blender >/dev/null || { echo "blender is needed to convert $blend_url" >&2; exit 1; }
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    echo "fetching pickups/jetpack.glb (https://opengameart.org/content/lowpoly-jetpack)"
+    curl -fsSL "$blend_url" -o "$work/Jetpacks.blend"
+    got=$(sum "$work/Jetpacks.blend")
+    if [ "$got" != "$blend_sha" ]; then
+        echo "checksum mismatch for Jetpacks.blend: got $got, want $blend_sha" >&2
+        exit 1
+    fi
+    mkdir -p "$(dirname "$jetpack")"
+    blender -b "$work/Jetpacks.blend" --python "$(dirname "$0")/blend_to_glb.py" \
+        -- "Collection 1" "$(realpath -m "$jetpack")" >/dev/null
+    [ -f "$jetpack" ] || { echo "blender did not write $jetpack" >&2; exit 1; }
+fi
 echo "models up to date in $out"
