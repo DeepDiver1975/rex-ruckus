@@ -20,7 +20,7 @@ use rr_game::player::{
 fn app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,

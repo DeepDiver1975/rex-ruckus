@@ -2,7 +2,7 @@
 //! are collected in [`FxQueue`]; frame-loop readers (sparks, HUD, …) run in [`FxReaders`] and
 //! [`clear_fx`] empties the queue after them.
 
-use crate::flow::{PlayState, SpawnLevel};
+use crate::flow::{LevelDifficulty, PlayState, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::mechanics::{DirtySectors, LevelMechanics};
 use crate::paths::assets_dir;
@@ -149,9 +149,12 @@ pub fn spawn_combat(
     mut commands: Commands,
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
+    difficulty: Option<Res<LevelDifficulty>>,
     players: Query<Entity, With<Player>>,
 ) {
-    let (combat, rng) = level_combat(&map.0, &defs.0);
+    let (mut combat, rng) = level_combat(&map.0, &defs.0);
+    // `Combat::spawn` resets the scale, so set it on every spawn, restarts included.
+    combat.0.damage_scale = difficulty.map_or(1.0, |d| d.0.damage_scale());
     commands.insert_resource(combat);
     commands.insert_resource(rng);
     for e in &players {

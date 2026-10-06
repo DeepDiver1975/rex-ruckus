@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
 use rr_game::combat::{CombatSimPlugin, LevelCombat, PlayerVitals, insert_defs};
 use rr_game::flow::FlowPlugin;
@@ -75,7 +76,7 @@ fn every_shipped_level_survives_scripted_play() {
     for (name, map) in levels {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        insert_level(&mut app, map.clone());
+        insert_level(&mut app, map.clone(), Difficulty::Normal);
         insert_defs(&mut app, Defs::builtin());
         app.add_plugins((
             FlowPlugin,

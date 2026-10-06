@@ -1,6 +1,7 @@
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{Key, Map};
 use rr_core::mechanics::{MechEvent, Motion};
@@ -15,7 +16,7 @@ use rr_game::player::{Inventory, PendingInput, PlayerBody, PlayerSimPlugin};
 fn app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,

@@ -4,6 +4,7 @@ use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use bevy::world_serialization::WorldAsset;
 use rr_core::defs::{Defs, WeaponId};
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
 use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{CombatSimPlugin, FxQueue, insert_defs};
@@ -26,7 +27,7 @@ fn app() -> App {
         .init_asset::<Gltf>()
         .init_asset::<AnimationClip>()
         .init_asset::<AnimationGraph>();
-    insert_level(&mut app, combat_room());
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         ModelsPlugin,

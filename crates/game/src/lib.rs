@@ -32,11 +32,13 @@ pub struct GamePlugin {
     pub demo: Option<demo::DemoPlugin>,
     /// Start muted, play music (see `audio::AudioOptions`).
     pub audio: audio::AudioOptions,
+    /// Skill the level is played on.
+    pub difficulty: rr_core::difficulty::Difficulty,
 }
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        mechanics::insert_level(app, load_map(&self.level));
+        mechanics::insert_level(app, load_map(&self.level), self.difficulty);
         combat::insert_defs(app, combat::load_defs());
         // Models load before the plugins whose spawns use them.
         app.add_plugins(models::ModelsPlugin).add_plugins((

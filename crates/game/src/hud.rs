@@ -117,7 +117,8 @@ pub fn flash_decay(flash: f32, dt: f32) -> f32 {
 /// Overlay message for a play state; `None` while playing.
 pub fn overlay_text(state: PlayState) -> Option<&'static str> {
     match state {
-        PlayState::Playing => None,
+        // Menus draw their own screens.
+        PlayState::Playing | PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd => None,
         PlayState::Dead => Some("You died \u{2014} press Use or Fire to restart"),
         PlayState::Complete => Some("Level complete \u{2014} press Use or Fire to restart"),
     }
@@ -520,6 +521,9 @@ mod tests {
     #[test]
     fn overlay_text_per_state() {
         assert_eq!(overlay_text(PlayState::Playing), None);
+        for s in [PlayState::Menu, PlayState::Paused, PlayState::EpisodeEnd] {
+            assert_eq!(overlay_text(s), None, "{s:?}");
+        }
         assert_eq!(
             overlay_text(PlayState::Dead),
             Some("You died — press Use or Fire to restart")

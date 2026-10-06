@@ -12,6 +12,7 @@ use crate::mechanics::{
 use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
+use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
 
 /// Seconds a death or completion screen stays up before a press may restart.
@@ -20,10 +21,17 @@ pub const RESTART_DELAY: f32 = 1.0;
 /// Whether the simulation runs. Every fixed-tick sim system is gated on `Playing`.
 #[derive(Resource, PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum PlayState {
+    /// Main menu over the frozen first level.
+    Menu,
     #[default]
     Playing,
+    /// Pause menu.
+    Paused,
     Dead,
+    /// Stats screen after a level.
     Complete,
+    /// Episode totals after the last level.
+    EpisodeEnd,
 }
 
 /// Seconds since `PlayState` last changed; counts only while not `Playing`.
@@ -37,6 +45,10 @@ pub struct RestartRequested(pub bool);
 /// The level as authored (doors open), kept so a restart can rebuild it.
 #[derive(Resource)]
 pub struct LevelSource(pub Map);
+
+/// The skill the level is played on; applied when the level is (re)built.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LevelDifficulty(pub Difficulty);
 
 /// Marks every entity that belongs to the current level run; a restart despawns them all.
 #[derive(Component, Default)]
@@ -53,7 +65,9 @@ pub fn restart_requested(
     use_pressed: bool,
     fire_pressed: bool,
 ) -> bool {
-    state != PlayState::Playing && age >= RESTART_DELAY && (use_pressed || fire_pressed)
+    matches!(state, PlayState::Dead | PlayState::Complete)
+        && age >= RESTART_DELAY
+        && (use_pressed || fire_pressed)
 }
 
 /// Owns the play state, the level-spawn schedule and restarts. Needs `insert_level`; the sim
@@ -65,6 +79,7 @@ impl Plugin for FlowPlugin {
         app.init_resource::<PlayState>()
             .init_resource::<StateAge>()
             .init_resource::<RestartRequested>()
+            .init_resource::<LevelDifficulty>()
             .init_schedule(SpawnLevel)
             .add_systems(Startup, run_spawn_level)
             .add_systems(
@@ -83,7 +98,9 @@ impl Plugin for FlowPlugin {
                         .after(CombatSet)
                         .after(pickup_items),
                     tick_state_age,
-                    restart_on_press.run_if(not(resource_equals(PlayState::Playing))),
+                    restart_on_press.run_if(|s: Res<PlayState>| {
+                        matches!(*s, PlayState::Dead | PlayState::Complete)
+                    }),
                     restart_level.run_if(resource_equals(RestartRequested(true))),
                 )
                     .chain(),
@@ -156,6 +173,18 @@ fn restart_on_press(
     }
 }
 
+/// The authored [`LevelSource`] as played on the current [`LevelDifficulty`].
+pub fn play_map(world: &World) -> Map {
+    let difficulty = world
+        .get_resource::<LevelDifficulty>()
+        .copied()
+        .unwrap_or_default();
+    world
+        .resource::<LevelSource>()
+        .0
+        .for_difficulty(difficulty.0)
+}
+
 /// Rebuilds the level from [`LevelSource`]: despawns every [`LevelEntity`], resets the map,
 /// mechanics and per-level queues, then runs [`SpawnLevel`].
 pub fn restart_level(world: &mut World) {
@@ -169,7 +198,7 @@ pub fn restart_level(world: &mut World) {
             world.despawn(e);
         }
     }
-    let (map, mech) = fresh_level(world.resource::<LevelSource>().0.clone());
+    let (map, mech) = fresh_level(play_map(world));
     world.insert_resource(map);
     world.insert_resource(mech);
     world.insert_resource(DirtySectors::default());
@@ -204,4 +233,23 @@ pub fn restart_level(world: &mut World) {
     world.resource_mut::<StateAge>().0 = 0.0;
     world.resource_mut::<RestartRequested>().0 = false;
     world.run_schedule(SpawnLevel);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_dead_or_complete_restart() {
+        for s in [
+            PlayState::Menu,
+            PlayState::Playing,
+            PlayState::Paused,
+            PlayState::EpisodeEnd,
+        ] {
+            assert!(!restart_requested(s, 5.0, true, true), "{s:?}");
+        }
+        assert!(restart_requested(PlayState::Dead, 5.0, false, true));
+        assert!(restart_requested(PlayState::Complete, 5.0, true, false));
+    }
 }

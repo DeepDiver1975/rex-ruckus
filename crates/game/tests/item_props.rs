@@ -41,7 +41,7 @@ fn every_item_has_a_model_child() {
         .init_asset::<Gltf>()
         .init_asset::<AnimationClip>()
         .init_asset::<AnimationGraph>();
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         ModelsPlugin,
@@ -83,7 +83,7 @@ fn keycard_is_tinted_once_its_material_has_loaded() {
         .init_asset::<Gltf>()
         .init_asset::<AnimationClip>()
         .init_asset::<AnimationGraph>();
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         ModelsPlugin,

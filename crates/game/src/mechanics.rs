@@ -3,11 +3,12 @@
 use crate::combat::{
     CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
 };
-use crate::flow::{LevelSource, PlayState};
+use crate::flow::{LevelDifficulty, LevelSource, PlayState};
 use crate::level::CurrentMap;
 use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
 use crate::textures;
 use bevy::prelude::*;
+use rr_core::difficulty::Difficulty;
 use rr_core::interact::use_target;
 use rr_core::map::{Map, MoverKind, SectorId};
 use rr_core::mechanics::{Mechanics, UseOutcome, UseTarget};
@@ -92,10 +93,12 @@ pub fn mark_crack_walls(map: &mut Map) {
 }
 
 /// Inserts the map and its mechanics in their start pose, and keeps the authored map in
-/// [`LevelSource`] for restarts.
-pub fn insert_level(app: &mut App, map: Map) {
-    let (live, mech) = fresh_level(map.clone());
+/// [`LevelSource`] for restarts. The live map is the authored one as played on `difficulty`,
+/// which is also stored as [`LevelDifficulty`].
+pub fn insert_level(app: &mut App, map: Map, difficulty: Difficulty) {
+    let (live, mech) = fresh_level(map.for_difficulty(difficulty));
     app.insert_resource(LevelSource(map))
+        .insert_resource(LevelDifficulty(difficulty))
         .insert_resource(live)
         .insert_resource(mech);
 }

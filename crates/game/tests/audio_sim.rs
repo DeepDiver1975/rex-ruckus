@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use rr_core::audio::{COOLDOWN, Cue, QuipOn, QuipTable};
 use rr_core::combat::CombatEvent;
 use rr_core::defs::{Defs, WeaponId};
+use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{ItemKind, Key, Map, MoverKind};
 use rr_core::mechanics::MechEvent;
@@ -45,7 +46,7 @@ fn app_with(map: Map, audio: AudioFxPlugin) -> App {
         },
     ))
     .init_asset::<AudioSource>();
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,

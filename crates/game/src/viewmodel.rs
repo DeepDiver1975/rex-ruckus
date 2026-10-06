@@ -485,7 +485,7 @@ fn pose_rig(
             state.recoil.z,
         );
     tf.rotation = Quat::from_rotation_x(state.recoil.pitch - tilt * RELOAD_TILT);
-    **vis = if *play == PlayState::Playing {
+    **vis = if matches!(*play, PlayState::Playing | PlayState::Paused) {
         Visibility::Visible
     } else {
         Visibility::Hidden

@@ -54,7 +54,7 @@ fn app_with(kinds: &[ActorKind]) -> App {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             50,
         )));
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         ModelsPlugin,

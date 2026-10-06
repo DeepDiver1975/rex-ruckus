@@ -14,20 +14,23 @@ use rr_game::actors::ActorVisualsPlugin;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
-use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, StateAge, restart_requested};
+use rr_game::flow::{
+    FlowPlugin, LevelDifficulty, LevelEntity, PlayState, RestartRequested, StateAge,
+    restart_requested,
+};
 use rr_game::level::{CurrentMap, LevelRenderPlugin};
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
 use rr_game::player::{
     Inventory, Look, PendingInput, PlayerBody, PlayerCamera, PlayerSimPlugin, PrevFeet,
     spawn_camera,
 };
-use rr_game::player::{MouseSensitivity, read_input};
+use rr_game::player::{LookSettings, read_input};
 use rr_game::props::PropsPlugin;
 
 fn sim_app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         FlowPlugin,
@@ -51,7 +54,7 @@ fn full_app(map: Map) -> App {
         .init_asset::<bevy::gltf::Gltf>()
         .init_asset::<AnimationClip>()
         .init_asset::<AnimationGraph>();
-    insert_level(&mut app, map);
+    insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
         rr_game::models::ModelsPlugin,
@@ -340,7 +343,11 @@ impl InputRig {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<AccumulatedMouseScroll>()
-            .insert_resource(MouseSensitivity(0.0025));
+            .init_resource::<rr_game::bindings::Bindings>()
+            .insert_resource(LookSettings {
+                sensitivity: 0.0025,
+                invert_y: false,
+            });
         app.world_mut().spawn(CursorOptions {
             grab_mode: CursorGrabMode::Locked,
             ..default()
@@ -600,4 +607,49 @@ fn inventory_taps_latch_until_a_tick() {
         (false, false, false),
         "consumed by the tick"
     );
+}
+
+#[test]
+fn paused_freezes_the_sim_and_fire_does_not_restart() {
+    let mut app = sim_app(combat_room());
+    input(&mut app).forward = 1.0;
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    let before = app
+        .world_mut()
+        .query::<&PlayerBody>()
+        .single(app.world())
+        .unwrap()
+        .0
+        .pos;
+    input(&mut app).fire_pressed = true;
+    ticks(&mut app, 120);
+    let after = app
+        .world_mut()
+        .query::<&PlayerBody>()
+        .single(app.world())
+        .unwrap()
+        .0
+        .pos;
+    assert_eq!(before, after);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Paused);
+    assert!(!app.world().resource::<RestartRequested>().0);
+}
+
+#[test]
+fn hard_difficulty_spawns_hard_actors_after_restart() {
+    let mut map = arena();
+    let mut extra = map.actors[0];
+    extra.skill = Difficulty::Hard;
+    extra.pos += Vec2::new(1.0, 0.0);
+    map.actors.push(extra);
+    let mut app = sim_app(map);
+    let normal = app.world().resource::<LevelCombat>().0.actors.len();
+    app.world_mut().resource_mut::<LevelDifficulty>().0 = Difficulty::Hard;
+    app.world_mut().resource_mut::<RestartRequested>().0 = true;
+    ticks(&mut app, 1);
+    assert_eq!(
+        app.world().resource::<LevelCombat>().0.actors.len(),
+        normal + 1
+    );
+    assert_eq!(app.world().resource::<LevelCombat>().0.damage_scale, 1.4);
 }

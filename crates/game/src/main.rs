@@ -3,14 +3,15 @@
 
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
+use rr_core::difficulty::Difficulty;
 use rr_game::GamePlugin;
 use rr_game::audio::AudioOptions;
 use rr_game::demo::{DemoPlugin, load_script};
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--demo SCRIPT [--record DIR]]";
+const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]]";
 
-/// Command line: `[LEVEL] [--mute] [--demo SCRIPT [--record DIR]]`.
+/// Command line: `[LEVEL] [--mute] [--difficulty D] [--demo SCRIPT [--record DIR]]`.
 #[derive(Debug, PartialEq)]
 struct Args {
     level: String,
@@ -18,6 +19,7 @@ struct Args {
     record: Option<PathBuf>,
     /// Start muted; implied by `--record`.
     mute: bool,
+    difficulty: Difficulty,
 }
 
 impl Args {
@@ -36,6 +38,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         demo: None,
         record: None,
         mute: false,
+        difficulty: Difficulty::default(),
     };
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -49,6 +52,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 }
             }
             "--mute" => out.mute = true,
+            "--difficulty" => {
+                let value = args.next().ok_or("--difficulty needs a value")?;
+                out.difficulty = value.parse::<Difficulty>()?;
+            }
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => out.level = arg,
         }
@@ -96,6 +103,7 @@ fn main() {
             level: args.level,
             demo,
             audio,
+            difficulty: args.difficulty,
         })
         .run();
 }
@@ -153,6 +161,17 @@ mod tests {
         assert_eq!(a.level, "test_yard.ron");
         assert_eq!(a.demo, Some("d.ron".into()));
         assert_eq!(a.record, Some("out".into()));
+    }
+
+    #[test]
+    fn difficulty_flag() {
+        assert_eq!(parse(&[]).unwrap().difficulty, Difficulty::Normal);
+        assert_eq!(
+            parse(&["--difficulty", "hard"]).unwrap().difficulty,
+            Difficulty::Hard
+        );
+        assert!(parse(&["--difficulty", "x"]).is_err());
+        assert!(parse(&["--difficulty"]).is_err());
     }
 
     #[test]
