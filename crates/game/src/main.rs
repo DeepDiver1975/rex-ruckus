@@ -7,6 +7,7 @@ use rr_core::difficulty::Difficulty;
 use rr_game::GamePlugin;
 use rr_game::audio::AudioOptions;
 use rr_game::demo::{DemoPlugin, load_script};
+use rr_game::episode::load_episode;
 use std::path::PathBuf;
 
 const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]]";
@@ -14,7 +15,8 @@ const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|norma
 /// Command line: `[LEVEL] [--mute] [--difficulty D] [--demo SCRIPT [--record DIR]]`.
 #[derive(Debug, PartialEq)]
 struct Args {
-    level: String,
+    /// `None` plays the episode (or the depot, for a demo).
+    level: Option<String>,
     demo: Option<PathBuf>,
     record: Option<PathBuf>,
     /// Start muted; implied by `--record`.
@@ -34,7 +36,7 @@ impl Args {
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut out = Args {
-        level: "arsenal_depot.ron".into(),
+        level: None,
         demo: None,
         record: None,
         mute: false,
@@ -57,7 +59,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 out.difficulty = value.parse::<Difficulty>()?;
             }
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
-            _ => out.level = arg,
+            _ => out.level = Some(arg),
         }
     }
     if out.record.is_some() && out.demo.is_none() {
@@ -86,6 +88,9 @@ fn main() {
         script: load_script(&script),
         record: args.record,
     });
+    // Without a level or a demo the game plays the episode.
+    let episode = (args.level.is_none() && demo.is_none()).then(load_episode);
+    let level = args.level.unwrap_or_else(|| "arsenal_depot.ron".into());
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -100,7 +105,8 @@ fn main() {
                 }),
         )
         .add_plugins(GamePlugin {
-            level: args.level,
+            level,
+            episode,
             demo,
             audio,
             difficulty: args.difficulty,
@@ -117,9 +123,9 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_the_depot_without_a_demo() {
+    fn defaults_to_the_episode() {
         let a = parse(&[]).unwrap();
-        assert_eq!(a.level, "arsenal_depot.ron");
+        assert_eq!(a.level, None);
         assert_eq!(a.demo, None);
         assert_eq!(a.audio(), AudioOptions::default());
     }
@@ -127,7 +133,7 @@ mod tests {
     #[test]
     fn mute_starts_muted_with_music() {
         let a = parse(&["--mute", "test_yard.ron"]).unwrap();
-        assert_eq!(a.level, "test_yard.ron");
+        assert_eq!(a.level.as_deref(), Some("test_yard.ron"));
         assert_eq!(
             a.audio(),
             AudioOptions {
@@ -158,7 +164,7 @@ mod tests {
     #[test]
     fn reads_level_demo_and_record_in_any_order() {
         let a = parse(&["--record", "out", "test_yard.ron", "--demo", "d.ron"]).unwrap();
-        assert_eq!(a.level, "test_yard.ron");
+        assert_eq!(a.level.as_deref(), Some("test_yard.ron"));
         assert_eq!(a.demo, Some("d.ron".into()));
         assert_eq!(a.record, Some("out".into()));
     }

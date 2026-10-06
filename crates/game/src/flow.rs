@@ -6,6 +6,7 @@
 //! runs it again. The camera and the HUD are spawned outside it and persist across restarts.
 
 use crate::combat::{CombatSet, FxQueue, LevelCombat, PlayerVitals};
+use crate::episode::Episode;
 use crate::mechanics::{
     DirtySectors, HudMessage, HudSubtitle, UsePrompt, fresh_level, pickup_items,
 };
@@ -41,6 +42,11 @@ pub struct StateAge(pub f32);
 /// Set by [`restart_on_press`]; [`restart_level`] runs while it is true.
 #[derive(Resource, Default, PartialEq, Eq, Debug)]
 pub struct RestartRequested(pub bool);
+
+/// Set by [`restart_on_press`] for a completed level of an episode; [`advance_level`] runs while
+/// it is true.
+#[derive(Resource, Default, PartialEq, Eq, Debug)]
+pub struct AdvanceRequested(pub bool);
 
 /// The level as authored (doors open), kept so a restart can rebuild it.
 #[derive(Resource)]
@@ -79,6 +85,7 @@ impl Plugin for FlowPlugin {
         app.init_resource::<PlayState>()
             .init_resource::<StateAge>()
             .init_resource::<RestartRequested>()
+            .init_resource::<AdvanceRequested>()
             .init_resource::<LevelDifficulty>()
             .init_schedule(SpawnLevel)
             .add_systems(Startup, run_spawn_level)
@@ -102,6 +109,7 @@ impl Plugin for FlowPlugin {
                         matches!(*s, PlayState::Dead | PlayState::Complete)
                     }),
                     restart_level.run_if(resource_equals(RestartRequested(true))),
+                    advance_level.run_if(resource_equals(AdvanceRequested(true))),
                 )
                     .chain(),
             );
@@ -162,15 +170,34 @@ fn restart_on_press(
     state: Res<PlayState>,
     age: Res<StateAge>,
     mut request: ResMut<RestartRequested>,
+    mut advance: ResMut<AdvanceRequested>,
+    episode: Option<Res<Episode>>,
     mut q: Query<&mut PendingInput, With<Player>>,
 ) {
     for mut input in &mut q {
         let use_pressed = std::mem::take(&mut input.use_pressed);
         let fire_pressed = std::mem::take(&mut input.fire_pressed);
         if restart_requested(*state, age.0, use_pressed, fire_pressed) {
-            request.0 = true;
+            // A completed level of an episode moves on; anything else restarts the level.
+            if *state == PlayState::Complete && episode.is_some() {
+                advance.0 = true;
+            } else {
+                request.0 = true;
+            }
         }
     }
+}
+
+/// Swaps in another level and starts it (the stats and loadout systems see a fresh spawn).
+pub fn load_level(world: &mut World, map: Map) {
+    world.insert_resource(LevelSource(map));
+    restart_level(world);
+}
+
+/// Moves the episode on after a completed level.
+fn advance_level(world: &mut World) {
+    world.resource_mut::<AdvanceRequested>().0 = false;
+    crate::episode::advance(world);
 }
 
 /// The authored [`LevelSource`] as played on the current [`LevelDifficulty`].

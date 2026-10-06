@@ -2,6 +2,7 @@
 //! are collected in [`FxQueue`]; frame-loop readers (sparks, HUD, …) run in [`FxReaders`] and
 //! [`clear_fx`] empties the queue after them.
 
+use crate::episode::Episode;
 use crate::flow::{LevelDifficulty, PlayState, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::mechanics::{DirtySectors, LevelMechanics};
@@ -39,6 +40,8 @@ pub struct FxQueue {
     pub combat: Vec<CombatEvent>,
     pub weapon: Vec<WeaponEvent>,
     pub mech: Vec<MechEvent>,
+    /// How many `combat` events the level stats already counted (reset with the queue).
+    pub stats_seen: usize,
 }
 
 /// Randomness for the player's weapons (shot spread), seeded from the level.
@@ -142,14 +145,17 @@ pub fn clear_fx(mut fx: ResMut<FxQueue>) {
     fx.combat.clear();
     fx.weapon.clear();
     fx.mech.clear();
+    fx.stats_seen = 0;
 }
 
-/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and the player's loadout.
+/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and the player's loadout (the episode's
+/// carried one when there is one).
 pub fn spawn_combat(
     mut commands: Commands,
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
     difficulty: Option<Res<LevelDifficulty>>,
+    episode: Option<Res<Episode>>,
     players: Query<Entity, With<Player>>,
 ) {
     let (mut combat, rng) = level_combat(&map.0, &defs.0);
@@ -157,8 +163,17 @@ pub fn spawn_combat(
     combat.0.damage_scale = difficulty.map_or(1.0, |d| d.0.damage_scale());
     commands.insert_resource(combat);
     commands.insert_resource(rng);
+    // Past the first level the player arrives with what they carried out of the last one.
+    let carried = episode.and_then(|ep| ep.entry.clone());
     for e in &players {
-        commands.entity(e).insert(player_loadout(&defs.0));
+        match &carried {
+            Some(c) => commands.entity(e).insert((
+                PlayerVitals(c.vitals),
+                PlayerArsenal(c.arsenal.clone()),
+                PlayerInventory(c.inventory),
+            )),
+            None => commands.entity(e).insert(player_loadout(&defs.0)),
+        };
     }
 }
 

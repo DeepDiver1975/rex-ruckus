@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use rr_tools::{
     audio::validate_audio, models::validate_models, svg::render_svg, synth::synth_file,
-    validate_file,
+    validate_episode, validate_file,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -68,6 +68,9 @@ fn main() -> ExitCode {
                 .filter_map(|m| m.music)
                 .collect();
             let (report, ok) = validate_audio(&assets, &music);
+            print!("{report}");
+            all_ok &= ok;
+            let (report, ok) = validate_episode(&assets);
             print!("{report}");
             all_ok &= ok;
             let (report, ok) = validate_models(&assets);

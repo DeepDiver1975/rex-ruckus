@@ -1,0 +1,5 @@
+// The episode's levels in play order. Stand-ins until M5c's real levels land.
+(
+    name: "Meltdown",
+    levels: ["combat_arena.ron", "arsenal_depot.ron"],
+)
