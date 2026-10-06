@@ -45,10 +45,15 @@ fn full_app(map: Map) -> App {
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
         .init_asset::<StandardMaterial>()
-        .init_asset::<Image>();
+        .init_asset::<Image>()
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_asset::<bevy::gltf::Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
     insert_level(&mut app, map);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
+        rr_game::models::ModelsPlugin,
         FlowPlugin,
         PlayerSimPlugin,
         MechanicsSimPlugin,

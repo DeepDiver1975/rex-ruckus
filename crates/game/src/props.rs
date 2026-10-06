@@ -1,10 +1,11 @@
-//! Visible stand-ins until M4's art: glowing wall panels for switches and spinning, per-kind
-//! item props that ride their sector's live floor (lifts included).
+//! Glowing wall panels for switches and spinning glTF item props that ride their sector's live
+//! floor (lifts included); keycards are tinted with their key colour.
 
 use crate::coords::to_bevy;
 use crate::flow::{LevelEntity, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::mechanics::LevelMechanics;
+use crate::models::{Look, ModelLibrary, ModelReady, TintCache, spawn_model};
 use bevy::prelude::*;
 use rr_core::map::{ItemKind, Key, Map, SectorId, SwitchAction};
 
@@ -16,6 +17,14 @@ pub struct SwitchPanel(pub usize);
 pub struct ItemProp {
     pub index: usize,
     pub sector: Option<SectorId>,
+}
+
+/// The glTF model under an [`ItemProp`]; a keycard has `tint` (sRGB multiplier) and gets it once
+/// its model is ready.
+#[derive(Component)]
+struct ItemModel {
+    tint: Option<(f32, f32, f32)>,
+    tinted: bool,
 }
 
 /// Height of an item prop's centre above its floor.
@@ -35,45 +44,6 @@ pub fn key_color(k: Key) -> Color {
     }
 }
 
-/// Colour and box size (Bevy axes: x, y up, z) of an item kind's prop. Colours follow the
-/// `render-svg` legend: ammo yellow, shells orange, shotgun brown, health white (red cross),
-/// keys in their key colour.
-pub fn item_style(kind: ItemKind) -> (Color, Vec3) {
-    match kind {
-        ItemKind::Key(k) => (key_color(k), Vec3::new(0.3, 0.3, 0.3)),
-        ItemKind::PistolAmmo => (Color::srgb(0.96, 0.82, 0.25), Vec3::new(0.2, 0.14, 0.12)),
-        ItemKind::ShotgunShells => (Color::srgb(0.9, 0.49, 0.13), Vec3::new(0.3, 0.16, 0.16)),
-        ItemKind::Shotgun => (Color::srgb(0.55, 0.35, 0.17), Vec3::new(0.8, 0.1, 0.12)),
-        ItemKind::HealthSmall => (Color::srgb(0.95, 0.95, 0.95), Vec3::new(0.3, 0.3, 0.3)),
-        // Placeholder boxes until real item models land.
-        ItemKind::Chaingun => (Color::srgb(0.45, 0.45, 0.5), Vec3::new(0.9, 0.12, 0.14)),
-        ItemKind::RocketLauncher => (Color::srgb(0.35, 0.5, 0.3), Vec3::new(0.9, 0.16, 0.16)),
-        ItemKind::Rockets => (Color::srgb(0.7, 0.3, 0.25), Vec3::new(0.35, 0.15, 0.15)),
-        ItemKind::PipeBombs => (Color::srgb(0.3, 0.3, 0.3), Vec3::new(0.3, 0.2, 0.2)),
-        ItemKind::Armour => (Color::srgb(0.25, 0.45, 0.95), Vec3::new(0.35, 0.35, 0.2)),
-        ItemKind::Medkit => (Color::srgb(0.9, 0.2, 0.2), Vec3::new(0.35, 0.25, 0.25)),
-        ItemKind::Atom => (Color::srgb(0.3, 0.95, 0.5), Vec3::new(0.3, 0.3, 0.3)),
-        ItemKind::Jetpack => (Color::srgb(0.9, 0.6, 0.15), Vec3::new(0.3, 0.2, 0.4)),
-        ItemKind::NightVision => (Color::srgb(0.2, 0.9, 0.3), Vec3::new(0.25, 0.15, 0.15)),
-    }
-}
-
-/// The red cross on a health prop.
-const HEALTH_CROSS: Color = Color::srgb(0.75, 0.15, 0.12);
-
-/// Item props glow, except the white health box, which would bloom and hide its cross.
-fn item_material(kind: ItemKind, c: Color) -> StandardMaterial {
-    if kind == ItemKind::HealthSmall {
-        StandardMaterial {
-            base_color: c,
-            emissive: c.to_linear() * 0.3,
-            ..default()
-        }
-    } else {
-        glow(c)
-    }
-}
-
 pub fn glow(c: Color) -> StandardMaterial {
     StandardMaterial {
         base_color: c,
@@ -87,7 +57,7 @@ pub struct PropsPlugin;
 impl Plugin for PropsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(SpawnLevel, spawn_props)
-            .add_systems(Update, (update_switch_panels, animate_items));
+            .add_systems(Update, (update_switch_panels, animate_items, tint_keycards));
     }
 }
 
@@ -95,6 +65,7 @@ impl Plugin for PropsPlugin {
 fn spawn_props(
     mut commands: Commands,
     map: Res<CurrentMap>,
+    lib: Res<ModelLibrary>,
     existing: Option<Res<PanelMaterials>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -130,29 +101,54 @@ fn spawn_props(
             LevelEntity,
         ));
     }
-    let cross = materials.add(glow(HEALTH_CROSS));
-    let cross_bars = [
-        meshes.add(Cuboid::new(0.2, 0.06, 0.32)),
-        meshes.add(Cuboid::new(0.06, 0.2, 0.32)),
-    ];
     for (i, item) in map.items.iter().enumerate() {
         let sector = map.find_sector(item.pos, None);
         let z = sector.map_or(ITEM_LIFT, |s| item_prop_z(map, s));
-        let (color, size) = item_style(item.kind);
-        let mut prop = commands.spawn((
-            Mesh3d(meshes.add(Cuboid::from_size(size))),
-            MeshMaterial3d(materials.add(item_material(item.kind, color))),
-            Transform::from_translation(to_bevy(item.pos.extend(z))),
-            ItemProp { index: i, sector },
-            LevelEntity,
-        ));
-        if item.kind == ItemKind::HealthSmall {
-            prop.with_children(|c| {
-                for bar in &cross_bars {
-                    c.spawn((Mesh3d(bar.clone()), MeshMaterial3d(cross.clone())));
-                }
-            });
+        let prop = commands
+            .spawn((
+                Transform::from_translation(to_bevy(item.pos.extend(z))),
+                Visibility::default(),
+                ItemProp { index: i, sector },
+                LevelEntity,
+            ))
+            .id();
+        let model = lib.item(item.kind);
+        let root = spawn_model(&mut commands, prop, &model.scene, &model.place);
+        let tint = match item.kind {
+            ItemKind::Key(k) => {
+                let c = key_color(k).to_srgba();
+                Some((c.red, c.green, c.blue))
+            }
+            _ => None,
+        };
+        commands.entity(root).insert(ItemModel {
+            tint,
+            tinted: tint.is_none(),
+        });
+    }
+}
+
+/// Tints each keycard model with its key colour once the model is ready (the `Normal` look with
+/// a tint; textures are kept).
+fn tint_keycards(
+    mut cache: ResMut<TintCache>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut roots: Query<(&mut ItemModel, &ModelReady)>,
+    mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
+) {
+    for (mut model, ready) in &mut roots {
+        if model.tinted {
+            continue;
         }
+        for &e in &ready.meshes {
+            if let Ok(mut m) = mats.get_mut(e) {
+                let h = cache.get(&mut materials, &m.0, Look::Normal, model.tint);
+                if m.0 != h {
+                    m.0 = h;
+                }
+            }
+        }
+        model.tinted = true;
     }
 }
 
