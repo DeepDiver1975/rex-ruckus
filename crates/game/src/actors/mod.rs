@@ -4,7 +4,7 @@
 //! Purely presentational: every system here only reads the simulation ([`LevelCombat`],
 //! [`FxQueue`]) and writes transforms, materials, animation players and visual-only entities.
 //! Every actor gets an [`ActorVisual`] root plus the marker of its kind, with its model spawned
-//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher) and
+//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher, Boss) and
 //! attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks and
 //! plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
 
@@ -17,7 +17,7 @@ mod projectiles;
 pub use anim::{AnimCmd, anim_for, pick_role};
 pub use barrel::BarrelVisual;
 pub use drone::DroneVisual;
-pub use humanoid::{EnforcerVisual, GruntVisual, SlasherVisual};
+pub use humanoid::{BossVisual, EnforcerVisual, GruntVisual, SlasherVisual};
 pub use projectiles::{
     BoltVisual, BombVisual, ProjKind, RocketVisual, SPARK_SECS, Spark, proj_kind,
 };
@@ -214,6 +214,7 @@ fn spawn_actors(
             ActorKind::Slasher => e.insert(SlasherVisual(i)),
             ActorKind::Drone => e.insert(DroneVisual(i)),
             ActorKind::Barrel => e.insert(BarrelVisual(i)),
+            ActorKind::Boss => e.insert(BossVisual(i)),
         };
         let Some(lib) = lib.as_deref() else {
             continue;

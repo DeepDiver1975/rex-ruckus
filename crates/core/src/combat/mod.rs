@@ -26,7 +26,7 @@ use crate::destruct::{Destruct, hits_pane};
 use crate::explosion::Blast;
 use crate::hazard::{HazardClock, HazardKind};
 use crate::health::DamageOutcome;
-use crate::map::{Map, SectorId, WallId};
+use crate::map::{Map, SectorId, SwitchAction, WallId};
 use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_flyer, step_player};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
@@ -44,8 +44,9 @@ pub const BODY_PLAYER: usize = 0;
 const NOISE_GAP: f32 = 0.1;
 
 /// What a combat tick did, for the game's presentation. `ActorWoke`, `PlayerKilled`,
-/// `CrackOpened`, `BombsDetonated` and `ProjectileGone` have no game reader yet: core tests
-/// consume them and they are spare hooks for audio or effects. The game reads the rest
+/// `CrackOpened`, `BombsDetonated`, `ProjectileGone`, `PhaseChanged` and `DeathAction` have no
+/// game reader yet: core tests consume them and they are spare hooks for audio or effects (the
+/// boss's are wired up later in M5b). The game reads the rest
 /// (`ActorKilled` drives the death sound, the kill stats and, for the player's own kills, the
 /// hero quips).
 #[derive(Debug, Clone, PartialEq)]
@@ -108,6 +109,14 @@ pub enum CombatEvent {
         wall: WallId,
         dirty: Vec<SectorId>,
     },
+    /// Boss `actor` crossed a health threshold into `phase` (`EnemyDef::phase_for`).
+    PhaseChanged {
+        actor: usize,
+        phase: u8,
+    },
+    /// An actor's `on_death` on the tick it reached `Dead`; the game fires the channel or ends
+    /// the level.
+    DeathAction(SwitchAction),
 }
 
 impl CombatEvent {
@@ -222,10 +231,15 @@ impl Combat {
     /// Applies `n` damage from `by` to actor `i` and reports what happened. An actor with a
     /// `death_splash` (a barrel) that dies queues its own blast, owned by its killer `by`, on its
     /// `death_fuse`; `Health` reports the kill only once, so it is queued only once. An actor
-    /// hurt by another one may turn on it (`retargets`).
+    /// hurt by another one may turn on it (`retargets`). A boss ignores its own damage (its
+    /// rocket splash) and may change phase on a hit (`PhaseChanged`).
     fn damage_actor(&mut self, defs: &Defs, i: usize, n: i32, by: Shooter) -> Vec<CombatEvent> {
+        let def = defs.enemy(self.actors[i].kind);
+        // A boss shrugs off its own rocket splash.
+        if def.boss && by == Shooter::Actor(i) {
+            return Vec::new();
+        }
         let a = &mut self.actors[i];
-        let def = defs.enemy(a.kind);
         let before = a.state;
         // Measured before the kill shrinks the body to a corpse.
         let middle = a.body.pos + Vec3::Z * 0.5 * a.body.height;
@@ -246,6 +260,14 @@ impl Combat {
             }
         }
         out.extend(woke(i, before, a));
+        if outcome == DamageOutcome::Hurt {
+            let phase = def.phase_for(a.health.hp as f32 / a.health.max as f32);
+            if phase != a.phase {
+                a.phase = phase;
+                a.muzzle_offset = Vec3::from(def.phased(phase).muzzle);
+                out.push(CombatEvent::PhaseChanged { actor: i, phase });
+            }
+        }
         if outcome != DamageOutcome::Ignored
             && let Shooter::Actor(k) = by
             && k != i
@@ -362,10 +384,16 @@ impl Combat {
                 Target::Player => player_view,
                 Target::Actor(j) => Perception::of_body(&snapshot[j].0),
             };
-            let def = defs.enemy(a.kind);
+            let def = defs.enemy(a.kind).phased(a.phase);
+            let def = &*def;
             let before = a.state;
             let (input, fire) = think(a, def, map, &perception, &mut self.rng, dt);
             out.extend(woke(i, before, a));
+            if a.state == AiState::Dead
+                && let Some(action) = a.on_death.take()
+            {
+                out.push(CombatEvent::DeathAction(action));
+            }
             if !a.alive() {
                 continue;
             }
@@ -573,6 +601,14 @@ impl Combat {
         out
     }
 
+    /// Health fraction of the first awake, living boss: drives the HUD boss bar.
+    pub fn boss_health(&self) -> Option<f32> {
+        self.actors
+            .iter()
+            .find(|a| a.boss && a.alive() && a.state != AiState::Sleep)
+            .map(|a| a.health.hp as f32 / a.health.max as f32)
+    }
+
     /// Actor indices and copies of the bodies of every living actor, for `Mechanics::tick`.
     /// Corpses are left out, so they never hold a door open or ride a lift.
     pub fn living_bodies(&self) -> (Vec<usize>, Vec<Body>) {
@@ -637,6 +673,8 @@ fn bounce_off_body(map: &Map, p: &mut Projectile, body: &Body) {
 
 #[cfg(test)]
 mod blast_tests;
+#[cfg(test)]
+mod boss_tests;
 #[cfg(test)]
 mod crack_tests;
 #[cfg(test)]

@@ -64,4 +64,26 @@
         death_splash: Some((radius: 4.0, damage: 70, self_scale: 1.0)),
         death_fuse: 0.15,
     ),
+    (
+        kind: Boss,
+        health: 600, radius: 0.9, height: 3.0, speed: 2.2,
+        sight_range: 40.0, fov_deg: 140.0, reaction: 0.8,
+        attack_range: 30.0, attack_refire: 2.0, aim_error_deg: 2.5,
+        // Rocket volleys: three splash bolts per burst.
+        attack: Bolts(
+            proj: (speed: 14.0, damage: 15, radius: 0.2, life: 4.0,
+                   splash: Some((radius: 3.0, damage: 35, self_scale: 0.0))),
+            burst: 3, burst_gap: 0.35,
+        ),
+        // Between the shoulder cannons of the glTF model's Shoot_Big pose (models.ron `tip`):
+        // centred, 2.1 up, 0.35 ahead.
+        muzzle: (0.35, 0.0, 2.1),
+        pain_chance: 0.1, pain_time: 0.3, pain_cooldown: 2.0, death_time: 2.0, strafe: false,
+        boss: true,
+        phases: [
+            // Below half health: a minigun and a faster stride.
+            (below: 0.5, attack: Hitscan(damage: 4, pellets: 4, spread_deg: 5.0),
+             speed_mult: 1.5, refire: 0.25),
+        ],
+    ),
 ]

@@ -20,13 +20,14 @@ fn wall_mid(map: &Map, w: WallId) -> Vec3 {
 ///
 /// `ProjectileGone` and `BombsDetonated` give nothing: the `Impact` or `Explosion` event that
 /// accompanies them already carries the sound. Barrels are static bodies, so all their events
-/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. An actor
+/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. The boss,
+/// its `PhaseChanged` and every `DeathAction` stay silent until their sounds land. An actor
 /// index out of range gives nothing.
 pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) {
     let actor = |i: usize| combat.actors.get(i).map(|a| (a.kind, a.body.pos));
     let mut living = |i: usize, cue: fn(ActorKind) -> Cue| {
         if let Some((k, p)) = actor(i)
-            && k != ActorKind::Barrel
+            && !matches!(k, ActorKind::Barrel | ActorKind::Boss)
         {
             out.push((cue(k), Some(p)));
         }
@@ -59,6 +60,8 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
             }
         }
         CombatEvent::ProjectileGone(_) | CombatEvent::BombsDetonated => {}
+        // Silent until the engine-room sounds land.
+        CombatEvent::PhaseChanged { .. } | CombatEvent::DeathAction(_) => {}
     }
 }
 
@@ -189,6 +192,8 @@ mod tests {
                 wall: 0,
                 dirty: vec![0],
             },
+            CombatEvent::PhaseChanged { actor: 0, phase: 1 },
+            CombatEvent::DeathAction(crate::map::SwitchAction::Exit),
         ];
         for e in &evs {
             match e {
@@ -206,7 +211,9 @@ mod tests {
                 | CombatEvent::ProjectileGone(_)
                 | CombatEvent::Explosion { .. }
                 | CombatEvent::BombsDetonated
-                | CombatEvent::GlassBroken { .. } => {}
+                | CombatEvent::GlassBroken { .. }
+                | CombatEvent::PhaseChanged { .. }
+                | CombatEvent::DeathAction(_) => {}
             }
         }
         evs
@@ -240,6 +247,8 @@ mod tests {
             vec![(Cue::Explosion, Some(p))],
             vec![],
             vec![(Cue::GlassBreak, Some(wall_mid(&map, 0)))],
+            vec![],
+            vec![],
         ];
         let evs = all_combat_events();
         assert_eq!(evs.len(), expected.len());

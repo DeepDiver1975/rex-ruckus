@@ -116,7 +116,8 @@ impl Cue {
     /// Every cue, with `WeaponId`, `ActorKind` and `PickupClass` expanded. Exactly the cues the
     /// mapping can emit or the game raises itself, with no duplicates. Left out because they
     /// never occur: every `Actor*` cue for `Barrel` (a static body; `combat_cues` drops those
-    /// events for it, death included). `Fire(Boot)` stays: the boot swing emits `Fire`.
+    /// events for it, death included), and for now every `Actor*` cue for the `Boss` (silent until
+    /// its sounds land). `Fire(Boot)` stays: the boot swing emits `Fire`.
     pub fn all() -> Vec<Cue> {
         use Cue::*;
         let mut v: Vec<Cue> = WeaponId::ALL.into_iter().map(Fire).collect();
@@ -124,7 +125,7 @@ impl Cue {
             DryFire, Reload, Switch, Kick, Impact, Explosion, GlassBreak, LightBreak, CrackOpen,
         ]);
         for k in ActorKind::ALL {
-            if k != ActorKind::Barrel {
+            if !matches!(k, ActorKind::Barrel | ActorKind::Boss) {
                 v.extend([ActorWake(k), ActorFire(k), ActorPain(k), ActorDeath(k)]);
             }
         }

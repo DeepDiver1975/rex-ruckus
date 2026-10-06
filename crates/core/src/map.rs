@@ -204,16 +204,19 @@ pub enum ActorKind {
     Drone,
     /// Exploding barrel: a static, killable body.
     Barrel,
+    /// The episode's big mech: phased attacks, never infights.
+    Boss,
 }
 
 impl ActorKind {
     /// Every kind; each needs exactly one enemy def.
-    pub const ALL: [ActorKind; 5] = [
+    pub const ALL: [ActorKind; 6] = [
         ActorKind::Grunt,
         ActorKind::Enforcer,
         ActorKind::Slasher,
         ActorKind::Drone,
         ActorKind::Barrel,
+        ActorKind::Boss,
     ];
 }
 

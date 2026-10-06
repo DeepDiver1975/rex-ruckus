@@ -183,6 +183,24 @@ impl EnemyAttack {
     }
 }
 
+fn one() -> f32 {
+    1.0
+}
+
+/// A boss phase: from `below` (fraction of max health) down, the boss attacks with `attack`,
+/// moves `speed_mult` times faster, waits `refire` between attacks and shoots from `muzzle`
+/// (the base muzzle when `None`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Phase {
+    pub below: f32,
+    pub attack: EnemyAttack,
+    #[serde(default = "one")]
+    pub speed_mult: f32,
+    pub refire: f32,
+    #[serde(default)]
+    pub muzzle: Option<(f32, f32, f32)>,
+}
+
 /// How an enemy gets around.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Deserialize)]
 pub enum Locomotion {
@@ -226,6 +244,12 @@ pub struct EnemyDef {
     /// Seconds between the death and that blast.
     #[serde(default)]
     pub death_fuse: f32,
+    /// A boss: no infighting, immune to its own splash, shown on the boss bar.
+    #[serde(default)]
+    pub boss: bool,
+    /// Boss phases, highest threshold first.
+    #[serde(default)]
+    pub phases: Vec<Phase>,
 }
 
 impl EnemyDef {
@@ -238,6 +262,32 @@ impl EnemyDef {
             jump_speed: 0.0,
             ..Tuning::default()
         }
+    }
+
+    /// The phase for `health_frac` (hp / max): 0 above every threshold, k below the k-th.
+    pub fn phase_for(&self, health_frac: f32) -> u8 {
+        self.phases
+            .iter()
+            .take_while(|p| health_frac < p.below)
+            .count() as u8
+    }
+
+    /// The def as phase `phase` plays it (phase 0, or one past the list: the def itself).
+    pub fn phased(&self, phase: u8) -> std::borrow::Cow<'_, EnemyDef> {
+        let Some(p) = (phase as usize)
+            .checked_sub(1)
+            .and_then(|k| self.phases.get(k))
+        else {
+            return std::borrow::Cow::Borrowed(self);
+        };
+        let mut d = self.clone();
+        d.attack = p.attack;
+        d.speed *= p.speed_mult;
+        d.attack_refire = p.refire;
+        if let Some(m) = p.muzzle {
+            d.muzzle = m;
+        }
+        std::borrow::Cow::Owned(d)
     }
 }
 
@@ -280,6 +330,52 @@ fn pos(v: f32) -> bool {
 
 fn nonneg(v: f32) -> bool {
     v.is_finite() && v >= 0.0
+}
+
+/// Checks an enemy attack's numbers (the base attack and every boss phase's).
+fn check_enemy_attack(what: &str, a: &EnemyAttack) -> Result<(), DefsError> {
+    match *a {
+        EnemyAttack::Bolts {
+            proj,
+            burst,
+            burst_gap,
+        } => {
+            if burst == 0 {
+                return Err(invalid(what, "burst must be at least 1"));
+            }
+            if !nonneg(burst_gap) {
+                return Err(invalid(what, "burst gap must not be negative"));
+            }
+            if !pos(proj.speed) || !pos(proj.radius) || !pos(proj.life) || proj.damage <= 0 {
+                return Err(invalid(what, "projectile values must be positive"));
+            }
+        }
+        EnemyAttack::Hitscan {
+            damage,
+            pellets,
+            spread_deg,
+        } => {
+            if damage <= 0 || pellets == 0 || !nonneg(spread_deg) {
+                return Err(invalid(
+                    what,
+                    "hitscan damage and pellets must be positive, spread not negative",
+                ));
+            }
+        }
+        EnemyAttack::Melee {
+            damage,
+            lunge_speed,
+        } => {
+            if damage <= 0 || !pos(lunge_speed) {
+                return Err(invalid(
+                    what,
+                    "melee damage and lunge speed must be positive",
+                ));
+            }
+        }
+        EnemyAttack::None => {}
+    }
+    Ok(())
 }
 
 fn check_attack(what: &str, a: &Attack) -> Result<(), DefsError> {
@@ -501,47 +597,28 @@ impl Defs {
             if !(0.0..=1.0).contains(&e.pain_chance) {
                 return Err(invalid(what, "pain chance must be in [0, 1]"));
             }
-            match e.attack {
-                EnemyAttack::Bolts {
-                    proj,
-                    burst,
-                    burst_gap,
-                } => {
-                    if burst == 0 {
-                        return Err(invalid(what, "burst must be at least 1"));
-                    }
-                    if !nonneg(burst_gap) {
-                        return Err(invalid(what, "burst gap must not be negative"));
-                    }
-                    if !pos(proj.speed) || !pos(proj.radius) || !pos(proj.life) || proj.damage <= 0
-                    {
-                        return Err(invalid(what, "projectile values must be positive"));
-                    }
+            check_enemy_attack(&what, &e.attack)?;
+            if !e.phases.is_empty() && !e.boss {
+                return Err(invalid(what, "only a boss has phases"));
+            }
+            let mut last = 1.0_f32;
+            for p in &e.phases {
+                if !(p.below > 0.0 && p.below < last) {
+                    return Err(invalid(
+                        what,
+                        "phase thresholds must fall in (0, 1), highest first",
+                    ));
                 }
-                EnemyAttack::Hitscan {
-                    damage,
-                    pellets,
-                    spread_deg,
-                } => {
-                    if damage <= 0 || pellets == 0 || !nonneg(spread_deg) {
-                        return Err(invalid(
-                            what,
-                            "hitscan damage and pellets must be positive, spread not negative",
-                        ));
-                    }
+                last = p.below;
+                if !pos(p.speed_mult) || !pos(p.refire) {
+                    return Err(invalid(what, "phase speed and refire must be positive"));
                 }
-                EnemyAttack::Melee {
-                    damage,
-                    lunge_speed,
-                } => {
-                    if damage <= 0 || !pos(lunge_speed) {
-                        return Err(invalid(
-                            what,
-                            "melee damage and lunge speed must be positive",
-                        ));
-                    }
+                if let Some(m) = p.muzzle
+                    && !(m.0.is_finite() && m.1.is_finite() && m.2.is_finite())
+                {
+                    return Err(invalid(what, "muzzle must be finite"));
                 }
-                EnemyAttack::None => {}
+                check_enemy_attack(&what, &p.attack)?;
             }
             if let Some(s) = e.death_splash
                 && (!pos(s.radius) || s.damage <= 0 || !nonneg(s.self_scale))
@@ -680,12 +757,22 @@ mod tests {
                 | ActorKind::Enforcer
                 | ActorKind::Slasher
                 | ActorKind::Drone
-                | ActorKind::Barrel => {}
+                | ActorKind::Barrel
+                | ActorKind::Boss => {}
             }
             let mut d = Defs::builtin();
             d.enemies.retain(|e| e.kind != k);
             assert_eq!(d.validate(), Err(DefsError::MissingEnemy(k)));
         }
+    }
+
+    #[test]
+    fn boss_phases_are_validated() {
+        assert!(Defs::from_ron(W, E).is_ok());
+        rejects(W, &E.replacen("below: 0.5", "below: 1.5", 1));
+        rejects(W, &E.replacen("below: 0.5", "below: 0.0", 1));
+        rejects(W, &E.replacen("boss: true", "boss: false", 1)); // phases without a boss
+        rejects(W, &E.replacen("speed_mult: 1.5", "speed_mult: 0.0", 1));
     }
 
     #[test]

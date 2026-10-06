@@ -1,5 +1,5 @@
 //! The walking enemies on glTF models: the Grunt (pistol soldier), the Enforcer (armoured
-//! trooper) and the Slasher (melee alien). Animation and looks are shared with every enemy
+//! trooper), the Slasher (melee alien) and the boss mech. Animation and looks are shared with every enemy
 //! (see [`super::anim`]); this module places them and hands the Grunt its pistol.
 
 use super::{ActorModel, ActorVisual, KeepWorldScale, place_walker};
@@ -19,11 +19,20 @@ pub struct EnforcerVisual(pub usize);
 #[derive(Component)]
 pub struct SlasherVisual(pub usize);
 
+/// Marks the root of the boss's visual; the index is into `LevelCombat.actors`.
+#[derive(Component)]
+pub struct BossVisual(pub usize);
+
 /// The attach scene (e.g. the Grunt's pistol) has been parented to its bone.
 #[derive(Component)]
 pub(super) struct Attached;
 
-type Walker = Or<(With<GruntVisual>, With<EnforcerVisual>, With<SlasherVisual>)>;
+type Walker = Or<(
+    With<GruntVisual>,
+    With<EnforcerVisual>,
+    With<SlasherVisual>,
+    With<BossVisual>,
+)>;
 
 /// Places every walking enemy between its last two ticks, facing its heading.
 pub(super) fn place_walkers(

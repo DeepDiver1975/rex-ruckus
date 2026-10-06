@@ -7,7 +7,7 @@
 use crate::collide::Body;
 use crate::defs::{EnemyAttack, EnemyDef, Locomotion};
 use crate::health::{DamageOutcome, Health};
-use crate::map::{ActorKind, ActorSpawn, Map, SectorId, WallId};
+use crate::map::{ActorKind, ActorSpawn, Map, SectorId, SwitchAction, WallId};
 use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
@@ -68,6 +68,12 @@ pub struct Actor {
     pub locomotion: Locomotion,
     /// Whom it hunts: the player at spawn, another actor after infighting.
     pub target: Target,
+    /// Boss phase (`EnemyDef::phase_for`); 0 for every other actor.
+    pub phase: u8,
+    /// Copied from the def: a boss never infights and shrugs off its own splash.
+    pub boss: bool,
+    /// The spawn's action once the actor is dead; taken (fired once) on that tick.
+    pub on_death: Option<SwitchAction>,
 }
 
 /// Whom an actor hunts. Infighting points it at another actor (by index; actors are never
@@ -103,13 +109,15 @@ impl Perception {
 }
 
 /// Doom-style infighting: whether `victim`, just hurt by `attacker`, turns on it. Both alive,
-/// different kinds, neither static (barrels never hunt nor are hunted).
+/// different kinds, neither static (barrels never hunt nor are hunted), and the victim is no
+/// boss (a boss only ever hunts the player; others may still turn on it).
 pub fn retargets(victim: &Actor, attacker: &Actor) -> bool {
     victim.alive()
         && attacker.alive()
         && victim.kind != attacker.kind
         && victim.locomotion != Locomotion::Static
         && attacker.locomotion != Locomotion::Static
+        && !victim.boss
 }
 
 /// How long a chase route stays valid before `next_hop` runs again.
@@ -164,6 +172,9 @@ impl Actor {
             muzzle_offset: Vec3::from(def.muzzle),
             locomotion: def.locomotion,
             target: Target::Player,
+            phase: 0,
+            boss: def.boss,
+            on_death: spawn.on_death,
         })
     }
 

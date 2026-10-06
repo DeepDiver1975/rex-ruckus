@@ -86,6 +86,21 @@
             place: (scale: 0.98), // 1.0 / 1.02
             tip: Offset((0.0, 0.5, 0.0)),
         ),
+        (
+            kind: Boss,
+            scene: "models/enemies/boss.glb",
+            place: (scale: 1.02, yaw_deg: 180.0), // 3.0 / 2.94; glTF faces +Z
+            clips: (
+                idle: Some("RobotArmature|Idle"),
+                walk: Some("RobotArmature|Walk"),
+                run: Some("RobotArmature|Run"),
+                attack: Some("RobotArmature|Shoot_Big"),
+                pain: Some("RobotArmature|HitRecieve_1"),
+                death: Some("RobotArmature|Death"),
+            ),
+            // Between the two shoulder cannons in the Shoot_Big pose (one central muzzle).
+            tip: Offset((0.0, 2.1, -0.35)),
+        ),
     ],
     weapons: [
         // Viewmodel guns, relative to the view rig (x right, y up, -z forward): about 0.2-0.45 m
