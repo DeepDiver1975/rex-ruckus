@@ -11,11 +11,11 @@ pub mod main_menu;
 pub mod pause;
 pub mod widgets;
 
-use crate::bindings::Action;
+use crate::bindings::{Action, Bindings};
 use crate::episode::{Episode, start_episode};
-use crate::flow::{PlayState, RestartRequested, load_level};
+use crate::flow::{PlayState, load_level, restart_level};
 use crate::hud::UiFont;
-use crate::player::pause_on_escape;
+use crate::player::{grab_cursor, pause_on_escape};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -136,6 +136,8 @@ impl Plugin for MenuPlugin {
             .init_resource::<MenuInput>()
             .init_resource::<MenuSelection>()
             .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Bindings>()
             .init_resource::<UiFont>()
             .add_systems(
                 Update,
@@ -143,7 +145,9 @@ impl Plugin for MenuPlugin {
                     // After the pause toggle, so Esc that goes back a screen is not also a resume.
                     keyboard_nav.after(pause_on_escape),
                     click_buttons,
-                    run_menu_action,
+                    // After the cursor grab: a click on a menu button is consumed by the menu
+                    // (the grab sees the menu still open), and the next click grabs.
+                    run_menu_action.after(grab_cursor),
                     sync_screen,
                     rebuild_screen.run_if(resource_changed::<MenuScreen>),
                     highlight,
@@ -173,8 +177,11 @@ impl MenuButtons<'_, '_> {
 }
 
 /// Up/Down (or W/S) move the selection, Enter/Space chooses, Esc goes back a screen.
+#[allow(clippy::too_many_arguments)]
 fn keyboard_nav(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    bindings: Res<Bindings>,
     state: Res<PlayState>,
     buttons: MenuButtons,
     mut selection: ResMut<MenuSelection>,
@@ -194,7 +201,7 @@ fn keyboard_nav(
     {
         input.activate = Some(*action);
     }
-    if keys.just_pressed(KeyCode::Escape)
+    if bindings.just_pressed(Action::Pause, &keys, &mouse)
         && let Some(back) = current.back(*state)
     {
         screen.0 = Some(back);
@@ -242,9 +249,8 @@ pub fn run_menu_action(world: &mut World) {
         }
         MenuAction::Resume => *world.resource_mut::<PlayState>() = PlayState::Playing,
         MenuAction::RestartLevel => {
-            // The restart itself runs in the next fixed tick.
-            world.resource_mut::<RestartRequested>().0 = true;
-            *world.resource_mut::<PlayState>() = PlayState::Playing;
+            // Rebuilds the level and sets `Playing`, so no tick of the old level runs.
+            restart_level(world);
         }
         MenuAction::QuitToMenu => quit_to_menu(world),
         MenuAction::QuitGame => {

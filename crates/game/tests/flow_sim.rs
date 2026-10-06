@@ -667,13 +667,21 @@ fn taps_while_paused_do_not_survive_the_resume() {
             keys.press(KeyCode::KeyE);
             keys.press(KeyCode::KeyR);
             keys.press(KeyCode::KeyQ);
+            keys.press(KeyCode::Space);
+            keys.press(KeyCode::KeyW);
         }
         rig.mouse().press(MouseButton::Left);
         rig.read_only();
         *rig.app.world_mut().resource_mut::<PlayState>() = PlayState::Playing;
         let i = input(&mut rig.app);
         assert!(
-            !i.use_pressed && !i.reload && !i.use_medkit && !i.fire_pressed && !i.fire,
+            !i.jump
+                && i.forward == 0.0
+                && !i.use_pressed
+                && !i.reload
+                && !i.use_medkit
+                && !i.fire_pressed
+                && !i.fire,
             "{frozen:?}: stale latches after the resume"
         );
     }

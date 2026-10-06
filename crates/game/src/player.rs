@@ -334,7 +334,8 @@ pub fn spawn_camera(mut commands: Commands) {
     ));
 }
 
-fn grab_cursor(
+/// Grabs and releases the cursor (see [`grab_change`]).
+pub fn grab_cursor(
     mut cursor: Single<&mut CursorOptions>,
     window: Single<&Window>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -464,6 +465,11 @@ pub fn read_input(
         PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd
     ) {
         input.clear_taps();
+        // Space chooses a menu button and is also Jump: the choice must not jump on resume.
+        input.forward = 0.0;
+        input.strafe = 0.0;
+        input.jump = false;
+        input.crouch = false;
     }
 }
 
