@@ -2,6 +2,7 @@
 
 pub mod actors;
 pub mod audio;
+pub mod bindings;
 pub mod breakables;
 pub mod combat;
 pub mod coords;
@@ -17,6 +18,7 @@ pub mod models;
 pub mod paths;
 pub mod player;
 pub mod props;
+pub mod settings;
 pub mod textures;
 pub mod viewmodel;
 
