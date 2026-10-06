@@ -1,0 +1,103 @@
+// glTF model definitions (CC0 assets, see CREDITS.md). Read by rr_core::models.
+//
+// Coordinate conventions
+//   * `scene` paths are relative to the assets root.
+//   * Placement is in Bevy model space (y-up, -z forward, metres), applied to the scene
+//     root in this order: scale, then yaw/pitch/roll (degrees), then offset.
+//   * `scale` maps the glTF's native size to world metres: target size / measured size.
+//   * Clip names are the exact glTF animation names; omitted clips mean "no such clip".
+//   * `tip` is where the shot glow sits: a named node in the scene or an offset from the root.
+//   * PLACEHOLDERS: yaw/pitch/roll/offset values are tuned visually in a later task.
+(
+    enemies: [
+        (
+            kind: Grunt,
+            scene: "models/enemies/grunt.glb",
+            place: (scale: 0.936), // 1.75 / 1.87
+            clips: (
+                idle: Some("CharacterArmature|Idle_Gun"),
+                walk: Some("CharacterArmature|Walk"),
+                run: Some("CharacterArmature|Run_Shoot"),
+                attack: Some("CharacterArmature|Idle_Gun_Shoot"),
+                pain: Some("CharacterArmature|HitRecieve"),
+                death: Some("CharacterArmature|Death"),
+            ),
+            tip: Offset((0.0, 1.3, -0.6)),
+            attach: Some((bone: "Wrist.R", scene: "models/weapons/pistol.glb")),
+        ),
+        (
+            kind: Enforcer,
+            scene: "models/enemies/enforcer.glb",
+            place: (scale: 1.457), // 1.85 / 1.27
+            clips: (
+                idle: Some("CharacterArmature|Idle"),
+                walk: Some("CharacterArmature|Walk"),
+                run: Some("CharacterArmature|Run"),
+                attack: Some("CharacterArmature|Shoot"),
+                death: Some("CharacterArmature|Death"),
+            ),
+            tip: Node("Gun_end"),
+        ),
+        (
+            kind: Slasher,
+            scene: "models/enemies/slasher.glb",
+            place: (scale: 0.493), // 1.5 / 3.04
+            clips: (
+                idle: Some("AlienArmature|Alien_Idle"),
+                walk: Some("AlienArmature|Alien_Walk"),
+                run: Some("AlienArmature|Alien_Run"),
+                attack: Some("AlienArmature|Alien_Punch"),
+                death: Some("AlienArmature|Alien_Death"),
+            ),
+            tip: Offset((0.0, 1.0, -0.5)),
+        ),
+        (
+            kind: Drone,
+            scene: "models/enemies/drone.glb",
+            place: (scale: 0.652), // 0.6 / 0.92
+            clips: (
+                idle: Some("CharacterArmature|Idle"),
+                walk: Some("CharacterArmature|Walk"),
+                run: Some("CharacterArmature|Run"),
+                attack: Some("CharacterArmature|Shoot"),
+                death: Some("CharacterArmature|Dead"),
+            ),
+            tip: Node("Gun_end"),
+        ),
+        (
+            kind: Barrel,
+            scene: "models/enemies/barrel.glb",
+            place: (scale: 0.98), // 1.0 / 1.02
+            tip: Offset((0.0, 0.5, 0.0)),
+        ),
+    ],
+    weapons: [
+        // Viewmodel guns: about 0.18-0.3 m long; they lie along x (orientation tuned later).
+        (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.12)), // 0.22 / 1.82
+        (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081)), // 0.3 / 3.69
+        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.058)), // 0.3 / 5.17
+        (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 1.0)), // TODO tune
+        (id: PipeBombs, scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.0)), // TODO tune
+    ],
+    items: [
+        // Pickups: about 0.35-0.5 m on the longest side.
+        (kind: PistolAmmo, scene: "models/pickups/pistol_ammo.glb", place: (scale: 0.44)), // 0.4 / 0.90
+        (kind: ShotgunShells, scene: "models/pickups/shotgun_shells.glb", place: (scale: 1.0)), // TODO tune
+        (kind: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.135)), // 0.5 / 3.69
+        (kind: HealthSmall, scene: "models/pickups/health_small.glb", place: (scale: 1.67)), // 0.4 / 0.24
+        (kind: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.097)), // 0.5 / 5.17
+        (kind: RocketLauncher, scene: "models/weapons/rocket_launcher.glb", place: (scale: 1.0)), // TODO tune
+        (kind: Rockets, scene: "models/pickups/rockets.glb", place: (scale: 1.0)), // TODO tune
+        (kind: PipeBombs, scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.0)), // TODO tune
+        (kind: Armour, scene: "models/pickups/armour.glb", place: (scale: 0.29)), // 0.45 / 1.54
+        (kind: Medkit, scene: "models/pickups/medkit.glb", place: (scale: 0.24)), // 0.45 / 1.88
+        (kind: Atom, scene: "models/pickups/atom.glb", place: (scale: 0.45)), // 0.4 / 0.89
+        (kind: Jetpack, scene: "models/pickups/jetpack.glb", place: (scale: 0.47)), // 0.5 / 1.07
+        (kind: NightVision, scene: "models/pickups/night_vision.glb", place: (scale: 0.76)), // 0.35 / 0.46
+        (kind: Key, scene: "models/pickups/keycard.glb", place: (scale: 0.34)), // 0.35 / 1.04
+    ],
+    extras: (
+        held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.0)), // TODO tune
+        detonator: (scene: "models/weapons/detonator.glb", place: (scale: 0.071)), // 0.15 / 2.10
+    ),
+)
