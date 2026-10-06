@@ -51,7 +51,7 @@ if [ -n "${LOOP:-}" ]; then
 fi
 
 if sox -h 2>/dev/null | grep -qiw vorbis; then
-    sox --temp "${TMPDIR:-/tmp}" "$src" -c "$channels" -C 4 "$dest" "${trim[@]}" gain -6 "$@" norm -1
+    sox --temp "${TMPDIR:-/tmp}" "$src" -c "$channels" -C 4 "$dest" ${trim[@]+"${trim[@]}"} gain -6 "$@" norm -1
 else
     if [ $# -gt 0 ]; then
         echo "import-sfx: sox lacks Vorbis support; ffmpeg fallback cannot apply: $*" >&2

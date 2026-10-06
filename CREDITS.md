@@ -30,7 +30,10 @@ Sources:
 | `assets/sounds/cc0/door_stop.ogg` | Sci-Fi Sounds: `doorClose_000.ogg` | Kenney | https://kenney.nl/assets/sci-fi-sounds | CC0 | none |
 | `assets/sounds/cc0/lift_start.ogg` | Sci-Fi Sounds: `spaceEngineLow_000.ogg` | Kenney | https://kenney.nl/assets/sci-fi-sounds | CC0 | `LOOP="1.0 3.0"` |
 | `assets/sounds/cc0/lift_stop.ogg` | Impact Sounds: `impactPlate_heavy_000.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
-| `assets/sounds/cc0/footstep_1.ogg` … `footstep_4.ogg` | Impact Sounds: `footstep_concrete_000.ogg` … `footstep_concrete_003.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
+| `assets/sounds/cc0/footstep_1.ogg` | Impact Sounds: `footstep_concrete_000.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
+| `assets/sounds/cc0/footstep_2.ogg` | Impact Sounds: `footstep_concrete_001.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
+| `assets/sounds/cc0/footstep_3.ogg` | Impact Sounds: `footstep_concrete_002.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
+| `assets/sounds/cc0/footstep_4.ogg` | Impact Sounds: `footstep_concrete_003.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
 | `assets/sounds/cc0/land.ogg` | Impact Sounds: `impactSoft_heavy_000.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
 | `assets/sounds/cc0/impact_1.ogg` | Impact Sounds: `impactMetal_light_000.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |
 | `assets/sounds/cc0/impact_2.ogg` | Impact Sounds: `impactMetal_medium_001.ogg` | Kenney | https://kenney.nl/assets/impact-sounds | CC0 | none |

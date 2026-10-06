@@ -245,8 +245,8 @@ fn one_pole(cutoff: f64) -> f64 {
     w / (1.0 + w)
 }
 
-/// Renders `layer` into `out`, starting at its delay. `extra` samples past its end (loops only)
-/// keep the sustain level.
+/// Renders `layer` into `out`, starting at its delay. In a loop (`looped`) the layer runs to the
+/// end of `out`, holding its sustain level, instead of stopping at its own length.
 fn render_layer(layer: &Layer, rng: &mut Rng, out: &mut [f64], looped: bool) {
     let start = samples(layer.delay);
     let (a, s, d) = (layer.attack, layer.sustain, layer.decay);
@@ -473,7 +473,7 @@ mod tests {
     fn one_shots_end_at_zero_loops_do_not_fade() {
         let s = render(&one(ONE_SHOT));
         assert_eq!(*s.last().unwrap(), 0);
-        // The fade covers 5 ms: the sample 1 ms before the end is quieter than its neighbourhood.
+        // One-shots fade to exactly zero; loops start and end mid-wave and wrap seamlessly.
         let s = render(&one(LOOPED));
         assert_eq!(s.len(), 22050);
         assert_ne!(s[0], 0);
@@ -530,7 +530,7 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/sounds/synth.ron")
     }
 
-    pub const NAMES: &[&str] = &[
+    const NAMES: &[&str] = &[
         "pistol",
         "shotgun",
         "chaingun",
@@ -596,6 +596,22 @@ mod tests {
             }
         }
         assert!(bytes <= 4 << 20, "{bytes} bytes of WAV");
+    }
+
+    #[test]
+    fn committed_wavs_match_their_recipes() {
+        let src = std::fs::read_to_string(real_recipes()).unwrap();
+        let dir = real_recipes().with_file_name("synth");
+        for r in parse_recipes(&src).unwrap() {
+            let path = dir.join(format!("{}.wav", r.name));
+            let committed =
+                std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            assert!(
+                committed == wav_bytes(&render(&r)),
+                "{}.wav is stale: regenerate with `cargo run -p rr-tools -- synth assets/sounds/synth.ron -o assets/sounds/synth`",
+                r.name
+            );
+        }
     }
 
     #[test]
