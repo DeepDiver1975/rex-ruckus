@@ -8,9 +8,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rrkit  # noqa: E402
+from mathutils import Matrix  # noqa: E402
 
+# Overall size: it has to look oversized even in the Goon's fist.
+SCALE = 1.3
 # The muzzle, relative to the grip (origin).
-MUZZLE = (0.0, -0.52, 0.11)
+MUZZLE = tuple(SCALE * c for c in (0.0, -0.52, 0.11))
 
 
 def materials():
@@ -25,6 +28,7 @@ def materials():
 def build(body, bone, m):
     """Adds the cannon's parts to `body`, all on `bone`, in the frame set by `body.xf`."""
     st, dk, br, gr = m["steel"], m["dark"], m["brass"], m["grip"]
+    body.xf = body.xf @ Matrix.Scale(SCALE, 4)
     body.box(bone, gr, (0, 0.01, 0), (0.06, 0.08, 0.15), rot=(-15, 0, 0), bevel=0.01)
     body.box(bone, st, (0, -0.06, 0.10), (0.07, 0.20, 0.08), bevel=0.012)  # frame
     body.cyl(bone, br, (0, -0.07, 0.11), 0.075, 0.075, 0.12, rot=(90, 0, 0), bevel=0.01)
