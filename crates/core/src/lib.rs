@@ -3,6 +3,7 @@
 
 pub mod actors;
 pub mod audio;
+pub mod carry;
 pub mod collide;
 pub mod combat;
 pub mod defs;
@@ -22,6 +23,7 @@ pub mod movement;
 pub mod pickups;
 pub mod projectile;
 pub mod rng;
+pub mod stats;
 pub mod trace;
 pub mod validate;
 pub mod vitals;
