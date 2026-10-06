@@ -33,53 +33,75 @@ const ROW_PX: f32 = 18.0;
 pub fn spawn_controls(commands: &mut Commands, ui: &UiFont) {
     let root = spawn_screen(commands, ui, "CONTROLS");
     commands.entity(root).with_children(|p| {
+        // Two columns, so the screen fits a small window.
         p.spawn(Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(2.0),
+            column_gap: Val::Px(16.0),
+            align_items: AlignItems::FlexStart,
             ..default()
         })
-        .with_children(|list| {
-            for a in Action::ALL {
-                let row = Node {
-                    width: Val::Px(560.0),
-                    padding: UiRect::axes(Val::Px(16.0), Val::Px(2.0)),
-                    justify_content: JustifyContent::SpaceBetween,
+        .with_children(|cols| {
+            for half in Action::ALL.chunks(Action::ALL.len().div_ceil(2)) {
+                cols.spawn(Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(2.0),
                     ..default()
-                };
-                if a == Action::Pause {
-                    // Escape is not rebindable.
-                    list.spawn(row).with_children(|r| {
-                        label(r, ui, a.label(), ROW_PX, GREY);
-                        label(r, ui, "Esc", ROW_PX, GREY);
-                    });
-                } else {
-                    list.spawn((
-                        Button,
-                        row,
-                        BackgroundColor(widgets::IDLE),
-                        MenuAction::Rebind(a),
-                    ))
-                    .with_children(|r| {
-                        label(r, ui, a.label(), ROW_PX, Color::WHITE);
-                        r.spawn((
-                            Text::new(""),
-                            crate::hud::font(ui, ROW_PX),
-                            TextColor(widgets::AMBER),
-                            BindingText(a),
-                        ));
-                    });
-                }
+                })
+                .with_children(|list| {
+                    for &a in half {
+                        spawn_row(list, ui, a);
+                    }
+                });
             }
         });
         p.spawn((
             Text::new(""),
             crate::hud::font(ui, ROW_PX),
             TextColor(Color::WHITE),
+            // A fixed height, so a notice appearing does not move the buttons.
+            Node {
+                min_height: Val::Px(ROW_PX * 1.4),
+                ..default()
+            },
             NoticeText,
         ));
-        button(p, ui, "Reset to defaults", MenuAction::ResetBindings);
-        button(p, ui, "Back", MenuAction::Back);
+        widgets::button_row(p, |r| {
+            button(r, ui, "Reset to defaults", MenuAction::ResetBindings);
+            button(r, ui, "Back", MenuAction::Back);
+        });
     });
+}
+
+/// One action row: its name and bindings; Esc (pause) is shown greyed out.
+fn spawn_row(list: &mut ChildSpawnerCommands, ui: &UiFont, a: Action) {
+    let row = Node {
+        width: Val::Px(560.0),
+        padding: UiRect::axes(Val::Px(12.0), Val::Px(2.0)),
+        justify_content: JustifyContent::SpaceBetween,
+        ..default()
+    };
+    if a == Action::Pause {
+        // Escape is not rebindable.
+        list.spawn(row).with_children(|r| {
+            label(r, ui, a.label(), ROW_PX, GREY);
+            label(r, ui, "Esc", ROW_PX, GREY);
+        });
+    } else {
+        list.spawn((
+            Button,
+            row,
+            BackgroundColor(widgets::IDLE),
+            MenuAction::Rebind(a),
+        ))
+        .with_children(|r| {
+            label(r, ui, a.label(), ROW_PX, Color::WHITE);
+            r.spawn((
+                Text::new(""),
+                crate::hud::font(ui, ROW_PX),
+                TextColor(widgets::AMBER),
+                BindingText(a),
+            ));
+        });
+    }
 }
 
 /// The bindings of an action as shown: labels joined by ` / `, or a dash.
@@ -106,7 +128,7 @@ pub fn refresh_rows(
     let Some(settings) = settings else { return };
     for (mut text, BindingText(a)) in &mut rows {
         let wanted = if capture.0 == Some(*a) {
-            "press a key…".to_string()
+            "press a key (Esc cancels)".to_string()
         } else {
             bindings_label(&settings, *a)
         };
@@ -121,7 +143,8 @@ pub fn refresh_rows(
     }
 }
 
-/// While capturing, the next key or mouse button becomes the binding; Esc cancels.
+/// While capturing, the next key or mouse button becomes the binding; Esc cancels, and so does
+/// a left click (a stray click on the screen must not take the Fire binding).
 ///
 /// The frame the capture starts is skipped: the click or Enter that chose the row must not bind.
 pub fn capture_input(
@@ -146,7 +169,7 @@ pub fn capture_input(
         *armed = true;
         return;
     }
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Left) {
         capture.0 = None;
         notice.0.clear();
         *armed = false;

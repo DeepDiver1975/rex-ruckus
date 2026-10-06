@@ -18,7 +18,10 @@ pub use controls::{Capture, Notice};
 
 use crate::bindings::{Action, Bindings};
 use crate::episode::{Episode, Stats, start_episode};
-use crate::flow::{AdvanceRequested, LevelDifficulty, PlayState, load_level, restart_level};
+use crate::flow::{
+    AdvanceRequested, LevelDifficulty, PlayState, RESTART_DELAY, StateAge, load_level,
+    restart_level,
+};
 use crate::hud::UiFont;
 use crate::level::CurrentMap;
 use crate::player::{grab_cursor, pause_on_escape};
@@ -263,6 +266,16 @@ pub fn run_menu_action(world: &mut World) {
         return;
     }
     let state = *world.resource::<PlayState>();
+    // The stats screens stay up for a moment: Enter, Space (Jump) or a click that was meant for
+    // the game must not skip them unseen.
+    let skips_stats = match action {
+        MenuAction::Continue => true,
+        MenuAction::QuitToMenu => state == PlayState::EpisodeEnd,
+        _ => false,
+    };
+    if skips_stats && world.resource::<StateAge>().0 < RESTART_DELAY {
+        return;
+    }
     let screen = |world: &mut World, s: Option<Screen>| world.resource_mut::<MenuScreen>().0 = s;
     match action {
         MenuAction::NewGame => screen(world, Some(Screen::Difficulty)),

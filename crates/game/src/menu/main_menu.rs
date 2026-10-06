@@ -1,7 +1,7 @@
 //! The main menu and the difficulty picker.
 
 use super::MenuAction;
-use super::widgets::{AMBER, button, label, spawn_screen};
+use super::widgets::{AMBER, button, label, spawn_screen, spawn_screen_sized};
 use crate::hud::UiFont;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -17,7 +17,7 @@ pub fn difficulty_label(d: Difficulty) -> &'static str {
 
 /// The title screen.
 pub fn spawn_main(commands: &mut Commands, ui: &UiFont) {
-    let root = spawn_screen(commands, ui, "REX RUCKUS");
+    let root = spawn_screen_sized(commands, ui, "REX RUCKUS", 64.0);
     commands.entity(root).with_children(|p| {
         label(p, ui, "MELTDOWN", 36.0, AMBER);
         button(p, ui, "New Game", MenuAction::NewGame);

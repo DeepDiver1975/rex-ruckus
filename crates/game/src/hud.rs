@@ -3,6 +3,7 @@
 //! subtitle line for the hero's quips.
 //! Spawned once at startup; it is not a `LevelEntity`, so it persists across restarts.
 
+use crate::bindings::{Action, Bindings};
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
@@ -28,6 +29,10 @@ const MISSING_KEY_ALPHA: f32 = 0.2;
 const ACTIVE: Color = Color::srgb(0.4, 1.0, 0.5);
 const INACTIVE: Color = Color::srgba(1.0, 1.0, 1.0, 0.45);
 
+/// A top-level HUD node (the overlay manages its own visibility); hidden while a menu screen
+/// is shown, so the menu is never drawn over.
+#[derive(Component)]
+pub struct HudRoot;
 #[derive(Component)]
 struct PromptText;
 #[derive(Component)]
@@ -66,18 +71,28 @@ struct OverlayText;
 #[derive(Resource, Default, Debug)]
 pub struct DamageFlash(pub f32);
 
-pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget) -> &'static str {
-    match t {
+/// The use prompt for `t`, prefixed with the key bound to Use (`key`, e.g. `E`); empty when the
+/// target has nothing to show.
+pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget, key: &str) -> String {
+    let what = match t {
         UseTarget::Mover(m) => match mech.movers[m].def.kind {
-            MoverKind::Door => "[E] Door",
-            MoverKind::Lift { .. } => "[E] Lift",
-            MoverKind::Crack => "",
+            MoverKind::Door => "Door",
+            MoverKind::Lift { .. } => "Lift",
+            MoverKind::Crack => return String::new(),
         },
         UseTarget::Switch(i) => match map.switches[i].action {
-            SwitchAction::Exit => "[E] Exit",
-            SwitchAction::Channel(_) => "[E] Switch",
+            SwitchAction::Exit => "Exit",
+            SwitchAction::Channel(_) => "Switch",
         },
-    }
+    };
+    format!("[{key}] {what}")
+}
+
+/// The label of the first input bound to Use, or a dash when it is unbound.
+fn use_key_label(bindings: Option<&Bindings>) -> String {
+    bindings
+        .and_then(|b| b.of(Action::Use).first().map(|b| b.label()))
+        .unwrap_or_else(|| "\u{2014}".to_string())
 }
 
 /// Ammo text for the status bar: `clip / reserve`, reserve only, or a dash for the boot.
@@ -163,6 +178,7 @@ impl Plugin for HudPlugin {
                     read_hurt.in_set(FxReaders),
                     update_flash.after(read_hurt),
                     update_overlay,
+                    hide_under_menu,
                 ),
             );
     }
@@ -212,42 +228,51 @@ fn row(top: Val) -> Node {
 }
 
 fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
-    commands.spawn(row(Val::Percent(60.0))).with_children(|p| {
-        p.spawn((
-            Text::new(""),
-            font(&ui, 22.0),
-            TextColor(Color::WHITE),
-            PromptText,
-        ));
-    });
-    commands.spawn(row(Val::Px(24.0))).with_children(|p| {
-        p.spawn((
-            Text::new(""),
-            font(&ui, 28.0),
-            TextColor(Color::srgb(1.0, 0.85, 0.2)),
-            MessageText,
-        ));
-    });
+    commands
+        .spawn((row(Val::Percent(60.0)), HudRoot))
+        .with_children(|p| {
+            p.spawn((
+                Text::new(""),
+                font(&ui, 22.0),
+                TextColor(Color::WHITE),
+                PromptText,
+            ));
+        });
+    commands
+        .spawn((row(Val::Px(24.0)), HudRoot))
+        .with_children(|p| {
+            p.spawn((
+                Text::new(""),
+                font(&ui, 28.0),
+                TextColor(Color::srgb(1.0, 0.85, 0.2)),
+                MessageText,
+            ));
+        });
     // Subtitles sit low, above the status bar, out of the way of the prompt and messages.
-    commands.spawn(row(Val::Percent(74.0))).with_children(|p| {
-        p.spawn((
-            Text::new(""),
-            font(&ui, 20.0),
-            TextColor(Color::srgb(0.85, 0.9, 1.0)),
-            SubtitleText,
-        ));
-    });
+    commands
+        .spawn((row(Val::Percent(74.0)), HudRoot))
+        .with_children(|p| {
+            p.spawn((
+                Text::new(""),
+                font(&ui, 20.0),
+                TextColor(Color::srgb(0.85, 0.9, 1.0)),
+                SubtitleText,
+            ));
+        });
 
     // Crosshair: two thin bars, centred.
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        })
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            HudRoot,
+        ))
         .with_children(|p| {
             for (w, h) in [(14.0, 2.0), (2.0, 14.0)] {
                 p.spawn((
@@ -263,7 +288,11 @@ fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
         });
 
     // Damage flash, under the overlay.
-    commands.spawn((fill_screen(5, Color::srgba(0.85, 0.0, 0.0, 0.0)), FlashNode));
+    commands.spawn((
+        fill_screen(5, Color::srgba(0.85, 0.0, 0.0, 0.0)),
+        FlashNode,
+        HudRoot,
+    ));
 
     // Status bar.
     commands
@@ -278,6 +307,7 @@ fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
                 ..default()
             },
             BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.85)),
+            HudRoot,
         ))
         .with_children(|bar| {
             let cell = |p: &mut ChildSpawnerCommands, kind: StatusCell, text: &str| {
@@ -355,6 +385,21 @@ fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
 // The helpers take `Mut<T>` and compare through `Deref`: coercing a `Mut<T>` to `&mut T`
 // goes through `DerefMut`, which flags the component changed before any comparison.
 
+/// Hides the HUD while a menu screen is shown. (Without menus, as in demos, it stays.)
+fn hide_under_menu(
+    screen: Option<Res<crate::menu::MenuScreen>>,
+    mut roots: Query<&mut Visibility, With<HudRoot>>,
+) {
+    let wanted = if screen.is_some_and(|s| s.0.is_some()) {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut vis in &mut roots {
+        vis.set_if_neq(wanted);
+    }
+}
+
 fn set(text: &mut Mut<Text>, s: &str) {
     if text.0 != s {
         text.0 = s.to_string();
@@ -374,13 +419,16 @@ fn update_prompt(
     map: Res<CurrentMap>,
     mech: Res<LevelMechanics>,
     state: Res<PlayState>,
+    bindings: Option<Res<Bindings>>,
     mut text: Single<&mut Text, With<PromptText>>,
 ) {
     let label = match prompt.0 {
-        Some(t) if *state == PlayState::Playing => prompt_label(&map.0, &mech.0, t),
-        _ => "",
+        Some(t) if *state == PlayState::Playing => {
+            prompt_label(&map.0, &mech.0, t, &use_key_label(bindings.as_deref()))
+        }
+        _ => String::new(),
     };
-    set(&mut text, label);
+    set(&mut text, &label);
 }
 
 fn update_message(
@@ -518,15 +566,29 @@ mod tests {
             "switches: [(wall: (7, 0), action: Exit), (wall: (3, 4), action: Channel(2))],",
         );
         let mech = Mechanics::new(&mut map);
-        assert_eq!(prompt_label(&map, &mech, UseTarget::Mover(0)), "[E] Door");
-        assert_eq!(prompt_label(&map, &mech, UseTarget::Switch(0)), "[E] Exit");
         assert_eq!(
-            prompt_label(&map, &mech, UseTarget::Switch(1)),
-            "[E] Switch"
+            prompt_label(&map, &mech, UseTarget::Mover(0), "E"),
+            "[E] Door"
         );
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Switch(0), "E"),
+            "[E] Exit"
+        );
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Switch(1), "X"),
+            "[X] Switch"
+        );
+        let mut b = Bindings::default();
+        assert_eq!(use_key_label(Some(&b)), "E");
+        b.bind(Action::Use, crate::bindings::Binding::Key(KeyCode::KeyG));
+        assert_eq!(use_key_label(Some(&b)), "G");
+        assert_eq!(use_key_label(None), "\u{2014}");
         let mut map = lift_shaft("(kind: Lift(to: 2.0))", "");
         let mech = Mechanics::new(&mut map);
-        assert_eq!(prompt_label(&map, &mech, UseTarget::Mover(0)), "[E] Lift");
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Mover(0), "E"),
+            "[E] Lift"
+        );
     }
 
     #[test]

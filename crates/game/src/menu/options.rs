@@ -109,7 +109,7 @@ pub fn spawn_options(commands: &mut Commands, ui: &UiFont) {
                 Button,
                 Node {
                     width: Val::Px(560.0),
-                    padding: UiRect::axes(Val::Px(24.0), Val::Px(6.0)),
+                    padding: UiRect::axes(Val::Px(24.0), Val::Px(4.0)),
                     column_gap: Val::Px(12.0),
                     justify_content: JustifyContent::SpaceBetween,
                     align_items: AlignItems::Center,
@@ -119,7 +119,7 @@ pub fn spawn_options(commands: &mut Commands, ui: &UiFont) {
                 action,
             ))
             .with_children(|row| {
-                label(row, ui, name(which), 26.0, Color::WHITE);
+                label(row, ui, name(which), 24.0, Color::WHITE);
                 row.spawn(Node {
                     column_gap: Val::Px(12.0),
                     align_items: AlignItems::Center,
@@ -129,7 +129,7 @@ pub fn spawn_options(commands: &mut Commands, ui: &UiFont) {
                     arrow(v, ui, "<", Arrow(which, -1));
                     v.spawn((
                         Text::new(""),
-                        font(ui, 26.0),
+                        font(ui, 24.0),
                         TextColor(widgets::AMBER),
                         Node {
                             min_width: Val::Px(90.0),
@@ -143,8 +143,10 @@ pub fn spawn_options(commands: &mut Commands, ui: &UiFont) {
                 });
             });
         }
-        button(p, ui, "Controls", MenuAction::Controls);
-        button(p, ui, "Back", MenuAction::Back);
+        widgets::button_row(p, |r| {
+            button(r, ui, "Controls", MenuAction::Controls);
+            button(r, ui, "Back", MenuAction::Back);
+        });
     });
 }
 
@@ -159,7 +161,7 @@ fn arrow(parent: &mut ChildSpawnerCommands, ui: &UiFont, text: &str, arrow: Arro
             BackgroundColor(Color::NONE),
             arrow,
         ))
-        .with_children(|b| label(b, ui, text, 26.0, Color::WHITE));
+        .with_children(|b| label(b, ui, text, 24.0, Color::WHITE));
 }
 
 /// Left/Right adjust the selected row.

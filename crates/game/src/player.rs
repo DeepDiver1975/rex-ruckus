@@ -304,11 +304,14 @@ impl Plugin for PlayerControlPlugin {
                 update_camera.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
             );
         if !self.scripted {
-            app.add_systems(Update, (pause_on_escape, grab_cursor).chain())
-                .add_systems(
-                    RunFixedMainLoop,
-                    read_input.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
-                );
+            app.add_systems(
+                Update,
+                (pause_on_escape, pause_on_focus_loss, grab_cursor).chain(),
+            )
+            .add_systems(
+                RunFixedMainLoop,
+                read_input.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+            );
         }
     }
 }
@@ -372,6 +375,19 @@ pub fn grab_cursor(
         }
         None => {}
     }
+}
+
+/// Losing the window focus while playing opens the pause menu.
+pub fn pause_on_focus_loss(
+    window: Single<&Window>,
+    mut was_focused: Local<Option<bool>>,
+    mut state: ResMut<PlayState>,
+) {
+    let focused = window.focused;
+    if *was_focused == Some(true) && !focused && *state == PlayState::Playing {
+        *state = PlayState::Paused;
+    }
+    *was_focused = Some(focused);
 }
 
 /// The pause binding toggles between playing and the pause menu.

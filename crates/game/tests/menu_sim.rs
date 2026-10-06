@@ -9,7 +9,8 @@ use rr_core::map::Map;
 use rr_game::bindings::{Action, Binding};
 use rr_game::combat::{CombatSimPlugin, insert_defs};
 use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin};
-use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState};
+use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState, RESTART_DELAY, StateAge};
+use rr_game::hud::{HudPlugin, HudRoot};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::menu::{
     Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, Notice, Screen, Setting,
@@ -56,6 +57,7 @@ fn menu_app(maps: Vec<Map>) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        HudPlugin,
         MenuPlugin { enabled: true },
     ));
     app.update();
@@ -351,6 +353,8 @@ fn index(app: &App) -> usize {
 
 /// Chooses Continue and lets the fixed tick that performs the advance run.
 fn press_continue(app: &mut App) {
+    // The screen has been up long enough.
+    app.world_mut().resource_mut::<StateAge>().0 = RESTART_DELAY;
     press(app, MenuAction::Continue);
     app.world_mut().run_schedule(FixedUpdate);
     app.update();
@@ -373,6 +377,7 @@ fn stats_then_continue_through_the_episode() {
     app.update();
     assert_eq!(screen(&app), Some(Screen::EpisodeEnd));
     assert_eq!(roots(&mut app), 1);
+    app.world_mut().resource_mut::<StateAge>().0 = RESTART_DELAY;
     press(&mut app, MenuAction::QuitToMenu);
     assert_eq!(state(&app), PlayState::Menu);
     app.update();
@@ -465,4 +470,128 @@ fn the_main_menu_dims_the_whole_window() {
     assert_eq!(bg.0, BACKDROP);
     assert!(bg.0.alpha() >= 0.75, "too transparent to dim the level");
     assert!(z.0 >= MENU_Z && MENU_Z > 10, "below the HUD");
+}
+
+#[test]
+fn left_click_cancels_a_capture_without_binding() {
+    let mut app = menu_app(vec![combat_room()]);
+    open_controls(&mut app);
+    let before = app.world().resource::<Settings>().bindings.clone();
+    press(&mut app, MenuAction::Rebind(Action::Jetpack));
+    app.update(); // armed
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    assert_eq!(app.world().resource::<Capture>().0, None);
+    assert_eq!(app.world().resource::<Settings>().bindings, before);
+    assert_eq!(screen(&app), Some(Screen::Controls));
+}
+
+#[test]
+fn stats_screens_cannot_be_skipped_at_once() {
+    let mut app = menu_app(vec![combat_room(), combat_room()]);
+    start(&mut app);
+    complete_level(&mut app);
+    app.world_mut().run_schedule(FixedUpdate);
+    assert_eq!(state(&app), PlayState::Complete);
+    // At age 0 Continue does nothing.
+    app.world_mut().resource_mut::<StateAge>().0 = 0.0;
+    press(&mut app, MenuAction::Continue);
+    app.world_mut().run_schedule(FixedUpdate);
+    assert_eq!((state(&app), index(&app)), (PlayState::Complete, 0));
+    // Past the delay it advances.
+    press_continue(&mut app);
+    assert_eq!((state(&app), index(&app)), (PlayState::Playing, 1));
+    // The episode-end "Main menu" is held back the same way.
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::EpisodeEnd;
+    app.update();
+    app.world_mut().resource_mut::<StateAge>().0 = 0.0;
+    press(&mut app, MenuAction::QuitToMenu);
+    assert_eq!(state(&app), PlayState::EpisodeEnd);
+    app.world_mut().resource_mut::<StateAge>().0 = RESTART_DELAY;
+    press(&mut app, MenuAction::QuitToMenu);
+    assert_eq!(state(&app), PlayState::Menu);
+}
+
+/// The HUD hides while any menu screen is up and returns with play.
+#[test]
+fn the_hud_hides_under_menus() {
+    let mut app = menu_app(vec![combat_room()]);
+    app.update();
+    let visibilities = |app: &mut App| -> Vec<Visibility> {
+        app.world_mut()
+            .query_filtered::<&Visibility, With<HudRoot>>()
+            .iter(app.world())
+            .copied()
+            .collect()
+    };
+    let v = visibilities(&mut app);
+    assert!(!v.is_empty());
+    assert!(v.iter().all(|v| *v == Visibility::Hidden), "main menu");
+    start(&mut app);
+    app.update();
+    assert!(
+        visibilities(&mut app)
+            .iter()
+            .all(|v| *v != Visibility::Hidden)
+    );
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    // One frame for the screen to follow the state, one for the HUD to follow the screen.
+    app.update();
+    app.update();
+    assert!(
+        visibilities(&mut app)
+            .iter()
+            .all(|v| *v == Visibility::Hidden)
+    );
+}
+
+/// Losing the window focus while playing pauses; a focused window or a menu state does not.
+#[test]
+fn focus_loss_pauses_while_playing() {
+    let mut app = menu_app(vec![combat_room()]);
+    start(&mut app);
+    let window = app
+        .world_mut()
+        .spawn(Window {
+            focused: true,
+            ..default()
+        })
+        .id();
+    app.add_systems(Update, rr_game::player::pause_on_focus_loss);
+    app.update();
+    assert_eq!(state(&app), PlayState::Playing);
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    assert_eq!(state(&app), PlayState::Paused);
+}
+
+/// Back at the title after an episode, a new game starts from scratch on the picked skill.
+#[test]
+fn new_game_after_the_episode_end_starts_fresh() {
+    let mut app = menu_app(vec![combat_room(), combat_room()]);
+    start(&mut app);
+    complete_level(&mut app);
+    press_continue(&mut app);
+    complete_level(&mut app);
+    press_continue(&mut app);
+    assert_eq!(state(&app), PlayState::EpisodeEnd);
+    app.update();
+    app.world_mut().resource_mut::<Episode>().totals.kills = 7;
+    app.world_mut().resource_mut::<StateAge>().0 = RESTART_DELAY;
+    press(&mut app, MenuAction::QuitToMenu);
+    app.update();
+    assert_eq!(screen(&app), Some(Screen::Main));
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Hard));
+    let ep = app.world().resource::<Episode>();
+    assert_eq!(ep.index, 0);
+    assert_eq!(ep.totals, Default::default());
+    assert!(ep.entry.is_none());
+    assert_eq!(state(&app), PlayState::Playing);
+    assert_eq!(
+        app.world().resource::<LevelDifficulty>().0,
+        Difficulty::Hard
+    );
 }
