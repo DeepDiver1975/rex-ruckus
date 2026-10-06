@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 hound = "3.5"
 ron = "0.12"
 rr-core = { path = "../core" }
