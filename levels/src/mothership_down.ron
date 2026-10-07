@@ -1,0 +1,447 @@
+// Episode level 3. Coordinates in metres, x = east, y = north, z = up.
+// Route: the crash site under the open sky (start west, facing east; the shotgun just ahead;
+// boulders, slime pools, hull debris, a tall wreck fin and a crashed pod) → the stairs up the rock
+// ledge in the north-west for the rocket launcher → east across the scorched apron to the torn
+// hull breach → the cargo bay (pillars, a fallen bulkhead, glowstrip bands) → the corridor east,
+// over the live grate (jump it), past the crew bunks to the north (pipe bombs, armour, a vending
+// machine) → the hub (holo-table, the chaingun) → north through the lab door → the lab (flesh
+// walls, two glass specimen tanks with a Slasher in each, operating slabs): up the dais for the
+// Red key (fires channel 2: the two specimen closets in the north wall open, awake) → back
+// through the hub, south over the second live grate, through the door → the slime channels:
+// the north ledge, south along the west walkway, east along the cross walkway (its middle fires
+// channel 1: two closets in the south wall open, awake Enforcers) to the east ledge → the red
+// door → the reactor (12 m; the core column inside a live electric ring, crates, coolant tanks):
+// up the stairs along the south wall onto the east gantry (z 4), north to the perch and the Blue
+// key (fires channel 3: two closets in the south wall open, awake) → drop off the gantry to the
+// blue door in the north wall → the engine core (turbines, a live grate): the glowing pad in the
+// north fires channel 7: a quake, and the collapse floor beyond it drops 4 m once → down the hole
+// into the sealed lower deck (rockets, an atom) → the door east into the boss arena (sky-lit, four
+// pillars, slime moats along the north and south walls, a dais in the east; an atom and rockets
+// by the entrance): the Warlord's death ends the level.
+// Secrets: (1) a 1.5 m crevice in the crash site's south wall, hidden behind a boulder: a pocket
+// with armour and rockets; (2) the lab's west wall cracks open on a blast (a barrel beside it):
+// a flesh stash with an atom ("unreachable item" warning for the atom: a crack-wall stash, by
+// design); (3) the lift alcove in the engine core's east wall rides up to an armour cache.
+(
+    name: "Mothership Down",
+    defaults: (floor_z: 0.0, ceil_z: 5.0, floor: "grate", ceil: "hull", wall: "hull"),
+    music: Some("mothership"),
+    player_start: (pos: (5.0, 50.0), angle_deg: 0.0),
+    sectors: [
+        // ---- Crash site (open sky, 25 m) ----
+        (id: "crash", poly: [(0.0, 30.0), (3.0, 30.0), (4.5, 30.0), (10.0, 28.8), (16.0, 30.8), (24.0, 30.0), (24.0, 70.0),
+                             (19.0, 71.2), (14.0, 70.0), (14.0, 62.0), (13.0, 62.0), (13.0, 56.0), (9.0, 56.0), (9.0, 62.0),
+                             (0.0, 62.0), (-1.2, 55.0), (0.8, 47.5), (-1.0, 40.0)],
+         holes: [[(1.5, 31.5), (6.5, 31.5), (6.5, 33.5), (1.5, 33.5)],
+                 [(7.0, 40.0), (9.5, 40.0), (9.5, 42.5), (7.0, 42.5)],
+                 [(14.0, 44.0), (17.0, 44.6), (16.6, 47.8), (13.6, 47.2)],
+                 [(14.0, 52.0), (19.0, 52.0), (19.0, 57.0), (14.0, 57.0)],
+                 [(16.0, 34.0), (21.0, 34.0), (21.0, 38.5), (16.0, 38.5)],
+                 [(19.5, 63.0), (22.5, 63.0), (22.5, 66.0), (19.5, 66.0)],
+                 [(2.5, 40.5), (5.0, 39.5), (5.5, 43.0), (3.0, 43.5)],
+                 [(19.5, 41.0), (23.0, 40.5), (23.0, 42.0), (19.8, 42.5)]],
+         ceil_z: 25.0, floor: "gravel", ceil: "sky", wall: "gravel"),
+        // Boulders (the south-west one hides the crevice), a chunk of wreckage.
+        (id: "boulder_sw", rect: (1.5, 31.5, 6.5, 33.5), floor_z: 2.6, ceil_z: 25.0, floor: "gravel", ceil: "sky", wall: "gravel", face: "gravel"),
+        (id: "boulder_a", rect: (7.0, 40.0, 9.5, 42.5), floor_z: 2.2, ceil_z: 25.0, floor: "gravel", ceil: "sky", wall: "gravel", face: "gravel"),
+        (id: "boulder_b", poly: [(14.0, 44.0), (17.0, 44.6), (16.6, 47.8), (13.6, 47.2)], floor_z: 1.4, ceil_z: 25.0,
+         floor: "gravel", ceil: "sky", wall: "gravel", face: "gravel"),
+        (id: "boulder_c", poly: [(2.5, 40.5), (5.0, 39.5), (5.5, 43.0), (3.0, 43.5)], floor_z: 1.0, ceil_z: 25.0,
+         floor: "gravel", ceil: "sky", wall: "gravel", face: "gravel"),
+        (id: "hull_shard", poly: [(19.5, 41.0), (23.0, 40.5), (23.0, 42.0), (19.8, 42.5)], floor_z: 0.8, ceil_z: 25.0,
+         floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "wreck_chunk", rect: (19.5, 63.0, 22.5, 66.0), floor_z: 1.2, ceil_z: 25.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        // Slime pools, half a metre down.
+        (id: "pool_a", rect: (14.0, 52.0, 19.0, 57.0), floor_z: -0.5, ceil_z: 25.0, floor: "slime", ceil: "sky", wall: "gravel",
+         face: "gravel", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "pool_b", rect: (16.0, 34.0, 21.0, 38.5), floor_z: -0.5, ceil_z: 25.0, floor: "slime", ceil: "sky", wall: "gravel",
+         face: "gravel", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // The rock ledge (the rocket launcher), up the stairs.
+        (id: "ledge", poly: [(0.0, 62.0), (9.0, 62.0), (13.0, 62.0), (14.0, 62.0), (14.0, 70.0), (6.0, 71.0), (-0.8, 68.5)], floor_z: 3.0, ceil_z: 25.0, floor: "gravel", ceil: "sky", wall: "gravel"),
+        // Secret 1: the crevice behind the boulder, and the pocket at its end.
+        (id: "crevice", poly: [(3.0, 30.0), (3.0, 27.0), (4.5, 25.5), (4.5, 24.0), (6.0, 24.0), (6.0, 26.1), (4.5, 27.6), (4.5, 30.0)],
+         ceil_z: 25.0, floor: "gravel", ceil: "sky", wall: "gravel"),
+        (id: "pocket", rect: (4.0, 20.0, 9.0, 24.0), ceil_z: 25.0, floor: "gravel", ceil: "sky", wall: "gravel", secret: true),
+        // The scorched apron below the hull: debris, a wreck fin, a crashed pod, a slime pool.
+        (id: "apron", poly: [(24.0, 30.0), (30.0, 28.8), (36.0, 30.0), (36.0, 70.0), (30.0, 71.5), (24.0, 70.0)],
+         holes: [[(26.0, 44.0), (30.0, 44.0), (30.0, 48.5), (26.0, 48.5)],
+                 [(27.0, 57.0), (31.0, 57.0), (31.0, 60.0), (27.0, 60.0)],
+                 [(30.0, 37.0), (34.0, 35.5), (35.0, 36.5), (31.0, 39.5)],
+                 [(31.0, 62.0), (35.0, 62.0), (35.0, 66.0), (31.0, 66.0)]],
+         ceil_z: 25.0, floor: "concrete", ceil: "sky", wall: "gravel"),
+        // The foot of the hull: the ship's flank rises along the east edge.
+        (id: "hull_foot", rect: (36.0, 30.0, 39.7, 70.0), ceil_z: 25.0, floor: "concrete", ceil: "sky", wall: "hull"),
+        (id: "pool_c", rect: (26.0, 44.0, 30.0, 48.5), floor_z: -0.5, ceil_z: 25.0, floor: "slime", ceil: "sky", wall: "concrete",
+         face: "concrete", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "debris", rect: (27.0, 57.0, 31.0, 60.0), floor_z: 1.3, ceil_z: 25.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "fin", poly: [(30.0, 37.0), (34.0, 35.5), (35.0, 36.5), (31.0, 39.5)], floor_z: 5.5, ceil_z: 25.0, floor: "hull",
+         ceil: "sky", wall: "hull", face: "hull"),
+        (id: "pod", rect: (31.0, 62.0, 35.0, 66.0), floor_z: 2.6, ceil_z: 25.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        // The ship's running lights: glowstrip bands set into the hull at 6 m.
+        (id: "run_s", rect: (39.7, 33.0, 40.0, 44.0), floor_z: 6.0, ceil_z: 6.4, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        (id: "run_n", rect: (39.7, 56.0, 40.0, 67.0), floor_z: 6.0, ceil_z: 6.4, floor: "hull", ceil: "hull", wall: "glowstrip"),
+
+        // ---- Hull breach and corridors ----
+        (id: "breach", poly: [(39.7, 46.5), (41.0, 45.8), (42.5, 46.6), (44.0, 46.0), (44.0, 54.0), (42.6, 53.3), (41.2, 54.3), (39.7, 53.5)],
+         floor_z: 0.3, ceil_z: 5.5, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "bay", rect: (44.0, 42.0, 56.0, 58.0),
+         holes: [[(47.5, 45.0), (48.5, 45.0), (48.5, 46.0), (47.5, 46.0)],
+                 [(47.5, 54.0), (48.5, 54.0), (48.5, 55.0), (47.5, 55.0)],
+                 [(51.0, 46.5), (53.5, 46.5), (53.5, 49.5), (51.0, 49.5)]],
+         ceil_z: 7.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "bulkhead", rect: (51.0, 46.5, 53.5, 49.5), floor_z: 1.5, ceil_z: 7.0, floor: "hull", wall: "hull", face: "hull"),
+        (id: "bay_band_n", rect: (45.0, 58.0, 55.0, 58.3), floor_z: 4.0, ceil_z: 4.5, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        (id: "bay_band_s", rect: (45.0, 41.7, 55.0, 42.0), floor_z: 4.0, ceil_z: 4.5, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        // The corridor east, 4 m wide: a live grate across it, glowstrip bands along both walls.
+        (id: "corr_a", rect: (56.0, 48.0, 63.0, 52.0), ceil_z: 4.0, floor: "grate", wall: "hull"),
+        (id: "egrate1", rect: (63.0, 48.0, 65.5, 52.0), ceil_z: 4.0, floor: "electric", wall: "hull",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "corr_b", rect: (65.5, 48.0, 76.0, 52.0), ceil_z: 4.0, floor: "grate", wall: "hull"),
+        (id: "cband1", rect: (57.0, 47.7, 62.0, 48.0), floor_z: 2.8, ceil_z: 3.2, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        (id: "cband2", rect: (67.0, 47.7, 75.0, 48.0), floor_z: 2.8, ceil_z: 3.2, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        (id: "cband3", rect: (57.0, 52.0, 62.0, 52.3), floor_z: 2.8, ceil_z: 3.2, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        // Crew bunks north of the corridor.
+        (id: "bunk_way", rect: (69.0, 52.0, 72.0, 54.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "hull"),
+        (id: "bunks", rect: (66.0, 54.5, 75.0, 59.5),
+         holes: [[(67.0, 57.5), (70.0, 57.5), (70.0, 59.0), (67.0, 59.0)],
+                 [(71.0, 57.5), (73.0, 57.5), (73.0, 59.0), (71.0, 59.0)]],
+         ceil_z: 3.2, floor: "metal", ceil: "glowstrip", wall: "hull"),
+        (id: "bunk1", rect: (67.0, 57.5, 70.0, 59.0), floor_z: 1.0, ceil_z: 3.2, floor: "velvet", ceil: "glowstrip", wall: "hull", face: "metal"),
+        (id: "bunk2", rect: (71.0, 57.5, 73.0, 59.0), floor_z: 1.0, ceil_z: 3.2, floor: "velvet", ceil: "glowstrip", wall: "hull", face: "metal"),
+        // The hub: a holo-table, four struts, a glowstrip band in the east wall.
+        (id: "hub", rect: (76.0, 44.0, 90.0, 56.0),
+         holes: [[(81.5, 48.5), (84.5, 48.5), (84.5, 51.5), (81.5, 51.5)],
+                 [(78.0, 45.5), (79.0, 45.5), (79.0, 46.5), (78.0, 46.5)],
+                 [(78.0, 53.5), (79.0, 53.5), (79.0, 54.5), (78.0, 54.5)],
+                 [(87.0, 45.5), (88.0, 45.5), (88.0, 46.5), (87.0, 46.5)],
+                 [(87.0, 53.5), (88.0, 53.5), (88.0, 54.5), (87.0, 54.5)]],
+         ceil_z: 6.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "holo", rect: (81.5, 48.5, 84.5, 51.5), floor_z: 1.1, ceil_z: 6.0, floor: "glowstrip", wall: "hull", face: "metal"),
+        (id: "hub_band", rect: (90.0, 46.0, 90.3, 54.0), floor_z: 2.0, ceil_z: 3.5, floor: "hull", ceil: "hull", wall: "glowstrip"),
+        (id: "lab_corr", rect: (82.0, 56.0, 86.0, 59.5), ceil_z: 3.5, floor: "grate", wall: "hull"),
+        (id: "lab_door", rect: (82.0, 59.5, 86.0, 60.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "chan_corr", rect: (82.0, 42.0, 86.0, 44.0), ceil_z: 3.5, floor: "grate", wall: "hull"),
+        (id: "egrate2", rect: (82.0, 40.5, 86.0, 42.0), ceil_z: 3.5, floor: "electric", wall: "hull",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "chan_door", rect: (82.0, 40.0, 86.0, 40.5), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Lab (flesh walls) ----
+        (id: "lab", rect: (80.0, 60.0, 99.0, 85.0),
+         holes: [[(83.0, 76.0), (86.0, 76.0), (86.0, 79.0), (83.0, 79.0)],
+                 [(93.0, 76.0), (96.0, 76.0), (96.0, 79.0), (93.0, 79.0)],
+                 [(86.5, 64.0), (89.0, 64.0), (89.0, 66.5), (86.5, 66.5)],
+                 [(91.0, 64.0), (93.5, 64.0), (93.5, 66.5), (91.0, 66.5)],
+                 [(81.0, 63.5), (83.5, 63.5), (83.5, 67.5), (81.0, 67.5)],
+                 [(87.0, 79.0), (92.0, 79.0), (92.0, 84.0), (87.0, 84.0)]],
+         ceil_z: 6.0, floor: "grate", ceil: "hull", wall: "flesh"),
+        // Specimen tanks behind glass, a Slasher floating in each.
+        (id: "tank_w", rect: (83.0, 76.0, 86.0, 79.0), floor_z: 0.4, ceil_z: 4.5, floor: "slime", ceil: "glowstrip", wall: "metal", face: "metal"),
+        (id: "tank_e", rect: (93.0, 76.0, 96.0, 79.0), floor_z: 0.4, ceil_z: 4.5, floor: "slime", ceil: "glowstrip", wall: "metal", face: "metal"),
+        (id: "slab1", rect: (86.5, 64.0, 89.0, 66.5), floor_z: 1.0, ceil_z: 6.0, floor: "metal", wall: "flesh", face: "metal"),
+        (id: "slab2", rect: (91.0, 64.0, 93.5, 66.5), floor_z: 1.0, ceil_z: 6.0, floor: "metal", wall: "flesh", face: "metal"),
+        (id: "mound", rect: (81.0, 63.5, 83.5, 67.5), floor_z: 0.6, ceil_z: 6.0, floor: "flesh", wall: "flesh", face: "flesh"),
+        // The dais (the Red key): channel 2.
+        (id: "dais_step", rect: (87.0, 79.0, 92.0, 80.0), floor_z: 0.5, ceil_z: 6.0, floor: "metal", wall: "flesh", face: "glowstrip"),
+        (id: "dais", rect: (87.0, 80.0, 92.0, 84.0), floor_z: 1.0, ceil_z: 6.0, floor: "flesh", wall: "flesh", face: "glowstrip"),
+        // Specimen closets in the north wall on channel 2, awake.
+        (id: "lab_cl_w_door", rect: (82.0, 85.0, 85.0, 85.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "lab_cl_w", rect: (81.5, 85.5, 85.5, 89.0), ceil_z: 3.2, floor: "flesh", ceil: "flesh", wall: "flesh"),
+        (id: "lab_cl_e_door", rect: (94.0, 85.0, 97.0, 85.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "lab_cl_e", rect: (93.5, 85.5, 97.5, 89.0), ceil_z: 3.2, floor: "flesh", ceil: "flesh", wall: "flesh"),
+        // Secret 2: the west wall cracks open on a blast (the barrel beside it).
+        (id: "lab_crack", rect: (79.25, 70.0, 80.0, 73.0), ceil_z: 3.0, floor: "flesh", ceil: "flesh", wall: "flesh",
+         mover: (kind: Crack)),
+        (id: "stash", rect: (74.5, 68.5, 79.25, 74.5), ceil_z: 3.0, floor: "flesh", ceil: "flesh", wall: "flesh", secret: true),
+
+        // ---- Slime channels (walkways over a slime floor 1 m down) ----
+        (id: "n_ledge", rect: (80.0, 36.0, 88.0, 40.0), ceil_z: 6.0, floor: "grate", wall: "metal"),
+        (id: "walk_a", rect: (83.0, 22.0, 85.0, 36.0), ceil_z: 6.0, floor: "grate", wall: "metal"),
+        (id: "s_ledge", rect: (80.0, 20.0, 97.0, 22.0), ceil_z: 6.0, floor: "grate", wall: "metal"),
+        (id: "e_ledge", rect: (97.0, 20.0, 99.5, 40.0), ceil_z: 6.0, floor: "grate", wall: "metal"),
+        (id: "walk_b1", rect: (85.0, 28.0, 89.0, 30.0), ceil_z: 6.0, floor: "grate", wall: "metal"),
+        (id: "junction", rect: (89.0, 28.0, 91.0, 30.0), ceil_z: 6.0, floor: "glowstrip", wall: "metal"),
+        (id: "walk_b2", rect: (91.0, 28.0, 97.0, 30.0), ceil_z: 6.0, floor: "grate", wall: "metal"),
+        (id: "slime1", rect: (80.0, 22.0, 83.0, 36.0), floor_z: -1.0, ceil_z: 6.0, floor: "slime", wall: "metal", face: "metal",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "slime2", poly: [(85.0, 30.0), (97.0, 30.0), (97.0, 40.0), (88.0, 40.0), (88.0, 36.0), (85.0, 36.0)],
+         floor_z: -1.0, ceil_z: 6.0, floor: "slime", wall: "metal", face: "metal",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "slime3", rect: (85.0, 22.0, 97.0, 28.0), floor_z: -1.0, ceil_z: 6.0, floor: "slime", wall: "metal", face: "metal",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // Closets in the south wall on channel 1, awake.
+        (id: "ch_cl1_door", rect: (86.0, 19.5, 89.0, 20.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(1))),
+        (id: "ch_cl1", rect: (85.5, 16.0, 89.5, 19.5), ceil_z: 3.2, floor: "metal", ceil: "glowstrip", wall: "hull"),
+        (id: "ch_cl2_door", rect: (92.0, 19.5, 95.0, 20.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(1))),
+        (id: "ch_cl2", rect: (91.5, 16.0, 95.5, 19.5), ceil_z: 3.2, floor: "metal", ceil: "glowstrip", wall: "hull"),
+        (id: "red_door", rect: (99.5, 28.0, 100.0, 32.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Red))),
+
+        // ---- Reactor (12 m): the core inside a live ring, the gantry along the east wall ----
+        (id: "reactor", poly: [(100.0, 20.0), (108.0, 20.0), (108.0, 24.0), (116.0, 24.0), (116.0, 60.0), (100.0, 60.0)],
+         holes: [[(103.5, 35.5), (112.5, 35.5), (112.5, 44.5), (103.5, 44.5)],
+                 [(101.5, 23.0), (103.5, 23.0), (103.5, 25.0), (101.5, 25.0)],
+                 [(112.0, 49.0), (114.0, 49.0), (114.0, 51.0), (112.0, 51.0)],
+                 [(101.5, 51.0), (103.0, 51.0), (103.0, 54.5), (101.5, 54.5)],
+                 [(113.0, 27.0), (114.5, 27.0), (114.5, 28.5), (113.0, 28.5)],
+                 [(101.2, 47.0), (102.4, 47.0), (102.4, 48.2), (101.2, 48.2)]],
+         ceil_z: 12.0, floor: "grate", ceil: "hull", wall: "metal"),
+        (id: "ring", rect: (103.5, 35.5, 112.5, 44.5), holes: [[(105.5, 37.5), (110.5, 37.5), (110.5, 42.5), (105.5, 42.5)]],
+         ceil_z: 12.0, floor: "electric", wall: "metal", hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "core", rect: (105.5, 37.5, 110.5, 42.5), floor_z: 12.0, ceil_z: 12.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "glowstrip"),
+        (id: "crate1", rect: (101.5, 23.0, 103.5, 25.0), floor_z: 1.2, ceil_z: 12.0, floor: "metal", wall: "metal", face: "metal"),
+        (id: "crate2", rect: (112.0, 49.0, 114.0, 51.0), floor_z: 1.2, ceil_z: 12.0, floor: "metal", wall: "metal", face: "metal"),
+        (id: "crate3", rect: (101.5, 51.0, 103.0, 54.5), floor_z: 2.0, ceil_z: 12.0, floor: "metal", wall: "metal", face: "metal"),
+        (id: "gantry", rect: (116.0, 20.0, 120.0, 54.0), floor_z: 4.0, ceil_z: 12.0, floor: "grate", wall: "metal"),
+        // The perch at the gantry's north end (the Blue key): channel 3.
+        (id: "perch", rect: (116.0, 54.0, 120.0, 60.0), floor_z: 4.0, ceil_z: 12.0, floor: "glowstrip", wall: "metal"),
+        // Closets in the south wall on channel 3, awake.
+        (id: "re_cl1_door", rect: (100.6, 19.5, 103.6, 20.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(3))),
+        (id: "re_cl1", rect: (100.3, 16.0, 103.9, 19.5), ceil_z: 3.2, floor: "metal", ceil: "glowstrip", wall: "hull"),
+        (id: "re_cl2_door", rect: (104.7, 19.5, 107.7, 20.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(3))),
+        (id: "re_cl2", rect: (104.4, 16.0, 108.0, 19.5), ceil_z: 3.2, floor: "metal", ceil: "glowstrip", wall: "hull"),
+        (id: "blue_door", rect: (107.0, 60.0, 111.0, 60.5), ceil_z: 4.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Blue))),
+
+        // ---- Engine core ----
+        (id: "engine", poly: [(101.0, 60.5), (118.0, 60.5), (118.0, 80.0), (114.0, 80.0), (114.0, 73.5), (106.0, 73.5),
+                              (106.0, 80.0), (101.0, 80.0)],
+         holes: [[(103.0, 64.0), (106.0, 64.0), (106.0, 67.0), (103.0, 67.0)],
+                 [(112.0, 64.0), (115.0, 64.0), (115.0, 67.0), (112.0, 67.0)],
+                 [(102.0, 74.0), (105.0, 74.0), (105.0, 78.5), (102.0, 78.5)]],
+         ceil_z: 8.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "turbine1", rect: (103.0, 64.0, 106.0, 67.0), floor_z: 8.0, ceil_z: 8.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "glowstrip"),
+        (id: "turbine2", rect: (112.0, 64.0, 115.0, 67.0), floor_z: 8.0, ceil_z: 8.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "glowstrip"),
+        (id: "egrate3", rect: (102.0, 74.0, 105.0, 78.5), ceil_z: 8.0, floor: "electric", wall: "hull",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        // The pad fires channel 7: the quake, and the collapse floor beyond it drops once.
+        (id: "pad", rect: (106.0, 73.5, 114.0, 76.0), ceil_z: 8.0, floor: "glowstrip", wall: "hull"),
+        (id: "collapse", rect: (106.0, 76.0, 114.0, 80.0), ceil_z: 8.0, floor: "grate", wall: "hull",
+         mover: (kind: Lift(to: -4.0), channel: Some(7), speed: 0.8, one_shot: true)),
+        // Secret 3: the lift alcove up to the armour cache.
+        (id: "alcove_lift", rect: (118.0, 63.0, 120.0, 66.0), ceil_z: 6.0, floor: "metal", ceil: "glowstrip", wall: "metal", face: "metal",
+         mover: (kind: Lift(to: 3.0), speed: 3.0)),
+        (id: "cache", rect: (118.5, 66.0, 120.0, 71.0), floor_z: 3.0, ceil_z: 5.5, floor: "metal", ceil: "glowstrip", wall: "metal",
+         secret: true),
+
+        // ---- Lower deck (z -4): sealed until the collapse, its ceiling the engine-core floor ----
+        (id: "lower_deck", poly: [(106.0, 80.0), (114.0, 80.0), (114.0, 83.0), (120.0, 83.0), (120.0, 95.0), (101.0, 95.0),
+                                  (101.0, 83.0), (106.0, 83.0)],
+         holes: [[(103.5, 87.0), (104.5, 87.0), (104.5, 88.0), (103.5, 88.0)],
+                 [(109.5, 89.5), (110.5, 89.5), (110.5, 90.5), (109.5, 90.5)],
+                 [(115.5, 86.0), (116.5, 86.0), (116.5, 87.0), (115.5, 87.0)],
+                 [(102.0, 91.5), (105.0, 91.5), (105.0, 94.0), (102.0, 94.0)]],
+         floor_z: -4.0, ceil_z: 0.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "ld_block", rect: (102.0, 91.5, 105.0, 94.0), floor_z: -3.0, ceil_z: 0.0, floor: "metal", ceil: "hull", wall: "hull", face: "glowstrip"),
+        (id: "arena_door", rect: (120.0, 87.0, 120.5, 91.0), floor_z: -4.0, ceil_z: -1.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Boss arena (z -4, open to the sky through the torn hull) ----
+        (id: "arena", rect: (120.5, 63.0, 150.0, 97.0),
+         holes: [[(127.0, 69.5), (129.5, 69.5), (129.5, 72.0), (127.0, 72.0)],
+                 [(127.0, 88.0), (129.5, 88.0), (129.5, 90.5), (127.0, 90.5)],
+                 [(141.0, 69.5), (143.5, 69.5), (143.5, 72.0), (141.0, 72.0)],
+                 [(141.0, 88.0), (143.5, 88.0), (143.5, 90.5), (141.0, 90.5)],
+                 [(146.0, 76.0), (149.0, 76.0), (149.0, 84.0), (146.0, 84.0)]],
+         floor_z: -4.0, ceil_z: 12.0, floor: "grate", ceil: "sky", wall: "hull"),
+        // The four pillars glow like the reactor core.
+        (id: "pillar_sw", rect: (127.0, 69.5, 129.5, 72.0), floor_z: 12.0, ceil_z: 12.5, floor: "metal", ceil: "metal", wall: "metal", face: "glowstrip"),
+        (id: "pillar_nw", rect: (127.0, 88.0, 129.5, 90.5), floor_z: 12.0, ceil_z: 12.5, floor: "metal", ceil: "metal", wall: "metal", face: "glowstrip"),
+        (id: "pillar_se", rect: (141.0, 69.5, 143.5, 72.0), floor_z: 12.0, ceil_z: 12.5, floor: "metal", ceil: "metal", wall: "metal", face: "glowstrip"),
+        (id: "pillar_ne", rect: (141.0, 88.0, 143.5, 90.5), floor_z: 12.0, ceil_z: 12.5, floor: "metal", ceil: "metal", wall: "metal", face: "glowstrip"),
+        (id: "throne", rect: (146.0, 76.0, 149.0, 84.0), floor_z: -3.2, ceil_z: 12.0, floor: "flesh", ceil: "sky", wall: "hull", face: "glowstrip"),
+        (id: "moat_s", rect: (120.5, 60.0, 150.0, 63.0), floor_z: -4.6, ceil_z: 12.0, floor: "slime", ceil: "sky", wall: "hull",
+         face: "hull", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "moat_n", rect: (120.5, 97.0, 150.0, 100.0), floor_z: -4.6, ceil_z: 12.0, floor: "slime", ceil: "sky", wall: "hull",
+         face: "hull", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+    ],
+    stairs: [
+        // The crash site up north to the rock ledge (z 3).
+        (id: "ledge_stairs", rect: (9.0, 56.0, 13.0, 62.0), dir: N, steps: 5, from_z: 0.5, to_z: 2.5, ceil_z: 25.0,
+         floor: "gravel", ceil: "sky", wall: "gravel"),
+        // The reactor floor up east to the gantry (z 4).
+        (id: "gantry_stairs", rect: (108.0, 20.0, 116.0, 24.0), dir: E, steps: 7, from_z: 0.5, to_z: 3.5, ceil_z: 12.0,
+         floor: "grate", wall: "metal"),
+    ],
+    triggers: [
+        (sector: "junction", action: Channel(1)),
+        (sector: "dais", action: Channel(2)),
+        (sector: "perch", action: Channel(3)),
+        (sector: "pad", action: Channel(7)),
+    ],
+    quakes: [(channel: 7, duration: 3.0, strength: 0.8)],
+    glass: [
+        ((83.0, 76.0), (86.0, 76.0)), ((86.0, 76.0), (86.0, 79.0)), ((86.0, 79.0), (83.0, 79.0)), ((83.0, 79.0), (83.0, 76.0)),
+        ((93.0, 76.0), (96.0, 76.0)), ((96.0, 76.0), (96.0, 79.0)), ((96.0, 79.0), (93.0, 79.0)), ((93.0, 79.0), (93.0, 76.0)),
+    ],
+    lights: [
+        // Crash site: a pale alien sun, the slime glow, the pocket, the breach.
+        (pos: (20.0, 48.0, 22.0), color: (0.85, 0.9, 1.0), intensity: 6000000.0, range: 45.0),
+        (pos: (16.5, 54.5, 1.0), color: (0.4, 1.0, 0.3), intensity: 60000.0, range: 8.0, shadows: false),
+        (pos: (18.5, 36.0, 1.0), color: (0.4, 1.0, 0.3), intensity: 60000.0, range: 8.0, shadows: false),
+        (pos: (28.0, 46.0, 1.0), color: (0.4, 1.0, 0.3), intensity: 60000.0, range: 8.0, shadows: false),
+        (pos: (6.5, 22.0, 3.0), color: (1.0, 0.8, 0.5), intensity: 40000.0, range: 8.0, shadows: false),
+        (pos: (4.0, 66.0, 6.0), color: (1.0, 0.85, 0.6), intensity: 150000.0, range: 14.0, shadows: false),
+        (pos: (38.0, 50.0, 4.0), color: (0.3, 1.0, 0.8), intensity: 150000.0, range: 12.0, shadows: false),
+        // Bay, corridor, bunks, hub.
+        (pos: (50.0, 50.0, 6.5), color: (0.5, 0.9, 1.0), intensity: 500000.0, range: 20.0),
+        (pos: (60.0, 50.0, 3.6), color: (0.3, 1.0, 0.9), intensity: 40000.0, range: 9.0, shadows: false),
+        (pos: (71.0, 50.0, 3.6), color: (0.3, 1.0, 0.9), intensity: 40000.0, range: 9.0, shadows: false),
+        (pos: (64.25, 50.0, 1.0), color: (0.5, 0.6, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (70.5, 57.0, 2.9), color: (0.6, 0.9, 1.0), intensity: 30000.0, range: 8.0, shadows: false),
+        (pos: (83.0, 50.0, 5.5), color: (0.4, 0.8, 1.0), intensity: 350000.0, range: 18.0),
+        (pos: (84.0, 41.2, 1.0), color: (0.5, 0.6, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        // Lab: a sick red-pink wash, the tanks, the dais, the closets, the stash.
+        (pos: (89.5, 72.0, 5.6), color: (1.0, 0.5, 0.55), intensity: 600000.0, range: 24.0),
+        (pos: (84.5, 77.5, 4.0), color: (0.4, 1.0, 0.4), intensity: 40000.0, range: 7.0, shadows: false),
+        (pos: (94.5, 77.5, 4.0), color: (0.4, 1.0, 0.4), intensity: 40000.0, range: 7.0, shadows: false),
+        (pos: (89.5, 82.0, 3.0), color: (1.0, 0.3, 0.3), intensity: 60000.0, range: 8.0, shadows: false),
+        (pos: (83.5, 87.2, 2.9), color: (1.0, 0.4, 0.5), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (95.5, 87.2, 2.9), color: (1.0, 0.4, 0.5), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (77.0, 71.5, 2.7), color: (1.0, 0.7, 0.4), intensity: 20000.0, range: 6.0, shadows: false),
+        // Slime channels: the green glow off the slime.
+        (pos: (90.0, 30.0, 5.5), color: (0.45, 1.0, 0.4), intensity: 500000.0, range: 22.0),
+        (pos: (81.5, 29.0, 0.0), color: (0.4, 1.0, 0.3), intensity: 40000.0, range: 8.0, shadows: false),
+        (pos: (87.5, 17.7, 2.9), color: (0.8, 0.9, 1.0), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (93.5, 17.7, 2.9), color: (0.8, 0.9, 1.0), intensity: 15000.0, range: 5.0, shadows: false),
+        // Reactor: the core's glow, the gantry, the closets.
+        (pos: (108.0, 33.0, 8.0), color: (0.4, 0.9, 1.0), intensity: 1200000.0, range: 30.0),
+        (pos: (108.0, 50.0, 6.0), color: (0.4, 0.9, 1.0), intensity: 300000.0, range: 18.0, shadows: false),
+        (pos: (118.0, 57.0, 7.0), color: (0.5, 0.6, 1.0), intensity: 100000.0, range: 12.0, shadows: false),
+        (pos: (102.1, 17.7, 2.9), color: (0.8, 0.9, 1.0), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (106.2, 17.7, 2.9), color: (0.8, 0.9, 1.0), intensity: 15000.0, range: 5.0, shadows: false),
+        // Engine core, the alcove cache.
+        (pos: (109.0, 68.0, 7.5), color: (1.0, 0.7, 0.4), intensity: 600000.0, range: 22.0),
+        (pos: (110.0, 75.0, 1.0), color: (0.4, 1.0, 0.7), intensity: 40000.0, range: 7.0, shadows: false),
+        (pos: (119.2, 68.5, 5.2), color: (0.6, 1.0, 0.8), intensity: 20000.0, range: 6.0, shadows: false),
+        // Lower deck: emergency red.
+        (pos: (110.0, 88.0, -0.4), color: (1.0, 0.25, 0.2), intensity: 200000.0, range: 18.0),
+        // Boss arena: daylight through the torn roof, the throne's glow, the moats.
+        (pos: (135.0, 80.0, 11.0), color: (0.9, 0.85, 1.0), intensity: 4000000.0, range: 40.0),
+        (pos: (147.0, 80.0, -1.0), color: (1.0, 0.25, 0.3), intensity: 300000.0, range: 16.0),
+        (pos: (135.0, 61.5, -3.0), color: (0.4, 1.0, 0.3), intensity: 80000.0, range: 12.0, shadows: false),
+        (pos: (135.0, 98.5, -3.0), color: (0.4, 1.0, 0.3), intensity: 80000.0, range: 12.0, shadows: false),
+    ],
+    items: [
+        // Crash site: the shotgun ahead of the start, the launcher on the ledge.
+        (kind: Shotgun, pos: (8.0, 50.0)),
+        (kind: ShotgunShells, pos: (22.0, 58.0)),
+        (kind: HealthSmall, pos: (11.0, 34.0)),
+        (kind: RocketLauncher, pos: (4.0, 67.0)),
+        (kind: PistolAmmo, pos: (37.5, 68.5)),
+        (kind: ShotgunShells, pos: (38.0, 32.0)),
+        // Secret 1: the pocket.
+        (kind: Armour, pos: (6.5, 22.0)),
+        (kind: Rockets, pos: (8.0, 21.0)),
+        // Bay, bunks, hub.
+        (kind: HealthSmall, pos: (45.5, 43.5)),
+        (kind: ShotgunShells, pos: (54.5, 44.0)),
+        (kind: Armour, pos: (67.0, 55.2)),
+        (kind: PipeBombs, pos: (72.0, 55.5)),
+        (kind: Chaingun, pos: (80.0, 50.0)),
+        (kind: PistolAmmo, pos: (89.0, 55.0)),
+        // Lab: the Red key on the dais; secret 2's atom in the stash.
+        (kind: Key(Red), pos: (89.5, 82.5)),
+        (kind: ShotgunShells, pos: (98.0, 61.0)),
+        (kind: HealthSmall, pos: (81.0, 61.0)),
+        (kind: PistolAmmo, pos: (98.0, 84.0)),
+        (kind: Atom, pos: (77.0, 71.5)),
+        // Slime channels.
+        (kind: Medkit, pos: (81.0, 21.0)),
+        (kind: ShotgunShells, pos: (98.2, 38.5)),
+        (kind: PistolAmmo, pos: (86.5, 38.5)),
+        // Reactor: the Blue key on the perch.
+        (kind: Key(Blue), pos: (118.0, 58.0)),
+        (kind: HealthSmall, pos: (101.5, 58.5)),
+        (kind: ShotgunShells, pos: (106.0, 22.0)),
+        (kind: Medkit, pos: (118.5, 22.0)),
+        (kind: PistolAmmo, pos: (114.5, 58.5)),
+        // Engine core; secret 3's armour in the cache.
+        (kind: HealthSmall, pos: (116.5, 61.5)),
+        (kind: ShotgunShells, pos: (102.0, 62.0)),
+        (kind: Armour, pos: (119.25, 69.0)),
+        // Lower deck.
+        (kind: Rockets, pos: (108.0, 85.0)),
+        (kind: Atom, pos: (112.0, 93.0)),
+        // Boss arena: an atom and rockets by the entrance, two health.
+        (kind: Atom, pos: (122.0, 85.0)),
+        (kind: Rockets, pos: (122.0, 93.0)),
+        (kind: HealthSmall, pos: (130.0, 65.0)),
+        (kind: HealthSmall, pos: (130.0, 95.0)),
+    ],
+    actors: [
+        // Crash site: Grunts behind the boulders and the wreckage, Drones overhead.
+        (kind: Grunt, pos: (20.0, 45.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (28.5, 62.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (11.0, 68.5), angle_deg: 270.0),
+        (kind: Grunt, pos: (35.0, 42.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (22.0, 32.5), angle_deg: 90.0, skill: Normal),
+        (kind: Grunt, pos: (37.0, 55.0), angle_deg: 180.0, skill: Hard),
+        (kind: Drone, pos: (18.0, 60.0), angle_deg: 180.0),
+        (kind: Drone, pos: (32.0, 52.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (37.5, 45.0)),
+        (kind: Barrel, pos: (25.0, 68.5)),
+        // Bay, bunks, hub: Enforcers and Slashers.
+        (kind: Enforcer, pos: (50.0, 44.0), angle_deg: 0.0),
+        (kind: Enforcer, pos: (54.5, 55.5), angle_deg: 180.0, skill: Normal),
+        (kind: Slasher, pos: (69.5, 56.3), angle_deg: 270.0),
+        (kind: Enforcer, pos: (66.8, 56.8), angle_deg: 0.0),
+        (kind: Enforcer, pos: (88.5, 50.0), angle_deg: 180.0, skill: Normal),
+        (kind: Slasher, pos: (80.5, 47.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (45.5, 56.5)),
+        (kind: Barrel, pos: (74.5, 48.7)),
+        // Lab: a Slasher in each tank, Grunts among the slabs; the closet ambush (channel 2) awake.
+        (kind: Slasher, pos: (84.5, 77.5), angle_deg: 270.0),
+        (kind: Slasher, pos: (94.5, 77.5), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (95.5, 70.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (96.5, 64.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (82.0, 82.0), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (97.0, 81.0), angle_deg: 270.0, skill: Hard),
+        (kind: Grunt, pos: (83.5, 87.2), angle_deg: 270.0, asleep: false),
+        (kind: Slasher, pos: (95.5, 87.2), angle_deg: 270.0, asleep: false, skill: Normal),
+        (kind: Barrel, pos: (81.0, 74.2)),
+        // Slime channels: the closet ambush (channel 1) awake, a Grunt on the east ledge.
+        (kind: Enforcer, pos: (87.5, 17.7), angle_deg: 90.0, asleep: false),
+        (kind: Enforcer, pos: (93.5, 17.7), angle_deg: 90.0, asleep: false, skill: Normal),
+        (kind: Grunt, pos: (98.25, 36.0), angle_deg: 180.0),
+        (kind: Drone, pos: (91.0, 34.0), angle_deg: 270.0, skill: Hard),
+        (kind: Grunt, pos: (81.5, 38.5), angle_deg: 270.0),
+        (kind: Barrel, pos: (98.25, 23.0)),
+        // Reactor: Grunts around the core, Enforcers on the floor and the gantry, Drones; the
+        // closet ambush (channel 3) awake.
+        (kind: Grunt, pos: (104.5, 30.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (113.0, 32.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (110.0, 54.0), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (119.2, 40.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (102.1, 17.7), angle_deg: 90.0, asleep: false),
+        (kind: Grunt, pos: (106.2, 17.7), angle_deg: 90.0, asleep: false, skill: Hard),
+        (kind: Enforcer, pos: (105.0, 50.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (119.2, 48.0), angle_deg: 270.0, skill: Normal),
+        (kind: Drone, pos: (108.0, 48.0), angle_deg: 270.0, skill: Hard),
+        (kind: Drone, pos: (110.0, 28.0), angle_deg: 180.0, skill: Normal),
+        (kind: Barrel, pos: (114.5, 31.0)),
+        (kind: Barrel, pos: (102.0, 58.0)),
+        // Engine core and lower deck.
+        (kind: Enforcer, pos: (104.5, 70.0), angle_deg: 270.0),
+        (kind: Slasher, pos: (116.0, 76.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (116.0, 70.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (116.5, 78.5)),
+        (kind: Slasher, pos: (117.0, 92.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (107.0, 92.5), angle_deg: 90.0, skill: Hard),
+        // The Warlord: its death ends the level.
+        (kind: Boss, pos: (140.0, 80.0), angle_deg: 180.0, on_death: Some(Exit)),
+    ],
+    props: [
+        (kind: Vending, pos: (74.2, 56.0), angle_deg: 180.0, stock: 3),
+    ],
+)

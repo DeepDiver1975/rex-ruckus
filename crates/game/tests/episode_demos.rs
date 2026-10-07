@@ -67,3 +67,8 @@ fn hollywood_meltdown_route_completes() {
 fn neon_nights_route_completes() {
     route_completes("neon_nights.ron", 700);
 }
+
+#[test]
+fn mothership_down_route_completes() {
+    route_completes("mothership_down.ron", 900);
+}
