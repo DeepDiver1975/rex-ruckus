@@ -1,0 +1,52 @@
+// Route through hollywood_meltdown.ron (episode level 1), replayed by `rex-ruckus --demo` and
+// checked headless by crates/game/tests/episode_demos.rs. Headings are core degrees (0 = east,
+// 90 = north, CCW); `goto` points are core (x, y).
+(
+    invulnerable: true,
+    segments: [
+        (secs: 0.3),
+        // Rooftop: round the helipad to the stairwell.
+        (secs: 3.0, goto: Some((10.0, 69.0))),
+        (secs: 5.0, goto: Some((29.5, 69.5))),
+        // Flight 1 down to the landing and the shotgun.
+        (secs: 3.0, goto: Some((40.5, 69.5))),
+        (secs: 0.3, select: Some(Shotgun)),
+        // Flight 2 down to the foot, then the street door.
+        (secs: 2.0, goto: Some((40.5, 63.0))),
+        (secs: 2.0, goto: Some((33.5, 63.0))),
+        (secs: 2.0, goto: Some((31.5, 61.0))),
+        (secs: 3.0, goto: Some((31.5, 53.6))),
+        (secs: 0.4, face_deg: Some(270.0)),
+        (secs: 1.2, use_key: true),
+        // Street: over the grate (the shop fronts open) to the west lobby door.
+        (secs: 2.0, goto: Some((31.5, 50.0))),
+        (secs: 3.0, goto: Some((33.0, 42.0))),
+        (secs: 3.0, goto: Some((27.5, 31.2))),
+        (secs: 0.4, face_deg: Some(270.0)),
+        (secs: 1.2, use_key: true),
+        // Lobby: up the stairs to the office for the red key.
+        (secs: 2.0, goto: Some((27.5, 27.0))),
+        (secs: 3.0, goto: Some((38.0, 21.75))),
+        (secs: 3.0, goto: Some((49.0, 21.75))),
+        (secs: 3.0, goto: Some((57.5, 27.5))),
+        // Off the mezzanine's edge and across to the red door.
+        (secs: 3.0, goto: Some((57.0, 18.0))),
+        (secs: 2.0, goto: Some((58.5, 14.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // Auditorium: the entry steps, down the seating rows, up onto the stage.
+        (secs: 2.0, goto: Some((62.0, 14.0))),
+        (secs: 2.0, goto: Some((67.0, 14.0))),
+        (secs: 4.0, goto: Some((89.0, 15.0))),
+        (secs: 2.0, goto: Some((94.0, 15.0))),
+        (secs: 2.0, goto: Some((98.8, 10.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // Backstage: the exit switch on the east wall.
+        (secs: 2.0, goto: Some((102.0, 10.0))),
+        (secs: 2.0, goto: Some((108.6, 6.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.0, use_key: true),
+        (secs: 2.0),
+    ],
+)
