@@ -32,8 +32,8 @@
          floor_z: 12.3, ceil_z: 30.0, floor: "glowstrip", ceil: "sky", wall: "metal"),
         (id: "heli_wreck", poly: [(13.2, 75.0), (16.8, 74.2), (17.6, 76.4), (15.0, 78.2), (13.0, 77.4)],
          floor_z: 13.6, ceil_z: 30.0, floor: "hull", ceil: "sky", wall: "hull"),
-        // A parapet along the roof's south edge, over the street.
-        (id: "parapet", rect: (0.0, 60.0, 24.0, 60.5), floor_z: 13.0, ceil_z: 30.0, floor: "concrete", ceil: "sky", wall: "concrete"),
+        // A parapet along the roof's south edge, over the street: 1.6 m, above the 1.45 m a jump climbs.
+        (id: "parapet", rect: (0.0, 60.0, 24.0, 60.5), floor_z: 13.6, ceil_z: 30.0, floor: "concrete", ceil: "sky", wall: "concrete"),
         // Secret 1: a crouch vent in the north wall, into the roof hut.
         (id: "vent", rect: (26.0, 90.0, 32.0, 91.2), floor_z: 12.0, ceil_z: 13.2, floor: "grate", ceil: "metal", wall: "grate"),
         (id: "roof_hut", rect: (31.0, 84.0, 36.0, 90.0), floor_z: 12.0, ceil_z: 15.0, floor: "wood", ceil: "wood", wall: "wood", secret: true),

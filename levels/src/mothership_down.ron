@@ -20,8 +20,9 @@
 // by the entrance): the Warlord's death ends the level.
 // Secrets: (1) a 1.5 m crevice in the crash site's south wall, hidden behind a boulder: a pocket
 // with armour and rockets; (2) the lab's west wall cracks open on a blast (a barrel beside it):
-// a flesh stash with an atom ("unreachable item" warning for the atom: a crack-wall stash, by
-// design); (3) the lift alcove in the engine core's east wall rides up to an armour cache.
+// a flesh stash with an atom (validate warns the atom "cannot be reached from the start": a
+// crack-wall stash, by design); (3) the lift alcove in the engine core's east wall rides up to an
+// armour cache.
 (
     name: "Mothership Down",
     defaults: (floor_z: 0.0, ceil_z: 5.0, floor: "grate", ceil: "hull", wall: "hull"),

@@ -17,9 +17,10 @@
 // Secrets: (1) a crouch vent over the bar (footrail z 0.5, bar top 1.05, vent 1.1-2.3) into the
 // stockroom (rocket launcher, armour); (2) the server-room crack wall on tier 3 (a barrel beside
 // it): stash with an atom and rockets; (3) a jetpack-only ledge at z 18 on the shaft's east wall
-// (atom; validate warns "unreachable item" for it, by design). The toilets' crack wall (barrel
-// beside it) opens an ammo stash that is not a counted secret ("unreachable item" warnings for
-// its items, and for secret 2's, are crack-wall stashes, by design).
+// (atom; validate warns it "cannot be reached from the start", by design). The toilets' crack
+// wall (barrel beside it) opens an ammo stash that is not a counted secret (validate's
+// "cannot be reached from the start" warnings for its items, and for secret 2's, are crack-wall
+// stashes, by design).
 // Built by `rr-tools build` from levels/src/neon_nights.ron. Do not edit; edit the source and rebuild.
 (
     name: "Neon Nights",
