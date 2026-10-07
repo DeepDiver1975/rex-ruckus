@@ -75,15 +75,17 @@
                    splash: Some((radius: 3.0, damage: 35, self_scale: 0.0))),
             burst: 3, burst_gap: 0.35,
         ),
-        // Between the shoulder cannons of the glTF model's Shoot_Big pose (models.ron `tip`):
-        // centred, 2.1 up, 0.35 ahead.
-        muzzle: (0.35, 0.0, 2.1),
+        // The Warlord's shoulder rocket pod in its Attack pose (models.ron `tip`, the `Rockets`
+        // bone): 0.72 to the left, 2.80 up, 0.47 ahead.
+        muzzle: (0.47, 0.72, 2.80),
         pain_chance: 0.1, pain_time: 0.3, pain_cooldown: 2.0, death_time: 2.0, strafe: false,
         boss: true,
         phases: [
-            // Below half health: a minigun and a faster stride.
+            // Below half health: a minigun and a faster stride. It fires from the rotary gun's
+            // barrel tips in the Attack pose (the `Muzzle` bone): 0.66 to the right, 1.80 up,
+            // 1.19 ahead.
             (below: 0.5, attack: Hitscan(damage: 3, pellets: 4, spread_deg: 5.0),
-             speed_mult: 1.5, refire: 0.5),
+             speed_mult: 1.5, refire: 0.5, muzzle: Some((1.19, -0.66, 1.80))),
         ],
     ),
 ]

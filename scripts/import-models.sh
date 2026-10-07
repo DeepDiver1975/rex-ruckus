@@ -19,7 +19,6 @@ out="$assets/models"
 # dest (under assets/models)   poly.pizza id   static file   sha256
 manifest=$(cat <<'EOF'
 enemies/barrel.glb           1orHe0kCc1 dbb58868-50d4-4ef0-945a-12b07222fb69.glb 730a8da4cb342533ddc20fdb8f52a47f3befd20d0bafa44b668eac066252f2f3
-enemies/boss.glb             4UvIHxnoSR dab7180d-5393-4cb1-aa8f-b56154b0d724.glb 9a05a569ec684cf783120e3cac34ae2f3c07ee26ac903a2395c716a977056dd7
 weapons/pistol.glb           J3i9KDQ3kt f5a88c73-af97-49ca-8650-4bde579d2f80.glb 4622ab2909aa0f4e88b74a13f52f9e28183a6ff5fca5896fc7e98d44008f2148
 weapons/shotgun.glb          29FXKu7G91 9a6ee0ee-068b-4774-8b0f-679c3cef0b6e.glb b5d9d6ef843eea412e6422cbed55ac5325e5bd1f8a688c702d51f5cd88dea190
 weapons/chaingun.glb         Bgvuu4CUMV 9a0e478c-de82-4773-9b70-a0219bb0057c.glb a6b90047927c65d0026bb19b5d4625b5ed3270e4ea5e39619cc50f0770aa6259

@@ -1,5 +1,5 @@
 //! The walking enemies on glTF models: the Grunt (pistol soldier), the Enforcer (armoured
-//! trooper), the Slasher (melee alien) and the boss mech. Animation and looks are shared with
+//! trooper), the Slasher (melee alien) and the boss Warlord. Animation and looks are shared with
 //! every enemy (see [`super::anim`]); this module places them and hands the Grunt its pistol.
 
 use super::{ActorModel, ActorVisual, KeepWorldScale, place_walker};
