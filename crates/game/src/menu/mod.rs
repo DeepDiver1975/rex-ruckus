@@ -381,10 +381,11 @@ fn rebuild_screen(
     map: Option<Res<CurrentMap>>,
     difficulty: Res<LevelDifficulty>,
     paused_from: Res<PausedFrom>,
-    settings_path: Res<SettingsPath>,
+    settings_path: Option<Res<SettingsPath>>,
     roots: Query<Entity, With<MenuRoot>>,
     mut selection: ResMut<MenuSelection>,
 ) {
+    let saved = settings_path.is_some_and(|p| p.0.is_some());
     for root in &roots {
         commands.entity(root).despawn();
     }
@@ -406,9 +407,7 @@ fn rebuild_screen(
             episode.is_some(),
             paused_from.0 == PlayState::Playing,
         ),
-        Some(Screen::Options) => {
-            options::spawn_options(&mut commands, &ui, settings_path.0.is_some())
-        }
+        Some(Screen::Options) => options::spawn_options(&mut commands, &ui, saved),
         Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
         Some(Screen::Stats) => {
             let name = map.as_ref().map_or("", |m| m.0.name.as_str());
