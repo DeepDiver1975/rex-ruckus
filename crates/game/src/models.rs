@@ -410,9 +410,9 @@ pub enum Look {
     Normal,
     /// Asleep: darker.
     Dim,
-    /// Red glow.
+    /// Reddened, with a soft red glow.
     Pain,
-    /// Warm-white flash after a hit.
+    /// Brightened, with a soft warm-white glow, after a hit.
     Hit,
     /// A phase-2 boss's pulse: the `Normal` skin (texture and tint kept) plus a red glow.
     Pulse,
@@ -425,8 +425,16 @@ const DIM: f32 = 0.45;
 const PULSE_GLOW: (f32, f32, f32) = (1.0, 0.1, 0.05);
 const PULSE_STRENGTH: f32 = 0.8;
 
-/// `base` as drawn with `look`; `tint` (sRGB multiplier) applies to `Normal` and `Dim`.
-/// Textures, roughness and alpha are kept; `Pain` and `Hit` override colour and glow, while
+/// A flash look: sRGB colour multiplier, glow colour, glow strength.
+type Flash = ((f32, f32, f32), (f32, f32, f32), f32);
+
+/// Pain and Hit multiply the colour (the texture stays) and add a soft glow on top.
+const PAIN: Flash = ((1.4, 0.35, 0.3), (0.85, 0.15, 0.1), 0.35);
+const HIT: Flash = ((1.5, 1.4, 1.3), (1.0, 0.85, 0.7), 0.4);
+
+/// `base` as drawn with `look`; `tint` (sRGB multiplier) applies to every look.
+/// Textures, roughness and alpha are kept. `Pain` and `Hit` multiply the colour (red, or
+/// bright warm-white) and add a soft emissive on top, so the model's detail still reads;
 /// `Pulse` keeps the `Normal` colour and only adds a red emissive.
 pub fn tinted(
     base: &StandardMaterial,
@@ -438,17 +446,16 @@ pub fn tinted(
         let c = m.base_color.to_srgba();
         m.base_color = Color::srgba(c.red * k.0, c.green * k.1, c.blue * k.2, c.alpha);
     };
-    let glow = |m: &mut StandardMaterial, c: Color, strength: f32| {
-        m.base_color = c.with_alpha(m.base_color.alpha());
-        m.emissive = c.to_linear() * strength;
-        m.emissive_texture = None;
-    };
     let (r, g, b) = tint.unwrap_or((1.0, 1.0, 1.0));
+    let flash = |m: &mut StandardMaterial, (k, glow, strength): Flash| {
+        scale(m, (r * k.0, g * k.1, b * k.2));
+        m.emissive = Color::srgb(glow.0, glow.1, glow.2).to_linear() * strength;
+    };
     match look {
         Look::Normal => scale(&mut m, (r, g, b)),
         Look::Dim => scale(&mut m, (r * DIM, g * DIM, b * DIM)),
-        Look::Pain => glow(&mut m, Color::srgb(0.85, 0.15, 0.1), 1.5),
-        Look::Hit => glow(&mut m, Color::srgb(1.0, 0.85, 0.7), 2.5),
+        Look::Pain => flash(&mut m, PAIN),
+        Look::Hit => flash(&mut m, HIT),
         Look::Pulse => {
             scale(&mut m, (r, g, b));
             let (pr, pg, pb) = PULSE_GLOW;
@@ -552,17 +559,30 @@ mod tests {
     }
 
     #[test]
-    fn pain_and_hit_glow_like_the_procedural_skins() {
-        for (look, c, k) in [
-            (Look::Pain, Color::srgb(0.85, 0.15, 0.1), 1.5),
-            (Look::Hit, Color::srgb(1.0, 0.85, 0.7), 2.5),
-        ] {
-            // The tint does not colour the glow.
-            let m = tinted(&base(), look, Some((0.2, 0.2, 0.2)));
-            assert!(close(m.base_color, c.with_alpha(0.9)));
-            assert_eq!(m.emissive, c.to_linear() * k);
+    fn pain_and_hit_tint_the_texture_and_glow_softly() {
+        let b = StandardMaterial {
+            base_color_texture: Some(Handle::<Image>::default()),
+            ..base()
+        };
+        for look in [Look::Pain, Look::Hit] {
+            let m = tinted(&b, look, Some((0.5, 0.5, 0.5)));
+            // The texture stays, so the model's detail still reads.
+            assert_eq!(m.base_color_texture, b.base_color_texture);
+            assert_eq!(m.emissive_texture, b.emissive_texture);
+            // The glow is a hint, not a flood.
+            let e = m.emissive;
+            assert!(e.red.max(e.green).max(e.blue) <= 0.6, "{look:?}: {e:?}");
             assert_eq!(m.perceptual_roughness, 0.3);
         }
+        // Pain reads red: red dominates the multiplied colour.
+        let p = tinted(&b, Look::Pain, None).base_color.to_srgba();
+        assert!(p.red > 2.0 * p.green && p.red > 2.0 * p.blue, "{p:?}");
+        // The tint still applies to Hit.
+        let a = tinted(&b, Look::Hit, Some((0.5, 0.5, 0.5)))
+            .base_color
+            .to_srgba();
+        let n = tinted(&b, Look::Hit, None).base_color.to_srgba();
+        assert!(a.red < n.red);
     }
 
     #[test]
