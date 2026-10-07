@@ -257,3 +257,64 @@ fn output_has_header_and_sector_id_comments() {
     );
     assert!(out.contains("// 0 lobby"), "{out}");
 }
+
+#[test]
+fn misspelled_sector_field_is_an_error() {
+    let e = build_source(&level(
+        r#"sectors: [(id: "a", rect: (0.0, 0.0, 4.0, 4.0), secert: true)]"#,
+    ))
+    .unwrap_err();
+    assert!(e.contains("secert"), "{e}");
+}
+
+#[test]
+fn misspelled_mover_field_is_an_error() {
+    let e = build_source(&level(
+        r#"sectors: [(id: "a", rect: (0.0, 0.0, 4.0, 4.0)),
+        (id: "d", rect: (4.0, 0.0, 6.0, 4.0), mover: (kind: Door, lok: Some(Red)))]"#,
+    ))
+    .unwrap_err();
+    assert!(e.contains("lok"), "{e}");
+}
+
+#[test]
+fn validation_messages_name_source_sector_ids() {
+    let ids: Vec<String> = ["lobby", "hall", "st#0"].map(String::from).into();
+    assert_eq!(
+        name_sectors("sectors 0 and 2 overlap", &ids),
+        r#"sectors 0 "lobby" and 2 "st#0" overlap"#
+    );
+    assert_eq!(
+        name_sectors("sector 1: invalid mover: speed must be positive", &ids),
+        r#"sector 1 "hall": invalid mover: speed must be positive"#
+    );
+    assert_eq!(
+        name_sectors(
+            "player_start (1, 2): sector 2 is too low; sector 9 x; sectors",
+            &ids
+        ),
+        r#"player_start (1, 2): sector 2 "st#0" is too low; sector 9 x; sectors"#
+    );
+    assert_eq!(
+        name_sectors("box leaves sector 1x", &ids),
+        "box leaves sector 1x"
+    );
+}
+
+#[test]
+fn overlapping_sectors_report_their_source_ids() {
+    let built = build_source_with_ids(
+        &level(
+            r#"sectors: [(id: "lobby", rect: (0.0, 0.0, 4.0, 4.0)), (id: "annex", rect: (2.0, 2.0, 6.0, 6.0))]"#,
+        ),
+        "t",
+    )
+    .unwrap();
+    let (report, ok) = crate::validate_source("t", &built.text);
+    assert!(!ok, "{report}");
+    let named = name_sectors(&report, &built.sector_ids);
+    assert!(
+        named.contains(r#"0 "lobby""#) && named.contains(r#"1 "annex""#),
+        "{named}"
+    );
+}

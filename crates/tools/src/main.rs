@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use rr_core::map::{Map, RawLevel};
-use rr_tools::build::build_source_named;
+use rr_tools::build::{build_source_with_ids, name_sectors};
 use rr_tools::{
     audio::validate_audio,
     fonts::validate_fonts,
@@ -44,8 +44,9 @@ enum Cmd {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
-    /// Compile level sources (levels/src/*.ron) into game levels; --check verifies the
-    /// committed output is up to date instead of writing it.
+    /// Compile level sources (levels/src/*.ron) into game levels; output that fails to
+    /// validate is not written. --check verifies the committed output is up to date instead
+    /// of writing it, and flags built levels in the output directory with no given source.
     Build {
         #[arg(required = true)]
         sources: Vec<PathBuf>,
@@ -77,7 +78,12 @@ fn load_raw(path: &std::path::Path) -> Result<(RawLevel, Map), String> {
     Ok((raw, map))
 }
 
-/// Builds one source; returns whether it is fine (and, without `check`, written).
+/// The line every built level carries; hand-written levels lack it.
+const BUILT_MARKER: &str = "Built by `rr-tools build`";
+
+/// Builds one source; returns whether it is fine (and, without `check`, written). Validation
+/// messages are labelled with the source path and name sectors by their source ids. Output that
+/// fails to load or validate is not written, so a broken build never replaces a good level.
 fn build_one(path: &std::path::Path, out_dir: &std::path::Path, check: bool) -> bool {
     let (Some(name), Some(stem)) = (path.file_name(), path.file_stem()) else {
         eprintln!("{}: error: not a file path", path.display());
@@ -85,27 +91,55 @@ fn build_one(path: &std::path::Path, out_dir: &std::path::Path, check: bool) -> 
     };
     let built = std::fs::read_to_string(path)
         .map_err(|e| e.to_string())
-        .and_then(|src| build_source_named(&src, &stem.to_string_lossy()));
-    let out = match built {
-        Ok(out) => out,
+        .and_then(|src| build_source_with_ids(&src, &stem.to_string_lossy()));
+    let built = match built {
+        Ok(b) => b,
         Err(e) => {
             eprintln!("{}: error: {e}", path.display());
             return false;
         }
     };
     let out_path = out_dir.join(name);
-    let (report, mut ok) = validate_source(&out_path.display().to_string(), &out);
-    print!("{report}");
+    let (report, mut ok) = validate_source(&path.display().to_string(), &built.text);
+    print!("{}", name_sectors(&report, &built.sector_ids));
     if check {
-        if std::fs::read_to_string(&out_path).ok().as_deref() != Some(out.as_str()) {
+        if std::fs::read_to_string(&out_path).ok().as_deref() != Some(built.text.as_str()) {
             eprintln!("{}: out of date; run rr-tools build", out_path.display());
             ok = false;
         }
-    } else if let Err(e) = std::fs::write(&out_path, &out) {
+    } else if !ok {
+        eprintln!("{}: not written: the build failed", out_path.display());
+    } else if let Err(e) = std::fs::write(&out_path, &built.text) {
         eprintln!("{}: error: {e}", out_path.display());
         ok = false;
     }
     ok
+}
+
+/// Built levels in `out_dir` (they carry [`BUILT_MARKER`]) whose source is not among `sources`:
+/// a renamed or deleted source leaves its output behind. Returns whether there are none.
+fn check_orphans(sources: &[PathBuf], out_dir: &std::path::Path) -> bool {
+    let names: std::collections::HashSet<_> =
+        sources.iter().filter_map(|p| p.file_name()).collect();
+    let Ok(entries) = std::fs::read_dir(out_dir) else {
+        eprintln!(
+            "{}: error: cannot read the output directory",
+            out_dir.display()
+        );
+        return false;
+    };
+    let mut orphans: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ron"))
+        .filter(|p| p.file_name().is_some_and(|n| !names.contains(n)))
+        .filter(|p| std::fs::read_to_string(p).is_ok_and(|s| s.contains(BUILT_MARKER)))
+        .collect();
+    orphans.sort();
+    for p in &orphans {
+        eprintln!("{}: built level has no source in levels/src", p.display());
+    }
+    orphans.is_empty()
 }
 
 fn main() -> ExitCode {
@@ -118,6 +152,9 @@ fn main() -> ExitCode {
             let mut all_ok = true;
             for path in &sources {
                 all_ok &= build_one(path, &out_dir, check);
+            }
+            if check {
+                all_ok &= check_orphans(&sources, &out_dir);
             }
             if all_ok {
                 ExitCode::SUCCESS

@@ -13,6 +13,7 @@ pub enum HazardKind {
 
 /// A sector's damaging floor: `damage` (before difficulty and armour) every `interval` seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Hazard {
     pub damage: i32,
     pub interval: f32,

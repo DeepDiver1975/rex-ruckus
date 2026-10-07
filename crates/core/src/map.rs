@@ -17,6 +17,7 @@ pub type WallId = usize;
 pub type MaterialId = usize;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawLevel {
     pub name: String,
     pub materials: Vec<String>,
@@ -79,6 +80,7 @@ pub const KNOWN_MATERIALS: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSector {
     pub loops: Vec<Vec<usize>>,
     pub floor_z: f32,
@@ -99,12 +101,14 @@ pub struct RawSector {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlayerStart {
     pub pos: (f32, f32),
     pub angle_deg: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawLight {
     pub pos: (f32, f32, f32),
     pub color: (f32, f32, f32),
@@ -158,6 +162,7 @@ impl KeySet {
 pub type Channel = u16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MoverKind {
     /// The ceiling travels from the floor (closed, the start pose) up to the authored `ceil_z`.
     Door,
@@ -170,6 +175,7 @@ pub enum MoverKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MoverDef {
     pub kind: MoverKind,
     /// Metres per second.
@@ -200,6 +206,7 @@ pub enum SwitchAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSwitch {
     /// Vertex indices (from, to) of the wall it is mounted on; it faces the sector owning that edge.
     pub wall: (usize, usize),
@@ -263,6 +270,7 @@ fn always() -> Difficulty {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawActor {
     pub kind: ActorKind,
     pub pos: (f32, f32),
@@ -280,6 +288,7 @@ pub struct RawActor {
 
 /// A sector that runs `action` when the player walks into it (once, unless `once: false`).
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawTrigger {
     pub sector: SectorId,
     pub action: SwitchAction,
@@ -290,6 +299,7 @@ pub struct RawTrigger {
 /// Screen shake while channel `channel` fires: `strength` in (0, 1], held for `duration`
 /// seconds and faded out over the last 30 %.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawQuake {
     pub channel: Channel,
     pub duration: f32,
@@ -310,6 +320,7 @@ pub struct ActorSpawn {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawItem {
     pub kind: ItemKind,
     pub pos: (f32, f32),

@@ -47,6 +47,7 @@ fn default_stock() -> u32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawProp {
     pub kind: PropKind,
     pub pos: (f32, f32),

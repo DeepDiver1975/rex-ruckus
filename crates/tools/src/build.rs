@@ -16,6 +16,7 @@ use std::fmt::Write;
 pub type Pt = (f32, f32);
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Defaults {
     pub floor_z: f32,
     pub ceil_z: f32,
@@ -25,6 +26,7 @@ pub struct Defaults {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceSector {
     pub id: String,
     #[serde(default)]
@@ -64,6 +66,7 @@ pub enum Dir {
 /// A straight flight: `rect` cut into `steps` strips along `dir` (the climbing direction),
 /// floors stepping evenly from `from_z` (first strip) to `to_z` (last). Sectors `id#0..`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stairs {
     pub id: String,
     pub rect: (f32, f32, f32, f32),
@@ -82,6 +85,7 @@ pub struct Stairs {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceSwitch {
     /// The wall's two end points; the switch faces `sector`, which must own that edge.
     pub wall: (Pt, Pt),
@@ -92,6 +96,7 @@ pub struct SourceSwitch {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceTrigger {
     pub sector: String,
     pub action: SwitchAction,
@@ -104,6 +109,7 @@ fn yes() -> bool {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceLevel {
     pub name: String,
     pub defaults: Defaults,
@@ -439,6 +445,68 @@ fn expand_stairs(level: &mut SourceLevel) -> Result<(), String> {
 /// Compiles a level source into level RON; `stem` is the source file's stem, named in the
 /// "Built by" line.
 pub fn build_source_named(src: &str, stem: &str) -> Result<String, String> {
+    build_source_with_ids(src, stem).map(|b| b.text)
+}
+
+/// A built level and the source id of each output sector, by index (stairs expanded).
+#[derive(Debug)]
+pub struct Built {
+    pub text: String,
+    pub sector_ids: Vec<String>,
+}
+
+/// Rewrites the sector numbers in a validation message (`sector 3`, `sectors 0 and 1`) to name
+/// the source ids as well (`sector 3 "lobby"`), so the author can find them in the source.
+pub fn name_sectors(msg: &str, ids: &[String]) -> String {
+    let mut out = String::with_capacity(msg.len());
+    let mut rest = msg;
+    // Copies the number at the start of `rest` and its id; returns the remainder.
+    let number = |rest: &str, out: &mut String| -> Option<usize> {
+        let len = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let n: usize = rest[..len].parse().ok()?;
+        let id = ids.get(n)?;
+        let after = &rest[len..];
+        if after.starts_with(char::is_alphanumeric) {
+            return None;
+        }
+        write!(out, "{n} \"{id}\"").ok()?;
+        Some(len)
+    };
+    while let Some(at) = rest.find("sector") {
+        let word_start =
+            at == 0 || !rest[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
+        let (head, tail) = rest.split_at(at + "sector".len());
+        out.push_str(head);
+        rest = tail;
+        if !word_start {
+            continue;
+        }
+        let plural = rest.starts_with("s ");
+        let Some(after) = rest.strip_prefix(if plural { "s " } else { " " }) else {
+            continue;
+        };
+        let mut num = String::new();
+        let Some(len) = number(after, &mut num) else {
+            continue;
+        };
+        out.push_str(&rest[..rest.len() - after.len()]);
+        out.push_str(&num);
+        rest = &after[len..];
+        if plural && let Some(second) = rest.strip_prefix(" and ") {
+            let mut num = String::new();
+            if let Some(len) = number(second, &mut num) {
+                out.push_str(" and ");
+                out.push_str(&num);
+                rest = &second[len..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// [`build_source_named`], also returning each output sector's source id.
+pub fn build_source_with_ids(src: &str, stem: &str) -> Result<Built, String> {
     let mut level = parse(src)?;
     expand_stairs(&mut level)?;
     let mut ids: HashMap<&str, usize> = HashMap::new();
@@ -510,7 +578,10 @@ pub fn build_source_named(src: &str, stem: &str) -> Result<String, String> {
         &glass,
         &triggers,
     )
-    .map_err(|e| e.to_string())
+    .map(|text| Built {
+        text,
+        sector_ids: level.sectors.iter().map(|s| s.id.clone()).collect(),
+    })
 }
 
 type SectorMats = (usize, usize, usize, Option<usize>);
