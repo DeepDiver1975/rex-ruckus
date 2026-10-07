@@ -35,6 +35,17 @@ pub enum PlayState {
     EpisodeEnd,
 }
 
+/// The state the pause menu was opened from; Esc (or Resume) returns there. Esc on the death
+/// screen opens the pause menu too, and it must go back to `Dead`, not to `Playing`.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PausedFrom(pub PlayState);
+
+impl Default for PausedFrom {
+    fn default() -> Self {
+        Self(PlayState::Playing)
+    }
+}
+
 /// Seconds since `PlayState` last changed; counts only while not `Playing`.
 #[derive(Resource, Default, Debug)]
 pub struct StateAge(pub f32);
@@ -84,6 +95,7 @@ impl Plugin for FlowPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayState>()
             .init_resource::<StateAge>()
+            .init_resource::<PausedFrom>()
             .init_resource::<RestartRequested>()
             .init_resource::<AdvanceRequested>()
             .init_resource::<LevelDifficulty>()
@@ -260,6 +272,7 @@ pub fn restart_level(world: &mut World) {
     crate::inventory::reset_night_vision(world);
     world.insert_resource(UsePrompt::default());
     *world.resource_mut::<PlayState>() = PlayState::Playing;
+    world.insert_resource(PausedFrom::default());
     world.resource_mut::<StateAge>().0 = 0.0;
     world.resource_mut::<RestartRequested>().0 = false;
     world.run_schedule(SpawnLevel);

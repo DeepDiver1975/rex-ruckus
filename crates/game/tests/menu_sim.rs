@@ -66,6 +66,8 @@ fn menu_app(maps: Vec<Map>) -> App {
         HudPlugin,
         MenuPlugin { enabled: true },
     ));
+    // The headless player plugin leaves the pause key out; Esc tests need it.
+    app.add_systems(Update, rr_game::player::pause_on_escape);
     app.update();
     app
 }
@@ -600,4 +602,37 @@ fn new_game_after_the_episode_end_starts_fresh() {
         app.world().resource::<LevelDifficulty>().0,
         Difficulty::Hard
     );
+}
+
+#[test]
+fn esc_while_dead_opens_pause_and_returns_to_dead() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Normal));
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Dead;
+    app.update();
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Paused);
+    app.update();
+    assert_eq!(screen(&app), Some(Screen::Pause));
+    // No "Resume" button: resuming a corpse makes no sense.
+    let has_resume = app
+        .world_mut()
+        .query::<&MenuAction>()
+        .iter(app.world())
+        .any(|a| *a == MenuAction::Resume);
+    assert!(!has_resume);
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Dead);
+}
+
+#[test]
+fn pause_from_playing_still_resumes_to_playing() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Normal));
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Paused);
+    press(&mut app, MenuAction::Resume);
+    assert_eq!(state(&app), PlayState::Playing);
 }

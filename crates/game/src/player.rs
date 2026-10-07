@@ -385,22 +385,25 @@ pub fn pause_on_focus_loss(
     window: Single<&Window>,
     mut was_focused: Local<Option<bool>>,
     mut state: ResMut<PlayState>,
+    mut from: ResMut<crate::flow::PausedFrom>,
 ) {
     let focused = window.focused;
     if *was_focused == Some(true) && !focused && *state == PlayState::Playing {
+        from.0 = PlayState::Playing;
         *state = PlayState::Paused;
     }
     *was_focused = Some(focused);
 }
 
 /// The pause binding toggles between playing and the pause menu.
-pub(crate) fn pause_on_escape(
+pub fn pause_on_escape(
     bindings: Res<Bindings>,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     screen: Option<Res<MenuScreen>>,
     capture: Option<Res<crate::menu::Capture>>,
     mut state: ResMut<PlayState>,
+    mut from: ResMut<crate::flow::PausedFrom>,
 ) {
     // Esc cancels a key capture instead.
     if capture.is_some_and(|c| c.0.is_some()) {
@@ -417,8 +420,11 @@ pub(crate) fn pause_on_escape(
         return;
     }
     match *state {
-        PlayState::Playing => *state = PlayState::Paused,
-        PlayState::Paused => *state = PlayState::Playing,
+        PlayState::Playing | PlayState::Dead => {
+            from.0 = *state;
+            *state = PlayState::Paused;
+        }
+        PlayState::Paused => *state = from.0,
         _ => {}
     }
 }
