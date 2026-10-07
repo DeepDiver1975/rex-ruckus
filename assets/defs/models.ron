@@ -88,18 +88,20 @@
         ),
         (
             kind: Boss,
+            // The Warlord, an original model built by scripts/models/warlord.py.
             scene: "models/enemies/boss.glb",
-            place: (scale: 1.02, yaw_deg: 180.0), // 3.0 / 2.94; glTF faces +Z
+            place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
             clips: (
-                idle: Some("RobotArmature|Idle"),
-                walk: Some("RobotArmature|Walk"),
-                run: Some("RobotArmature|Run"),
-                attack: Some("RobotArmature|Shoot_Big"),
-                pain: Some("RobotArmature|HitRecieve_1"),
-                death: Some("RobotArmature|Death"),
+                idle: Some("Idle"),
+                walk: Some("Walk"),
+                run: Some("Run"),
+                attack: Some("Attack"),
+                pain: Some("Pain"),
+                death: Some("Death"),
             ),
-            // Between the two shoulder cannons in the Shoot_Big pose (one central muzzle).
-            tip: Offset((0.0, 2.1, -0.35)),
+            // The `Rockets` bone at the mouths of the shoulder pod's tubes (the glow of the
+            // phase-one volleys; the minigun phase shoots from the `Muzzle` bone, see enemies.ron).
+            tip: Node("Rockets"),
         ),
     ],
     weapons: [

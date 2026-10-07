@@ -22,6 +22,7 @@ declare -A out=(
     [bruiser]=models/enemies/enforcer.glb
     [gnasher]=models/enemies/slasher.glb
     [peeper]=models/enemies/drone.glb
+    [warlord]=models/enemies/boss.glb
     [hand_cannon]=models/weapons/hand_cannon.glb
 )
 
