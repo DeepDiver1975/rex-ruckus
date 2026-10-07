@@ -166,6 +166,18 @@ mod tests {
     }
 
     #[test]
+    fn every_known_material_has_its_own_texture() {
+        let missing = pixels("does-not-exist");
+        for name in rr_core::map::KNOWN_MATERIALS {
+            assert_ne!(
+                pixels(name),
+                missing,
+                "{name} falls back to the missing checker"
+            );
+        }
+    }
+
+    #[test]
     fn hazard_textures_differ_from_each_other_and_the_checker() {
         let (s, e, missing) = (pixels(SLIME), pixels(ELECTRIC), pixels("does-not-exist"));
         assert_eq!(s.len(), (SIZE * SIZE * 4) as usize);

@@ -18,7 +18,15 @@ pub fn validate_source(label: &str, src: &str) -> (String, bool) {
         Ok(m) => m,
         Err(e) => return (format!("{label}: error: {e}\n"), false),
     };
-    let issues = validate(&map);
+    let mut issues = validate(&map);
+    for name in &map.materials {
+        if !rr_core::map::KNOWN_MATERIALS.contains(&name.as_str()) {
+            issues.push(rr_core::validate::Issue {
+                severity: rr_core::validate::Severity::Error,
+                message: format!("unknown material \"{name}\""),
+            });
+        }
+    }
     let mut out = String::new();
     for i in &issues {
         writeln!(out, "{label}: {i}").unwrap();
@@ -87,6 +95,25 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../assets/levels")
             .join(name)
+    }
+
+    #[test]
+    fn unknown_material_name_is_an_error() {
+        let src = r#"(name: "t", materials: ["brick", "plaid"],
+            vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
+            sectors: [(loops: [[0, 1, 2, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 1, wall_mat: 0)],
+            player_start: (pos: (2.0, 2.0), angle_deg: 0.0))"#;
+        let (report, ok) = validate_source("t.ron", src);
+        assert!(!ok);
+        assert!(report.contains(r#"unknown material "plaid""#), "{report}");
+    }
+
+    #[test]
+    fn shipped_levels_use_known_materials_only() {
+        for name in ["arsenal_depot.ron", "combat_arena.ron", "engine_lab.ron"] {
+            let (report, ok) = validate_file(&level(name));
+            assert!(ok, "{report}");
+        }
     }
 
     #[test]

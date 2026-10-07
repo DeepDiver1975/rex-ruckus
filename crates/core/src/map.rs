@@ -50,6 +50,22 @@ pub struct RawLevel {
 /// it to `Map::materials` when the level has glass and does not list it already.
 pub const GLASS_MATERIAL: &str = "glass";
 
+/// Every material name the game has a texture for (`rr_game::textures`). `rr-tools validate`
+/// rejects other names, which would render as the magenta "missing" checker.
+pub const KNOWN_MATERIALS: &[&str] = &[
+    "brick",
+    "concrete",
+    "cracked",
+    "slime",
+    "electric",
+    GLASS_MATERIAL,
+    "sky",
+    "metal",
+    "tile",
+    "wood",
+    "door",
+];
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawSector {
     pub loops: Vec<Vec<usize>>,
