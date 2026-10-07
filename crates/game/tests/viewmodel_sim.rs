@@ -10,11 +10,11 @@ use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{CombatSimPlugin, FxQueue, insert_defs};
 use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, restart_level};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::models::ModelsPlugin;
+use rr_game::models::{ModelReady, ModelsPlugin};
 use rr_game::player::{DEATH_ROLL, PlayerCamera, PlayerSimPlugin, ViewRoll, spawn_camera};
 use rr_game::viewmodel::{
-    BarrelCluster, Detonator, HeldBomb, KickLeg, MuzzleFlash, Recoil, ViewModel, ViewModelPlugin,
-    ViewRig, ViewState,
+    BarrelCluster, Detonator, HeldBomb, KickLeg, MuzzleFlash, Recoil, SpinNode, ViewModel,
+    ViewModelPlugin, ViewRig, ViewState,
 };
 
 fn app() -> App {
@@ -165,6 +165,41 @@ fn new_weapon_models_react_to_events_and_bombs() {
     assert!(visible_flashes(&mut app) > 0, "flash after Launch");
     assert!(app.world().resource::<ViewState>().recoil.z > 0.0);
 
+    // Headless scenes never load: stand in for the chaingun scene becoming ready, with a
+    // `Barrels` node whose authored rotation is the rest pose.
+    let rest = Quat::from_rotation_x(0.3);
+    let root = {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<(Entity, &SpinNode), With<ModelReady>>();
+        assert_eq!(q.iter(app.world()).count(), 0);
+        let mut q = app.world_mut().query::<(Entity, &SpinNode)>();
+        let roots: Vec<_> = q.iter(app.world()).map(|(e, s)| (e, s.clone())).collect();
+        assert_eq!(roots.len(), 1, "only the chaingun spins");
+        assert_eq!(roots[0].1.node, "Barrels");
+        roots[0].0
+    };
+    let barrels = app
+        .world_mut()
+        .spawn((
+            Name::new("Barrels"),
+            Transform::from_rotation(rest),
+            ChildOf(root),
+        ))
+        .id();
+    let mut ready = ModelReady::default();
+    ready.nodes.insert("Barrels".into(), barrels);
+    app.world_mut().entity_mut(root).insert(ready);
+    app.update();
+    assert_eq!(count::<BarrelCluster>(&mut app), 1);
+    assert_eq!(
+        app.world().get::<BarrelCluster>(barrels),
+        Some(&BarrelCluster {
+            rest,
+            axis: Vec3::Z
+        })
+    );
+
     app.world_mut()
         .resource_mut::<FxQueue>()
         .weapon
@@ -181,7 +216,14 @@ fn new_weapon_models_react_to_events_and_bombs() {
     };
     let r0 = spin(&mut app);
     app.update();
-    assert!(!r0.abs_diff_eq(spin(&mut app), 1e-9), "cluster turns");
+    let r1 = spin(&mut app);
+    assert!(!r0.abs_diff_eq(r1, 1e-9), "cluster turns");
+    // The spin is about the node's own axis, on top of its rest pose.
+    let turn = rest.inverse() * r1;
+    assert!(
+        turn.to_axis_angle().0.abs_diff_eq(Vec3::Z, 1e-4),
+        "{turn:?}"
+    );
 
     assert_eq!(vis_of::<Detonator>(&mut app), Visibility::Hidden);
     {

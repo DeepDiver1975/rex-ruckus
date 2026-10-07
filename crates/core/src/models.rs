@@ -117,6 +117,21 @@ pub struct WeaponModel {
     /// Muzzle flash position in Bevy model space of the viewmodel.
     #[serde(default)]
     pub muzzle: Option<(f32, f32, f32)>,
+    /// A scene node that spins while the weapon fires (the chaingun's barrel cluster).
+    #[serde(default)]
+    pub spin: Option<SpinDef>,
+}
+
+/// A glTF node of a viewmodel scene that spins about `axis` (in the node's own frame).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SpinDef {
+    pub node: String,
+    #[serde(default = "z_axis")]
+    pub axis: (f32, f32, f32),
+}
+
+fn z_axis() -> (f32, f32, f32) {
+    (0.0, 0.0, 1.0)
 }
 
 /// Like [`ItemKind`] but with a single `Key` variant: every keycard colour shares one scene.
@@ -318,6 +333,14 @@ impl ModelDefs {
             {
                 return Err(format!("{what}: muzzle has a non-finite number"));
             }
+            if let Some(s) = &w.spin {
+                let (x, y, z) = s.axis;
+                if !finite3(s.axis) || x * x + y * y + z * z < 1e-6 {
+                    return Err(format!(
+                        "{what}: spin axis must be a finite, non-zero vector"
+                    ));
+                }
+            }
         }
         for i in &self.items {
             i.place.check(&format!("item {:?}", i.kind))?;
@@ -392,6 +415,26 @@ mod tests {
         let mut d = ModelDefs::builtin();
         d.items.retain(|i| i.kind != ItemKindModel::Atom);
         assert_eq!(d.validate(), Err("item Atom: no model".into()));
+    }
+
+    #[test]
+    fn spin_axis_must_be_a_direction() {
+        let d = ModelDefs::builtin();
+        let spin = d.weapon(WeaponId::Chaingun).and_then(|w| w.spin.clone());
+        assert_eq!(
+            spin.map(|s| s.axis),
+            Some((0.0, 0.0, 1.0)),
+            "the chaingun spins its barrels about their local +z"
+        );
+        for axis in [(0.0, 0.0, 0.0), (f32::NAN, 0.0, 1.0)] {
+            let mut d = ModelDefs::builtin();
+            let w = d.weapons.iter_mut().find(|w| w.id == WeaponId::Chaingun);
+            w.unwrap().spin = Some(SpinDef {
+                node: "Barrels".into(),
+                axis,
+            });
+            assert!(d.validate().unwrap_err().contains("spin axis"), "{axis:?}");
+        }
     }
 
     #[test]

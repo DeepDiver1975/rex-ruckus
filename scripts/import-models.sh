@@ -21,7 +21,6 @@ manifest=$(cat <<'EOF'
 enemies/barrel.glb           1orHe0kCc1 dbb58868-50d4-4ef0-945a-12b07222fb69.glb 730a8da4cb342533ddc20fdb8f52a47f3befd20d0bafa44b668eac066252f2f3
 weapons/pistol.glb           J3i9KDQ3kt f5a88c73-af97-49ca-8650-4bde579d2f80.glb 4622ab2909aa0f4e88b74a13f52f9e28183a6ff5fca5896fc7e98d44008f2148
 weapons/shotgun.glb          29FXKu7G91 9a6ee0ee-068b-4774-8b0f-679c3cef0b6e.glb b5d9d6ef843eea412e6422cbed55ac5325e5bd1f8a688c702d51f5cd88dea190
-weapons/chaingun.glb         Bgvuu4CUMV 9a0e478c-de82-4773-9b70-a0219bb0057c.glb a6b90047927c65d0026bb19b5d4625b5ed3270e4ea5e39619cc50f0770aa6259
 weapons/rocket_launcher.glb  eJNzLpBsEt 613e3b1b-d07c-496b-94a1-7c85b507bac4.glb 812aef31db0dd6920be57f39513a28f59ee4e109c76f4ab3a50ba9a9398023a0
 weapons/pipe_bomb.glb        YWhHlmKOtx 03fa7f5b-4df5-45d6-86fb-87e8590f28d7.glb 1eb6c9f693a0519d8366dc11d39f6d6812b43ec59ababbb1d22bc53a0890700c
 weapons/detonator.glb        TPqvwkyWdV 7ed34c76-5ef7-4b70-b7d8-ce06e8128b07.glb 9e5c7934f44ee538446e6f54cbe9c09d4e49a7e78ee2e7f16d4cc7483c43e710
