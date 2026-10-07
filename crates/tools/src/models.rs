@@ -173,6 +173,16 @@ fn check_scenes(assets: &Path, defs: &ModelDefs, errors: &mut Vec<String>) -> BT
             }
         }
     }
+    for w in &defs.weapons {
+        if let (Some(s), Some(Ok(info))) = (&w.spin, cache.get(&w.scene))
+            && !info.nodes.contains(&s.node)
+        {
+            errors.push(format!(
+                "nodes: weapon {:?}: spin node {:?} is not in {}",
+                w.id, s.node, w.scene
+            ));
+        }
+    }
     referenced
 }
 
@@ -424,6 +434,24 @@ mod tests {
             &defs_ron("Idle", "Node(\"Hand\")", "Elbow"),
         );
         fails_with(&f, "attach bone \"Elbow\"");
+    }
+
+    /// Defs whose chaingun spins the node `node`.
+    fn spin_defs(node: &str) -> String {
+        defs_ron("Idle", "Node(\"Hand\")", "Hand").replace(
+            "(id: Chaingun, scene: \"models/a.gltf\")",
+            &format!("(id: Chaingun, scene: \"models/a.gltf\", spin: Some((node: \"{node}\")))"),
+        )
+    }
+
+    #[test]
+    fn missing_spin_node() {
+        let f = good();
+        f.write("defs/models.ron", &spin_defs("Nope"));
+        fails_with(&f, "spin node \"Nope\"");
+        f.write("defs/models.ron", &spin_defs("Hand"));
+        let (report, ok) = f.check();
+        assert!(ok, "{report}");
     }
 
     #[test]

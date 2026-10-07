@@ -96,7 +96,8 @@ pub fn value_label(s: &Settings, which: Setting) -> String {
 }
 
 /// Spawns the options screen.
-pub fn spawn_options(commands: &mut Commands, ui: &UiFont) {
+/// `saved` is false in direct-level runs, where settings are never written to disk.
+pub fn spawn_options(commands: &mut Commands, ui: &UiFont, saved: bool) {
     let root = spawn_screen(commands, ui, "OPTIONS");
     commands.entity(root).with_children(|p| {
         for which in ROWS {
@@ -147,6 +148,15 @@ pub fn spawn_options(commands: &mut Commands, ui: &UiFont) {
             button(r, ui, "Controls", MenuAction::Controls);
             button(r, ui, "Back", MenuAction::Back);
         });
+        if !saved {
+            label(
+                p,
+                ui,
+                "Direct level run - settings are not saved",
+                18.0,
+                widgets::DIM,
+            );
+        }
     });
 }
 

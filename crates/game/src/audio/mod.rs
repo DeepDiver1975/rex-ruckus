@@ -25,7 +25,7 @@ use crate::menu::Capture;
 use crate::paths::assets_dir;
 use crate::player::{Player, PlayerBody, PlayerCamera, PlayerSimSet, spawn_player};
 use crate::settings::{SaveSettings, Settings};
-use bevy::audio::{AudioSinkPlayback, SpatialAudioSink, SpatialScale, Volume};
+use bevy::audio::{AudioSink, AudioSinkPlayback, SpatialAudioSink, SpatialScale, Volume};
 use bevy::prelude::*;
 use rr_core::audio::{Cue, CuePos, Footsteps, PowerWatch, SoundBankDef, SoundDef, gain};
 use rr_core::map::SectorId;
@@ -82,6 +82,18 @@ pub struct MoverLoop(pub SectorId);
 /// The jetpack's burn loop while it is on.
 #[derive(Component, Debug)]
 pub struct JetpackHum;
+
+/// The quake's rumble: it loops while `left` runs down, then fades out over `fade` seconds.
+#[derive(Component, Debug)]
+pub struct QuakeLoop {
+    /// Seconds of quake still to rumble.
+    pub left: f32,
+    /// Seconds of fade-out left, counted down once `left` is spent.
+    pub fade: f32,
+}
+
+/// How long the rumble takes to fade once the quake is over, in seconds.
+pub const QUAKE_FADE: f32 = 0.4;
 
 /// Per-player detectors for the cues the game raises itself.
 #[derive(Component, Default)]
@@ -195,7 +207,14 @@ impl Plugin for AudioFxPlugin {
                         .run_if(resource_changed::<AudioVolumes>)
                         .before(FxReaders),
                     attach_listener,
-                    (play_cues, loop_gain, stop_movers_off_play)
+                    (
+                        play_cues,
+                        loop_gain,
+                        tick_quake_loops,
+                        stop_movers_off_play,
+                        pause_loops.run_if(resource_changed::<PlayState>),
+                        pause_new_loops,
+                    )
                         .chain()
                         .in_set(FxReaders),
                     quips::play_quips
@@ -282,14 +301,99 @@ fn player_cues(
 
 /// `tick_movers` only runs while playing, so a door or lift moving at death or exit never sends
 /// its stop event; its hum would drone over the end screen. Like the jetpack, it ends with play.
+/// A pause is not the end: [`pause_loops`] holds the hums instead.
 fn stop_movers_off_play(
     mut commands: Commands,
     state: Res<PlayState>,
-    loops: Query<Entity, With<MoverLoop>>,
+    movers: Query<Entity, With<MoverLoop>>,
+    quakes: Query<Entity, With<QuakeLoop>>,
+) {
+    if !matches!(*state, PlayState::Playing | PlayState::Paused) {
+        for e in movers.iter().chain(&quakes) {
+            commands.entity(e).try_despawn();
+        }
+    }
+}
+
+/// Paused play holds the mover loops and the quake's rumble instead of ending them; they pick
+/// up where they were.
+fn pause_loops(
+    state: Res<PlayState>,
+    movers: Query<&SpatialAudioSink, With<MoverLoop>>,
+    quakes: Query<&AudioSink, With<QuakeLoop>>,
+) {
+    let paused = *state == PlayState::Paused;
+    for s in &movers {
+        if paused {
+            s.pause();
+        } else {
+            s.play();
+        }
+    }
+    for s in &quakes {
+        if paused {
+            s.pause();
+        } else {
+            s.play();
+        }
+    }
+}
+
+/// A loop spawned on the frame play pauses gets its sink a frame later, after [`pause_loops`]
+/// has run; hold it too.
+fn pause_new_loops(
+    state: Res<PlayState>,
+    movers: Query<&SpatialAudioSink, (With<MoverLoop>, Added<SpatialAudioSink>)>,
+    quakes: Query<&AudioSink, (With<QuakeLoop>, Added<AudioSink>)>,
+) {
+    if *state == PlayState::Paused {
+        for s in &movers {
+            s.pause();
+        }
+        for s in &quakes {
+            s.pause();
+        }
+    }
+}
+
+/// While playing, the rumble runs down with the quake and then fades out; it ends when silent.
+fn tick_quake_loops(
+    mut commands: Commands,
+    state: Res<PlayState>,
+    time: Res<Time>,
+    global: Option<Res<GlobalVolume>>,
+    mut loops: Query<(
+        Entity,
+        &PlaybackSettings,
+        &mut QuakeLoop,
+        Option<&mut AudioSink>,
+    )>,
 ) {
     if *state != PlayState::Playing {
-        for e in &loops {
+        return;
+    }
+    let dt = time.delta_secs();
+    let global = global.map_or(Volume::Linear(1.0), |g| g.volume);
+    for (e, settings, mut q, mut sink) in &mut loops {
+        let mut level = |k: f32| {
+            if let Some(sink) = sink.as_deref_mut() {
+                sink.set_volume(settings.volume * global * Volume::Linear(k));
+            }
+        };
+        if q.left > 0.0 {
+            q.left -= dt;
+            // A second quake during the fade brings the rumble back up.
+            if q.fade < QUAKE_FADE {
+                q.fade = QUAKE_FADE;
+                level(1.0);
+            }
+            continue;
+        }
+        q.fade -= dt;
+        if q.fade <= 0.0 {
             commands.entity(e).try_despawn();
+        } else {
+            level(q.fade / QUAKE_FADE);
         }
     }
 }

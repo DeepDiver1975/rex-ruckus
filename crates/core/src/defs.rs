@@ -84,6 +84,9 @@ pub enum Attack {
 pub struct WeaponDef {
     pub id: WeaponId,
     pub name: String,
+    /// Short name for the HUD status bar (at most 10 characters); `name` when unset.
+    #[serde(default)]
+    pub hud_name: Option<String>,
     pub attack: Attack,
     pub refire: f32,
     pub ammo: Option<AmmoKind>,
@@ -97,6 +100,13 @@ pub struct WeaponDef {
     /// Auto-switch rank for `best_armed`: higher wins, ties go to the lower slot. Priority 0
     /// is never auto-selected (splash weapons, and the boot, which is the fallback).
     pub priority: u8,
+}
+
+impl WeaponDef {
+    /// The name shown in the HUD status bar.
+    pub fn label(&self) -> &str {
+        self.hud_name.as_deref().unwrap_or(&self.name)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -471,6 +481,13 @@ impl Defs {
             if w.weapons[..i].iter().any(|o| o.id == d.id) {
                 return Err(DefsError::DuplicateWeapon(d.id));
             }
+            let n = d.label().chars().count();
+            if n == 0 || n > 10 {
+                return Err(invalid(
+                    format!("weapon {:?}", d.id),
+                    "HUD label must be 1 to 10 characters",
+                ));
+            }
         }
         for (i, e) in self.enemies.iter().enumerate() {
             if self.enemies[..i].iter().any(|o| o.kind == e.kind) {
@@ -669,6 +686,26 @@ mod tests {
 
     const W: &str = include_str!("../../../assets/defs/weapons.ron");
     const E: &str = include_str!("../../../assets/defs/enemies.ron");
+
+    #[test]
+    fn hud_labels_are_short() {
+        let d = Defs::builtin();
+        for w in WeaponId::ALL {
+            let l = d.weapon(w).label();
+            assert!(!l.is_empty() && l.chars().count() <= 10, "{w:?}: {l:?}");
+        }
+        assert_eq!(d.weapon(WeaponId::Rockets).label(), "Rockets");
+    }
+
+    #[test]
+    fn a_long_hud_name_is_rejected() {
+        let src = W.replacen(
+            "name: \"Pistol\",",
+            "name: \"Pistol\", hud_name: Some(\"Twenty characters!!!\"),",
+            1,
+        );
+        assert!(Defs::from_ron(&src, E).is_err());
+    }
 
     #[test]
     fn builtin_defs_load_and_are_complete() {

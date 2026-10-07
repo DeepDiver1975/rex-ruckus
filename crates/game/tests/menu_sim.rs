@@ -13,7 +13,8 @@ use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState, RESTART_DELAY, State
 use rr_game::hud::{HudPlugin, HudRoot};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::menu::{
-    Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, Notice, Screen, Setting,
+    Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, MenuSelection, Notice,
+    Screen, Setting,
 };
 use rr_game::player::{PendingInput, PlayerBody, PlayerSimPlugin};
 use rr_game::settings::{Settings, SettingsPlugin};
@@ -30,6 +31,29 @@ fn settings_file(app: &App) -> PathBuf {
 
 /// An episode over the given maps, started at the title screen.
 fn menu_app(maps: Vec<Map>) -> App {
+    menu_app_with(maps, Some(fresh_settings_path()))
+}
+
+/// A settings path in a fresh temp dir.
+fn fresh_settings_path() -> PathBuf {
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "rr-menu-sim-{}-{nanos}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    // A stale dir from a recycled pid must never leak files into this test.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join("settings.ron")
+}
+
+/// Like `menu_app`, with the settings path given (`None` is a direct-level run).
+fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     insert_level(&mut app, maps[0].clone(), Difficulty::Normal);
@@ -41,16 +65,10 @@ fn menu_app(maps: Vec<Map>) -> App {
     episode.maps = Some(maps);
     app.insert_resource(episode);
     app.insert_resource(PlayState::Menu);
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "rr-menu-sim-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("settings.ron");
-    app.insert_resource(SettingsFile(path.clone()));
-    app.add_plugins(SettingsPlugin { path: Some(path) });
+    if let Some(path) = &path {
+        app.insert_resource(SettingsFile(path.clone()));
+    }
+    app.add_plugins(SettingsPlugin { path });
     app.add_plugins((
         FlowPlugin,
         PlayerSimPlugin,
@@ -60,6 +78,8 @@ fn menu_app(maps: Vec<Map>) -> App {
         HudPlugin,
         MenuPlugin { enabled: true },
     ));
+    // The headless player plugin leaves the pause key out; Esc tests need it.
+    app.add_systems(Update, rr_game::player::pause_on_escape);
     app.update();
     app
 }
@@ -594,4 +614,64 @@ fn new_game_after_the_episode_end_starts_fresh() {
         app.world().resource::<LevelDifficulty>().0,
         Difficulty::Hard
     );
+}
+
+#[test]
+fn esc_while_dead_opens_pause_and_returns_to_dead() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Normal));
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Dead;
+    app.update();
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Paused);
+    app.update();
+    assert_eq!(screen(&app), Some(Screen::Pause));
+    // No "Resume" button: resuming a corpse makes no sense.
+    let has_resume = app
+        .world_mut()
+        .query::<&MenuAction>()
+        .iter(app.world())
+        .any(|a| *a == MenuAction::Resume);
+    assert!(!has_resume);
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Dead);
+}
+
+#[test]
+fn pause_from_playing_still_resumes_to_playing() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Normal));
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Paused);
+    press(&mut app, MenuAction::Resume);
+    assert_eq!(state(&app), PlayState::Playing);
+}
+
+#[test]
+fn difficulty_screen_highlights_the_current_difficulty() {
+    let mut app = menu_app(vec![combat_room()]);
+    app.world_mut().resource_mut::<LevelDifficulty>().0 = Difficulty::Hard;
+    press(&mut app, MenuAction::NewGame);
+    app.update();
+    assert_eq!(app.world().resource::<MenuSelection>().0, 2);
+}
+
+fn texts(app: &mut App) -> Vec<String> {
+    app.world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|t| t.0.clone())
+        .collect()
+}
+
+#[test]
+fn options_say_when_settings_are_not_saved() {
+    let mut app = menu_app_with(vec![combat_room()], None);
+    open_options(&mut app);
+    assert!(texts(&mut app).iter().any(|t| t.contains("not saved")));
+    let mut saved = menu_app(vec![combat_room()]);
+    open_options(&mut saved);
+    assert!(!texts(&mut saved).iter().any(|t| t.contains("not saved")));
 }

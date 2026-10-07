@@ -106,12 +106,15 @@
     ],
     weapons: [
         // Viewmodel guns, relative to the view rig (x right, y up, -z forward): about 0.2-0.45 m
-        // long. The pistol, shotgun and chaingun scenes lie along +x, so a 90° yaw points them
-        // forward; the launcher lies along z and is centred, so it is pushed forward. `muzzle`
-        // is the barrel tip (the flash).
+        // long. The pistol and shotgun scenes lie along +x, so a 90° yaw points them forward; the
+        // launcher lies along z and is centred, so it is pushed forward. The chaingun is built at
+        // real size with its grip at the origin and its barrels along +z, so a 180° yaw points
+        // it forward; `spin` turns its `Barrels` node about its local +z while it fires.
+        // `muzzle` is the barrel tip (the flash); the chaingun's sits just past its tips, where
+        // the cluster does not hide it.
         (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.12, yaw_deg: 90.0, offset: (0.01, -0.015, 0.0)), muzzle: Some((0.01, 0.05, -0.18))), // 0.22 / 1.82
         (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.27))), // 0.3 / 3.69
-        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.058, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.21))), // 0.3 / 5.17
+        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.5, yaw_deg: 184.0, pitch_deg: 4.0, offset: (0.05, -0.095, -0.04)), muzzle: Some((0.029, -0.066, -0.342)), spin: Some((node: "Barrels", axis: (0.0, 0.0, 1.0)))), // 0.33 / 0.665
         (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.14, offset: (0.0, 0.02, -0.13)), muzzle: Some((0.0, 0.02, -0.35))), // 0.44 / 3.14
     ],
     items: [
@@ -120,7 +123,7 @@
         (kind: ShotgunShells, scene: "models/pickups/shotgun_shells.glb", place: (scale: 1.4, offset: (0.08, 0.03, -0.13))), // 0.4 / 0.28, centred
         (kind: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.17)), // 0.63 / 3.69
         (kind: HealthSmall, scene: "models/pickups/health_small.glb", place: (scale: 1.67)), // 0.4 / 0.24
-        (kind: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.125)), // 0.65 / 5.17
+        (kind: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.95, offset: (-0.03, -0.07, -0.19))), // 0.63 / 0.665, centred
         (kind: RocketLauncher, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.2)), // 0.63 / 3.14
         (kind: Rockets, scene: "models/pickups/rockets.glb", place: (scale: 1.1)), // 0.44 / 0.40
         (kind: PipeBombs, scene: "models/weapons/pipe_bomb.glb", place: (scale: 1.6)), // 0.34 / 0.21

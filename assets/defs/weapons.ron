@@ -32,7 +32,7 @@
             switch_time: 0.4, noise: 30.0, pickup_ammo: 50, priority: 4,
         ),
         (
-            id: Rockets, name: "Rocket Launcher",
+            id: Rockets, name: "Rocket Launcher", hud_name: Some("Rockets"),
             attack: Projectile(proj: (
                 speed: 30.0, damage: 20, radius: 0.15, life: 5.0,
                 splash: Some((radius: 5.0, damage: 80, self_scale: 0.5)),
@@ -41,7 +41,7 @@
             switch_time: 0.5, noise: 30.0, pickup_ammo: 5, priority: 0,
         ),
         (
-            id: PipeBombs, name: "Pipe Bombs",
+            id: PipeBombs, name: "Pipe Bombs", hud_name: Some("Bombs"),
             attack: Projectile(proj: (
                 // `life` is unused: a remote bomb never expires (it waits for the detonator).
                 speed: 12.0, damage: 0, radius: 0.1, life: 60.0,

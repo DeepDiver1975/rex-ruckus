@@ -125,6 +125,7 @@ fn blast_shatters_glass_in_reach_but_glass_shields_this_blast() {
     let mut p = Player::at(&map, 2.0, 1.0);
     c.pending_blasts.push(PendingBlast {
         fuse: 0.0,
+        via: Via::Direct,
         blast: Blast {
             center: Vec3::new(9.0, 5.0, 1.0),
             sector: 0,

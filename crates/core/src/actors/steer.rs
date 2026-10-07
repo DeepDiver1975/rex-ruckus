@@ -1,7 +1,9 @@
 //! Corner steering: when the straight line to a goal is blocked by a pillar or an inside corner
 //! of the actor's own sector, aim at an offset corner vertex instead of sliding along the wall.
+//! `path_open` says whether a straight line across sectors is passable for a mover at all.
 
 use crate::map::{Map, SectorId};
+use crate::movement::Pass;
 use glam::Vec2;
 
 /// Extra standoff beyond the body radius when a corner is offset outward.
@@ -116,10 +118,39 @@ pub fn steer_target(map: &Map, sector: SectorId, from: Vec2, goal: Vec2, radius:
     steer_corner(map, sector, from, goal, radius).unwrap_or(goal)
 }
 
+/// Whether a mover with `pass` can follow the straight segment `from → to` (started in `sector`)
+/// through every sector it crosses: false at the first solid wall (intact glass included) the
+/// segment hits, or at the first portal `pass` cannot take on live floor and ceiling heights.
+/// The body's radius is not considered; that is `line_clear`'s job within a sector.
+pub fn path_open(map: &Map, sector: SectorId, from: Vec2, to: Vec2, pass: Pass) -> bool {
+    let pose = |s: SectorId| (map.sectors[s].floor_z, map.sectors[s].ceil_z);
+    let d = to - from;
+    let (mut s, mut t0) = (sector, 0.0_f32);
+    // Each step crosses a different wall at a larger `t`, so the walls bound the walk.
+    for _ in 0..=map.walls.len() {
+        // The first wall of `s` the segment crosses beyond the point where it entered `s`.
+        let exit = map.sectors[s]
+            .walls()
+            .map(|w| &map.walls[w])
+            .filter(|w| segs_cross(from, to, w.a, w.b))
+            .map(|w| (cross(w.a - from, w.b - w.a) / cross(d, w.b - w.a), w))
+            .filter(|&(t, _)| t > t0 + 1e-6)
+            .min_by(|x, y| x.0.total_cmp(&y.0));
+        let Some((t, w)) = exit else {
+            return true; // `to` lies in `s`
+        };
+        match w.passage() {
+            Some(n) if pass.allows(pose(s), pose(n)) => (s, t0) = (n, t),
+            _ => return false,
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::pillar_room;
+    use crate::fixtures::{glass_rooms, hall_and_tunnel, pillar_room};
 
     const R: f32 = 0.35;
 
@@ -184,5 +215,83 @@ mod tests {
         let c = steer_corner(&map, 0, from, goal, R);
         assert!(c.is_none() || c.is_some_and(|c| line_clear(&map, 0, from, c, R)));
         assert_eq!(steer_target(&map, 0, from, goal, 50.0), goal);
+    }
+
+    #[test]
+    fn path_open_respects_the_movers_height() {
+        let map = hall_and_tunnel();
+        let boss = Pass::Fly { height: 3.0 };
+        let short = Pass::Fly { height: 0.6 };
+        let (from, to) = (Vec2::new(4.0, 5.0), Vec2::new(16.0, 5.0));
+        assert!(!path_open(&map, 0, from, to, boss));
+        assert!(path_open(&map, 0, from, to, short));
+        assert!(path_open(&map, 0, from, Vec2::new(8.0, 2.0), boss)); // same sector
+        // A walker carries its height as the crouch height.
+        let d = crate::fixtures::defs();
+        let walk = |k| Pass::Walk(d.enemy(k).tuning());
+        assert!(!path_open(
+            &map,
+            0,
+            from,
+            to,
+            walk(crate::map::ActorKind::Boss)
+        ));
+        assert!(path_open(
+            &map,
+            0,
+            from,
+            to,
+            walk(crate::map::ActorKind::Grunt)
+        ));
+        // Back out of the tunnel too.
+        assert!(!path_open(&map, 1, to, from, boss));
+        assert!(path_open(&map, 1, to, from, short));
+    }
+
+    #[test]
+    fn path_open_is_blocked_by_solid_walls_and_glass() {
+        let map = hall_and_tunnel();
+        let short = Pass::Fly { height: 0.6 };
+        // Through the hall's east wall beside the tunnel mouth.
+        assert!(!path_open(
+            &map,
+            0,
+            Vec2::new(4.0, 9.0),
+            Vec2::new(16.0, 5.0),
+            short
+        ));
+        let map = glass_rooms();
+        // Through the intact pane at x = 10.
+        assert!(!path_open(
+            &map,
+            0,
+            Vec2::new(8.0, 5.0),
+            Vec2::new(12.0, 5.0),
+            short
+        ));
+        // Through the pillar hole.
+        assert!(!path_open(
+            &map,
+            0,
+            Vec2::new(2.0, 5.0),
+            Vec2::new(8.0, 5.0),
+            short
+        ));
+    }
+
+    #[test]
+    fn path_open_through_broken_glass() {
+        let mut map = glass_rooms();
+        for w in &mut map.walls {
+            w.glass = false;
+        }
+        let short = Pass::Fly { height: 0.6 };
+        assert!(path_open(
+            &map,
+            0,
+            Vec2::new(8.0, 5.0),
+            Vec2::new(12.0, 5.0),
+            short
+        ));
     }
 }

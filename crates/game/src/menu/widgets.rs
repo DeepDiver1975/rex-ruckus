@@ -10,6 +10,8 @@ pub const AMBER: Color = Color::srgb(1.0, 0.75, 0.1);
 pub const IDLE: Color = Color::srgba(0.1, 0.1, 0.15, 0.9);
 /// Button fill when selected (keyboard or hover).
 pub const SELECTED: Color = Color::srgb(0.8, 0.35, 0.05);
+/// Muted text for hints.
+pub const DIM: Color = Color::srgb(0.6, 0.6, 0.6);
 /// Dimmed backdrop over the frozen level.
 pub const BACKDROP: Color = Color::srgba(0.0, 0.0, 0.05, 0.8);
 /// Draw order of a menu: above every HUD layer (which stay below 20).

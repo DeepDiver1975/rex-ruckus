@@ -20,7 +20,7 @@
 
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal};
 use crate::flow::PlayState;
-use crate::models::{ModelLibrary, ModelSlot, spawn_model_with};
+use crate::models::{ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
 use crate::player::{Look, Player, PlayerBody, PlayerCamera, PlayerTuning};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -60,8 +60,6 @@ pub const SPIN_HOLD_SECS: f32 = 0.15;
 /// Seconds of the detonator press and how far the box dips (metres).
 pub const PRESS_SECS: f32 = 0.2;
 const PRESS_DEPTH: f32 = 0.025;
-/// Where the chaingun's barrel cluster pivots, relative to its model root.
-pub const CLUSTER_AT: Vec3 = Vec3::new(0.0, 0.01, -0.03);
 
 /// Root of one weapon's model. Only the shown weapon's root is visible.
 #[derive(Component)]
@@ -71,9 +69,21 @@ pub struct ViewModel(pub WeaponId);
 #[derive(Component)]
 pub struct ViewRig;
 
-/// The chaingun's rotating barrel cluster; spins about the view axis.
-#[derive(Component)]
-pub struct BarrelCluster;
+/// The chaingun's rotating barrel cluster: a glTF node (`spin.node` in `models.ron`) that turns
+/// about `axis` in its own frame, on top of its authored `rest` rotation.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct BarrelCluster {
+    pub rest: Quat,
+    pub axis: Vec3,
+}
+
+/// On a weapon's model root: the scene node to tag as its [`BarrelCluster`] once the scene is
+/// ready.
+#[derive(Component, Clone, Debug)]
+pub struct SpinNode {
+    pub node: String,
+    pub axis: Vec3,
+}
 
 /// The pipe bomb in the hand; hidden when the player has none left.
 #[derive(Component)]
@@ -216,12 +226,12 @@ const PIPE_HAND: &[Part] = &[
     part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, -0.05, 0.07),
 ];
 const BOOT: &[Part] = &[
-    part(Shape::Cuboid(0.07, 0.05, 0.15), 0.0, -0.03, -0.03),
-    part(Shape::Cuboid(0.06, 0.09, 0.06), 0.0, 0.03, 0.03),
+    part(Shape::Cuboid(0.042, 0.03, 0.09), 0.0, -0.035, -0.04),
+    part(Shape::Cuboid(0.036, 0.054, 0.036), 0.0, 0.0, 0.0),
 ];
 const LEG: &[Part] = &[
-    part(Shape::Cuboid(0.07, 0.05, 0.12), 0.0, -0.07, 0.0),
-    part(Shape::Barrel(0.035, 0.22), 0.0, -0.05, 0.14),
+    part(Shape::Cuboid(0.042, 0.03, 0.072), 0.0, -0.07, 0.0),
+    part(Shape::Barrel(0.021, 0.132), 0.0, -0.055, 0.08),
 ];
 
 /// Muzzle flash position relative to the rig, from the model definitions; `None` for weapons
@@ -258,6 +268,7 @@ impl Plugin for ViewModelPlugin {
             Update,
             (
                 spawn_viewmodel,
+                tag_spin_nodes,
                 read_fx.in_set(FxReaders),
                 advance_state.after(read_fx),
                 (pose_rig, pose_weapons, pose_extras, pose_leg).after(advance_state),
@@ -335,7 +346,7 @@ fn spawn_viewmodel(
                             no_shadows: true,
                             ..default()
                         },
-                    );
+                    )
                 };
             let node = |commands: &mut Commands, marker: Entity, at: Vec3| {
                 commands.entity(marker).insert((
@@ -357,13 +368,14 @@ fn spawn_viewmodel(
                 WeaponId::Boot => {}
                 _ => {
                     if let Some(scene) = lib.weapon(w) {
-                        model(&mut commands, root, scene);
-                    }
-                    if w == WeaponId::Chaingun {
-                        // The picked model has no separate barrel, so this pivot is empty and
-                        // the spin is invisible; it stays so the spin system keeps working.
-                        let n = commands.spawn(BarrelCluster).id();
-                        node(&mut commands, n, CLUSTER_AT);
+                        let m = model(&mut commands, root, scene);
+                        let spin = lib.defs.weapon(w).and_then(|d| d.spin.as_ref());
+                        if let Some(spin) = spin {
+                            commands.entity(m).insert(SpinNode {
+                                node: spin.node.clone(),
+                                axis: Vec3::from(spin.axis).normalize(),
+                            });
+                        }
                     }
                 }
             }
@@ -395,6 +407,26 @@ fn spawn_viewmodel(
             ))
             .id();
         spawn_parts(&mut commands, leg, leg_parts());
+    }
+}
+
+/// Tags the spinning node of each newly ready weapon scene as its [`BarrelCluster`], keeping
+/// the node's authored rotation as the rest pose.
+pub fn tag_spin_nodes(
+    mut commands: Commands,
+    roots: Query<(&SpinNode, &ModelReady), Added<ModelReady>>,
+    transforms: Query<&Transform>,
+) {
+    for (spin, ready) in &roots {
+        let Some(&e) = ready.nodes.get(&spin.node) else {
+            warn!("viewmodel: no node named {:?} to spin", spin.node);
+            continue;
+        };
+        let rest = transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation);
+        commands.entity(e).insert(BarrelCluster {
+            rest,
+            axis: spin.axis,
+        });
     }
 }
 
@@ -526,15 +558,13 @@ fn pose_weapons(
 fn pose_extras(
     state: Res<ViewState>,
     player: Single<&PlayerArsenal, With<Player>>,
+    mut clusters: Query<(&mut Transform, &BarrelCluster)>,
     mut parts: Query<
+        (&mut Transform, &mut Visibility, Option<&HeldBomb>),
         (
-            &mut Transform,
-            &mut Visibility,
-            Option<&BarrelCluster>,
-            Option<&HeldBomb>,
-            Option<&Detonator>,
+            Or<(With<HeldBomb>, With<Detonator>)>,
+            Without<BarrelCluster>,
         ),
-        Or<(With<BarrelCluster>, With<HeldBomb>, With<Detonator>)>,
     >,
 ) {
     let a = &player.0;
@@ -547,12 +577,13 @@ fn pose_extras(
             Visibility::Hidden
         }
     };
-    for (mut tf, mut vis, cluster, bomb, det) in &mut parts {
-        if cluster.is_some() {
-            tf.rotation = Quat::from_rotation_z(state.spin);
-        } else if bomb.is_some() {
+    for (mut tf, c) in &mut clusters {
+        tf.rotation = c.rest * Quat::from_axis_angle(c.axis, state.spin);
+    }
+    for (mut tf, mut vis, bomb) in &mut parts {
+        if bomb.is_some() {
             *vis = shown(has_bomb);
-        } else if det.is_some() {
+        } else {
             tf.translation = Vec3::Z * press_dip(state.press);
             *vis = shown(a.live_bombs > 0);
         }

@@ -4,6 +4,7 @@
 
 use bevy::audio::GlobalVolume;
 use bevy::prelude::*;
+use bevy::time::TimeUpdateStrategy;
 use rr_core::audio::{COOLDOWN, Cue, QuipOn, QuipTable};
 use rr_core::combat::CombatEvent;
 use rr_core::defs::{Defs, WeaponId};
@@ -15,7 +16,7 @@ use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
 use rr_game::audio::{
     AudioFxPlugin, AudioOptions, AudioVolumes, GameCues, JetpackHum, MoverLoop, MusicTrack,
-    QuipState, QuipVoice, SfxVoice, SoundBank,
+    QuakeLoop, QuipState, QuipVoice, SfxVoice, SoundBank,
 };
 use rr_game::combat::PlayerArsenal;
 use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
@@ -24,6 +25,7 @@ use rr_game::mechanics::{HudMessage, HudSubtitle, MechanicsSimPlugin, insert_lev
 use rr_game::paths::assets_dir;
 use rr_game::player::PendingInput;
 use rr_game::player::PlayerSimPlugin;
+use std::time::Duration;
 
 /// The door level with one Grunt in room B.
 fn app() -> App {
@@ -47,6 +49,10 @@ fn app_with(map: Map, audio: AudioFxPlugin) -> App {
         },
     ))
     .init_asset::<AudioSource>();
+    // Fixed 1/60 s frames, so the tests can run a quake's seconds out.
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+        1.0 / 60.0,
+    )));
     insert_level(&mut app, map, Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     app.add_plugins((
@@ -75,6 +81,44 @@ fn voices(app: &mut App, cue: Cue) -> usize {
 fn count<C: Component>(app: &mut App) -> usize {
     let mut q = app.world_mut().query_filtered::<(), With<C>>();
     q.iter(app.world()).count()
+}
+
+fn quake(app: &mut App, duration: f32) {
+    fx(app).mech.push(MechEvent::QuakeStarted {
+        strength: 0.5,
+        duration,
+    });
+    app.update();
+}
+
+/// Steps the app `secs` seconds in 1/60 s frames.
+fn advance(app: &mut App, secs: f32) {
+    for _ in 0..(secs * 60.0).ceil() as usize {
+        app.update();
+    }
+}
+
+#[test]
+fn the_rumble_lasts_the_quake_then_fades() {
+    let mut app = app();
+    quake(&mut app, 3.0);
+    assert_eq!(count::<QuakeLoop>(&mut app), 1);
+    advance(&mut app, 2.9);
+    assert_eq!(count::<QuakeLoop>(&mut app), 1, "still rumbling");
+    advance(&mut app, 0.6); // past 3.0 + QUAKE_FADE
+    assert_eq!(count::<QuakeLoop>(&mut app), 0);
+}
+
+#[test]
+fn the_rumble_stops_on_death_and_holds_through_pause() {
+    let mut app = app();
+    quake(&mut app, 3.0);
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    app.update();
+    assert_eq!(count::<QuakeLoop>(&mut app), 1);
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Dead;
+    app.update();
+    assert_eq!(count::<QuakeLoop>(&mut app), 0);
 }
 
 fn fire(weapon: WeaponId) -> WeaponEvent {
@@ -509,4 +553,21 @@ fn a_need_key_quip_leaves_the_key_message_readable() {
     assert_eq!(message(&app), "You need the red keycard");
     let text = subtitle(&app);
     assert!(lines(QuipOn::NeedKey).contains(&text), "{text:?}");
+}
+
+#[test]
+fn mover_loops_survive_a_pause() {
+    let mut app = app();
+    fx(&mut app).mech.push(MechEvent::MoverStarted {
+        sector: 1,
+        kind: MoverKind::Door,
+    });
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1);
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1, "paused, not stopped");
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Playing;
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1);
 }

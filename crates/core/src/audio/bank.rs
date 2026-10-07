@@ -217,7 +217,10 @@ mod tests {
         }
         // Only the loops the game knows how to run are looped.
         for (c, d) in &bank.0 {
-            let loop_cue = matches!(c, Cue::DoorStart | Cue::LiftStart | Cue::JetpackLoop);
+            let loop_cue = matches!(
+                c,
+                Cue::DoorStart | Cue::LiftStart | Cue::JetpackLoop | Cue::QuakeRumble
+            );
             assert_eq!(d.looped, loop_cue, "{c:?}");
         }
     }

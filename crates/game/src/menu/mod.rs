@@ -19,13 +19,13 @@ pub use controls::{Capture, Notice};
 use crate::bindings::{Action, Bindings};
 use crate::episode::{Episode, Stats, start_episode};
 use crate::flow::{
-    AdvanceRequested, LevelDifficulty, PlayState, RESTART_DELAY, StateAge, load_level,
+    AdvanceRequested, LevelDifficulty, PausedFrom, PlayState, RESTART_DELAY, StateAge, load_level,
     restart_level,
 };
 use crate::hud::UiFont;
 use crate::level::CurrentMap;
 use crate::player::{grab_cursor, pause_on_escape};
-use crate::settings::Settings;
+use crate::settings::{Settings, SettingsPath};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -285,7 +285,10 @@ pub fn run_menu_action(world: &mut World) {
                 start_episode(world, d);
             }
         }
-        MenuAction::Resume => *world.resource_mut::<PlayState>() = PlayState::Playing,
+        MenuAction::Resume => {
+            let from = world.resource::<PausedFrom>().0;
+            *world.resource_mut::<PlayState>() = from;
+        }
         MenuAction::RestartLevel => {
             // Rebuilds the level and sets `Playing`, so no tick of the old level runs.
             restart_level(world);
@@ -337,6 +340,10 @@ pub fn run_menu_action(world: &mut World) {
 
 /// Back to the title screen: level 0 of the episode, frozen, with the starting loadout.
 fn quit_to_menu(world: &mut World) {
+    if !world.contains_resource::<Episode>() {
+        return;
+    }
+    world.insert_resource(PausedFrom::default());
     let Some(mut episode) = world.get_resource_mut::<Episode>() else {
         return;
     };
@@ -373,18 +380,34 @@ fn rebuild_screen(
     stats: Res<Stats>,
     map: Option<Res<CurrentMap>>,
     difficulty: Res<LevelDifficulty>,
+    paused_from: Res<PausedFrom>,
+    settings_path: Option<Res<SettingsPath>>,
     roots: Query<Entity, With<MenuRoot>>,
     mut selection: ResMut<MenuSelection>,
 ) {
+    let saved = settings_path.is_some_and(|p| p.0.is_some());
     for root in &roots {
         commands.entity(root).despawn();
     }
     selection.0 = 0;
+    if screen.0 == Some(Screen::Difficulty) {
+        // Easy, Normal, Hard in button order; `--difficulty` or the last game's pick is pre-selected.
+        selection.0 = match difficulty.0 {
+            Difficulty::Easy => 0,
+            Difficulty::Normal => 1,
+            Difficulty::Hard => 2,
+        };
+    }
     match screen.0 {
         Some(Screen::Main) => main_menu::spawn_main(&mut commands, &ui),
         Some(Screen::Difficulty) => main_menu::spawn_difficulty(&mut commands, &ui),
-        Some(Screen::Pause) => pause::spawn_pause(&mut commands, &ui, episode.is_some()),
-        Some(Screen::Options) => options::spawn_options(&mut commands, &ui),
+        Some(Screen::Pause) => pause::spawn_pause(
+            &mut commands,
+            &ui,
+            episode.is_some(),
+            paused_from.0 == PlayState::Playing,
+        ),
+        Some(Screen::Options) => options::spawn_options(&mut commands, &ui, saved),
         Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
         Some(Screen::Stats) => {
             let name = map.as_ref().map_or("", |m| m.0.name.as_str());
