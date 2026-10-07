@@ -241,7 +241,7 @@ impl Geometry {
             raw_loops.push(loops);
         }
         // T-junctions: every edge is split at the vertices lying on it, in order along it.
-        let loops = raw_loops
+        let loops: Vec<Vec<Vec<usize>>> = raw_loops
             .iter()
             .map(|sector| {
                 sector
@@ -258,6 +258,9 @@ impl Geometry {
                     .collect()
             })
             .collect();
+        for (s, sector) in level.sectors.iter().zip(&loops) {
+            check_folds(&s.id, sector, &verts)?;
+        }
         Ok(Geometry {
             verts,
             index,
@@ -304,6 +307,43 @@ impl Geometry {
             fmt_key(kb)
         ))
     }
+}
+
+/// Rejects a sector whose split loops run an edge both ways (a hole sharing an edge with the
+/// outer loop, or a zero-width spike), which would link the sector to itself, and a loop that
+/// passes through one vertex twice. A hole touching the outer loop at a single corner is fine.
+fn check_folds(id: &str, loops: &[Vec<usize>], verts: &[Key2]) -> Result<(), String> {
+    let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+    for (l, lp) in loops.iter().enumerate() {
+        for i in 0..lp.len() {
+            edges.insert((lp[i], lp[(i + 1) % lp.len()]), l);
+        }
+    }
+    for (l, lp) in loops.iter().enumerate() {
+        for i in 0..lp.len() {
+            let (a, b) = (lp[i], lp[(i + 1) % lp.len()]);
+            if let Some(&other) = edges.get(&(b, a)) {
+                let what = if other == l {
+                    "edge folds back on itself"
+                } else {
+                    "hole shares an edge with the outer loop"
+                };
+                return Err(format!(
+                    "sector \"{id}\": {what} at ({})–({})",
+                    fmt_key(verts[a]),
+                    fmt_key(verts[b])
+                ));
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        if let Some(&v) = lp.iter().find(|&&v| !seen.insert(v)) {
+            return Err(format!(
+                "sector \"{id}\": loop passes through ({}) twice",
+                fmt_key(verts[v])
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Indices of the vertices strictly inside segment `a`–`b`, ordered from `a`.
@@ -666,6 +706,37 @@ mod tests {
         ))
         .unwrap_err();
         assert!(e.contains("duplicate") && e.contains("\"a\""), "{e}");
+    }
+
+    #[test]
+    fn hole_sharing_an_outer_edge_is_an_error() {
+        let e = build_source(&level(
+            r#"sectors: [(id: "room", rect: (0.0, 0.0, 10.0, 10.0), holes: [[(4.0, 0.0), (6.0, 0.0), (6.0, 2.0), (4.0, 2.0)]])]"#,
+        ))
+        .unwrap_err();
+        assert!(
+            e.contains("\"room\"") && e.contains("hole shares an edge"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn zero_width_spike_is_an_error() {
+        let e = build_source(&level(
+            r#"sectors: [(id: "spike", poly: [(0.0, 0.0), (4.0, 0.0), (8.0, 0.0), (4.0, 0.0002), (4.0, 4.0), (0.0, 4.0)])]"#,
+        ))
+        .unwrap_err();
+        assert!(e.contains("\"spike\"") && e.contains("folds back"), "{e}");
+    }
+
+    #[test]
+    fn loop_through_a_vertex_twice_is_an_error() {
+        // A bow-tie pinched at (4, 4): no edge runs both ways, but the loop crosses itself.
+        let e = build_source(&level(
+            r#"sectors: [(id: "bow", poly: [(0.0, 0.0), (4.0, 4.0), (8.0, 0.0), (8.0, 8.0), (4.0, 4.0), (0.0, 8.0)])]"#,
+        ))
+        .unwrap_err();
+        assert!(e.contains("\"bow\"") && e.contains("twice"), "{e}");
     }
 
     const PASSTHROUGH: &str = r#"sectors: [
