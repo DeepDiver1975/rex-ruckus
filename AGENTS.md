@@ -91,9 +91,9 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - `chase` charges a seen player only when the straight line is passable (`steer::path_open`);
   otherwise it follows the route, and with no route it faces the player and strafes in place (so it
   keeps firing) instead of grinding on the opening.
-- Demo segments may use `goto: Some((x, y))` (walk there; ends on arrival or at `secs`) and `face_deg` (absolute heading, short way).
+- Demo segments may use `goto: Some((x, y))` (walk there; ends on arrival or at `secs`; `forward` and `turn_deg` are ignored while `goto` is set) and `face_deg` (absolute heading, short way).
 - Episode levels hold 30-45 enemies on Normal (barrels excluded); Easy is about 2/3 of that, Hard about 1.25x.
-- `validate`'s "unreachable item" warnings are expected only for crack-wall stashes and jetpack-only ledges. It never treats a Crack as passable, so no key may sit behind one.
+- `validate`'s "cannot be reached from the start" item warnings are expected only for crack-wall stashes and jetpack-only ledges. It never treats a Crack as passable, so no key may sit behind one.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 - Material names must be in `rr_core::map::KNOWN_MATERIALS` (each has a `texel()` arm); `validate` rejects others. Fill lights set `shadows: false`; keep ≤ 12 shadowed lights per level.
 
