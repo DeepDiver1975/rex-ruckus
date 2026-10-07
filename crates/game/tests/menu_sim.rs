@@ -13,7 +13,8 @@ use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState, RESTART_DELAY, State
 use rr_game::hud::{HudPlugin, HudRoot};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::menu::{
-    Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, Notice, Screen, Setting,
+    Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, MenuSelection, Notice,
+    Screen, Setting,
 };
 use rr_game::player::{PendingInput, PlayerBody, PlayerSimPlugin};
 use rr_game::settings::{Settings, SettingsPlugin};
@@ -635,4 +636,13 @@ fn pause_from_playing_still_resumes_to_playing() {
     assert_eq!(state(&app), PlayState::Paused);
     press(&mut app, MenuAction::Resume);
     assert_eq!(state(&app), PlayState::Playing);
+}
+
+#[test]
+fn difficulty_screen_highlights_the_current_difficulty() {
+    let mut app = menu_app(vec![combat_room()]);
+    app.world_mut().resource_mut::<LevelDifficulty>().0 = Difficulty::Hard;
+    press(&mut app, MenuAction::NewGame);
+    app.update();
+    assert_eq!(app.world().resource::<MenuSelection>().0, 2);
 }

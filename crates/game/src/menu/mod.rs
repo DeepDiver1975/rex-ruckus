@@ -388,6 +388,14 @@ fn rebuild_screen(
         commands.entity(root).despawn();
     }
     selection.0 = 0;
+    if screen.0 == Some(Screen::Difficulty) {
+        // Easy, Normal, Hard in button order; `--difficulty` or the last game's pick is pre-selected.
+        selection.0 = match difficulty.0 {
+            Difficulty::Easy => 0,
+            Difficulty::Normal => 1,
+            Difficulty::Hard => 2,
+        };
+    }
     match screen.0 {
         Some(Screen::Main) => main_menu::spawn_main(&mut commands, &ui),
         Some(Screen::Difficulty) => main_menu::spawn_difficulty(&mut commands, &ui),
