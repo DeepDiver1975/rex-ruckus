@@ -1,0 +1,106 @@
+// M5b showcase level (not in the episode): every engine feature once. Coordinates in metres,
+// x = east, y = north, z = up.
+// Route: hall (start; jetpack, shotgun, armour) → north doorway → gag room (a toilet to flush,
+// a vending machine with three cans, a pool table; chaingun, medkit) → back through the hall
+// → east doorway → west ledge over the slime pit (slime floor 1 m down, a slime stair up to
+// the east ledge; the rocket launcher waits on the east ledge, the jetpack flies across) →
+// north doorway → infight arena (a Grunt and an Enforcer on one line from the doorway: the
+// Enforcer's volleys at the player hit the Grunt, which turns on it) → east: a live electric
+// grate → trigger pad (channel 7: a quake, and the collapse floor ahead drops 2 m) → down the
+// hole and south through the tunnel (rockets) → open-air boss arena (atom; the boss's death
+// ends the level).
+(
+    name: "Engine Lab",
+    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door"],
+    vertices: [
+        (0.0, 0.0), (12.0, 0.0), (12.0, 3.0), (12.0, 5.0), (12.0, 8.0), (6.0, 8.0), // 0-5   hall
+        (4.0, 8.0), (0.0, 8.0),                                                       // 6-7
+        (6.0, 9.0), (4.0, 9.0), (0.0, 9.0), (10.0, 9.0), (10.0, 15.0), (0.0, 15.0),   // 8-13  gag room
+        (13.0, 3.0), (13.0, 5.0),                                                     // 14-15 pit doorway
+        (13.0, 0.0), (15.0, 0.0), (15.0, 8.0), (13.0, 8.0),                           // 16-19 west ledge
+        (20.0, 0.0), (20.0, 8.0), (21.0, 0.0), (21.0, 8.0),                           // 20-23 pit, stair
+        (25.0, 0.0), (25.0, 8.0), (24.0, 8.0), (22.0, 8.0),                           // 24-27 east ledge
+        (24.0, 9.0), (22.0, 9.0),                                                     // 28-29 arena doorway
+        (16.0, 9.0), (30.0, 9.0), (30.0, 14.0), (30.0, 16.0), (30.0, 21.0),           // 30-34 arena
+        (16.0, 21.0),                                                                 // 35
+        (32.0, 14.0), (32.0, 16.0), (33.0, 14.0), (33.0, 16.0),                       // 36-39 grate, pad
+        (36.0, 14.0), (36.0, 16.0), (38.0, 14.0), (38.0, 16.0),                       // 40-43 corridor, collapse
+        (36.0, 8.0), (38.0, 8.0), (38.0, 12.0),                                       // 44-46 tunnel
+        (38.0, -6.0), (56.0, -6.0), (56.0, 12.0),                                     // 47-49 boss arena
+        (44.0, -2.0), (44.0, 0.0), (46.0, 0.0), (46.0, -2.0),                         // 50-53 pillar
+        (44.0, 6.0), (44.0, 8.0), (46.0, 8.0), (46.0, 6.0),                           // 54-57 pillar
+    ],
+    sectors: [
+        // 0 hall (start; jetpack, shotgun, armour)
+        (loops: [[0, 1, 2, 3, 4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 1 doorway to the gag room
+        (loops: [[6, 5, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 2 gag room (toilet, vending machine, pool table; chaingun, medkit)
+        (loops: [[10, 9, 8, 11, 12, 13]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
+        // 3 doorway to the pit
+        (loops: [[2, 14, 15, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 4 west ledge
+        (loops: [[16, 17, 18, 19, 15, 14]], floor_z: 0.0, ceil_z: 5.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 5 slime pit
+        (loops: [[17, 20, 21, 18]], floor_z: -1.0, ceil_z: 5.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // 6 slime stair (up to the east ledge)
+        (loops: [[20, 22, 23, 21]], floor_z: -0.5, ceil_z: 5.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         hazard: Some((damage: 2, interval: 0.75, kind: Slime))),
+        // 7 east ledge (rocket launcher)
+        (loops: [[22, 24, 25, 26, 27, 23]], floor_z: 0.0, ceil_z: 5.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 8 doorway to the arena
+        (loops: [[27, 26, 28, 29]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 9 infight arena (a Grunt and an Enforcer on one line from the doorway)
+        (loops: [[30, 29, 28, 31, 32, 33, 34, 35]], floor_z: 0.0, ceil_z: 5.0, floor_mat: 3, ceil_mat: 3, wall_mat: 0),
+        // 10 live grate
+        (loops: [[32, 36, 37, 33]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 3, ceil_mat: 3, wall_mat: 0,
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        // 11 trigger pad (trigger 0: channel 7)
+        (loops: [[36, 38, 39, 37]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 12 corridor
+        (loops: [[38, 40, 41, 39]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 13 collapse floor: drops 2 m once on channel 7
+        (loops: [[40, 42, 43, 41]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         mover: Some((kind: Lift(to: -2.0), channel: Some(7), speed: 0.8, one_shot: true))),
+        // 14 tunnel (rockets): sealed until the floor drops, as its ceiling is the corridor floor
+        (loops: [[44, 45, 46, 42, 40]], floor_z: -2.0, ceil_z: 0.0, floor_mat: 1, ceil_mat: 1, wall_mat: 0),
+        // 15 boss arena under the open sky (atom; two pillars)
+        (loops: [[47, 48, 49, 46, 45], [50, 51, 52, 53], [54, 55, 56, 57]], floor_z: -2.0, ceil_z: 6.0,
+         floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+    ],
+    triggers: [(sector: 11, action: Channel(7))],
+    quakes: [(channel: 7, duration: 3.0, strength: 0.8)],
+    props: [
+        (kind: Toilet, pos: (1.0, 14.3), angle_deg: 270.0),
+        (kind: Vending, pos: (9.4, 12.0), angle_deg: 180.0, stock: 3),
+        (kind: PoolTable, pos: (5.0, 12.0), angle_deg: 0.0),
+    ],
+    items: [
+        // Hall
+        (kind: Jetpack, pos: (2.0, 1.0)), (kind: Shotgun, pos: (3.0, 6.0)), (kind: Armour, pos: (10.0, 1.0)),
+        // Gag room
+        (kind: Chaingun, pos: (8.0, 13.5)), (kind: Medkit, pos: (2.0, 10.0)),
+        // East ledge, arena, tunnel, boss arena
+        (kind: RocketLauncher, pos: (24.0, 2.0)), (kind: HealthSmall, pos: (17.0, 10.0)),
+        (kind: Rockets, pos: (37.0, 10.0)), (kind: Atom, pos: (40.0, -4.0)),
+    ],
+    actors: [
+        // On one line from the arena doorway: the Enforcer's volleys at the player go through
+        // the Grunt, which then turns on it.
+        (kind: Grunt, pos: (23.0, 13.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (23.0, 19.0), angle_deg: 270.0),
+        (kind: Boss, pos: (52.0, 3.0), angle_deg: 180.0, on_death: Some(Exit)),
+    ],
+    player_start: (pos: (2.0, 4.0), angle_deg: 0.0),
+    music: Some("depot"),
+    lights: [
+        (pos: (6.0, 4.0, 3.5), color: (1.0, 0.9, 0.75), intensity: 60000.0, range: 12.0),
+        (pos: (5.0, 12.0, 3.2), color: (1.0, 0.95, 0.8), intensity: 40000.0, range: 10.0),
+        (pos: (18.0, 4.0, 4.5), color: (0.6, 1.0, 0.6), intensity: 60000.0, range: 12.0),
+        (pos: (23.0, 15.0, 4.5), color: (1.0, 0.9, 0.8), intensity: 80000.0, range: 16.0),
+        (pos: (34.5, 15.0, 3.2), color: (0.8, 0.9, 1.0), intensity: 30000.0, range: 8.0, breakable: true),
+        (pos: (37.0, 11.0, -0.4), color: (1.0, 0.6, 0.3), intensity: 20000.0, range: 8.0),
+        (pos: (47.0, 3.0, 5.5), color: (1.0, 0.5, 0.4), intensity: 150000.0, range: 25.0),
+    ],
+)
