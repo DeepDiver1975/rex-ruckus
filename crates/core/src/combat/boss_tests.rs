@@ -81,7 +81,7 @@ fn phase_two_fires_hitscan_not_rockets() {
 
 #[test]
 fn on_death_fires_once_when_dead_not_at_the_kill() {
-    // Review focus 4.
+    // The `on_death` action fires once, on the Dying -> Dead tick, not at the killing blow.
     let mut map = boss_room(Some(SwitchAction::Exit));
     let d = defs();
     let mut c = Combat::spawn(&map, &d, 1);

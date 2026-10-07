@@ -55,7 +55,7 @@ fn jetpack_flight_over_slime_is_safe() {
 
 #[test]
 fn slime_on_a_rising_lift_keeps_burning_on_schedule() {
-    // Review focus 2: contact follows the live floor of a moving sector.
+    // Contact follows the live floor of a moving sector.
     let mut map = lift_shaft("(kind: Lift(to: 2.0))", "");
     map.sectors[1].hazard = Some(Hazard {
         damage: 4,

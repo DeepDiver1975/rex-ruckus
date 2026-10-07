@@ -90,7 +90,8 @@ impl Automap {
 
 /// One line per seen wall (one per portal pair): solid walls and glass, door portals (with
 /// their lock), the rims of hazard floors, steps over `STEP_LINE`, and portals into a closed
-/// sector (a sealed crack). Flat open portals draw nothing. Secret sectors are not flagged.
+/// sector (a sealed crack). Glass and sealed portals draw solid even at a hazard rim, since they
+/// cannot be crossed. Flat open portals draw nothing. Secret sectors are not flagged.
 pub fn automap_lines(map: &Map, mech: &Mechanics, automap: &Automap) -> Vec<MapLine> {
     let door = |s: SectorId| {
         mech.mover_in(s)
@@ -111,13 +112,13 @@ pub fn automap_lines(map: &Map, mech: &Mechanics, automap: &Automap) -> Vec<MapL
                 let (a, b) = (&map.sectors[w.sector], &map.sectors[n]);
                 if let Some(d) = door(w.sector).or(door(n)) {
                     LineKind::Door(d.lock)
-                } else if let (Some(h), None) | (None, Some(h)) = (a.hazard, b.hazard) {
-                    LineKind::Hazard(h.kind)
                 } else if w.glass
                     || a.ceil_z - a.floor_z <= OPEN_GAP
                     || b.ceil_z - b.floor_z <= OPEN_GAP
                 {
                     LineKind::Solid
+                } else if let (Some(h), None) | (None, Some(h)) = (a.hazard, b.hazard) {
+                    LineKind::Hazard(h.kind)
                 } else if (a.floor_z - b.floor_z).abs() > STEP_LINE {
                     LineKind::Step
                 } else {
@@ -220,6 +221,30 @@ mod tests {
             .collect();
         assert_eq!(steps.len(), 1, "lift (floor 0) to ledge (floor 2)");
         assert_eq!(steps[0].a.x, 6.0);
+    }
+
+    #[test]
+    fn glass_and_sealed_portals_at_a_hazard_rim_draw_solid() {
+        let mut map = engine_room("");
+        for w in 0..map.walls.len() {
+            let wall = &map.walls[w];
+            if wall.next_sector.is_some() && wall.a.x == 9.0 && wall.b.x == 9.0 {
+                map.walls[w].glass = true;
+            }
+        }
+        map.sectors[4].ceil_z = map.sectors[4].floor_z;
+        let mech = Mechanics::new(&mut map);
+        let mut am = Automap::new(&map);
+        am.seen.fill(true);
+        let lines = automap_lines(&map, &mech, &am);
+        let at_x = |x: f32| {
+            lines
+                .iter()
+                .find(|l| l.a.x == x && l.b.x == x)
+                .map(|l| l.kind)
+        };
+        assert_eq!(at_x(9.0), Some(LineKind::Solid), "glass into the slime");
+        assert_eq!(at_x(13.0), Some(LineKind::Solid), "a sealed room by slime");
     }
 
     #[test]

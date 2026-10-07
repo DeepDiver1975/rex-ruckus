@@ -100,7 +100,7 @@ fn same_kind_hurts_but_never_infights() {
 
 #[test]
 fn target_dying_mid_burst_returns_to_the_player() {
-    // Review focus 3: indices stay stable; a dead target is dropped at once, mid-burst too.
+    // Indices stay stable; a dead target is dropped at once, mid-burst too.
     let mut map = combat_room();
     spawn_kind(&mut map, ActorKind::Grunt, 2.0, 1.5, 0.0, false);
     spawn_kind(&mut map, ActorKind::Enforcer, 6.0, 1.5, PI, true);
@@ -146,4 +146,57 @@ fn barrels_are_never_targets_and_their_blast_credits_the_killer() {
     c.damage_actor(&d, 1, 1, Shooter::Actor(0));
     assert_eq!(c.actors[1].health.hp, d.enemy(ActorKind::Grunt).health - 1);
     assert_eq!(c.actors[1].target, Target::Player);
+}
+
+#[test]
+fn a_turned_slasher_claws_the_enforcer_and_gets_the_kill() {
+    let mut map = combat_room();
+    spawn_kind(&mut map, ActorKind::Slasher, 2.0, 1.5, 0.0, false);
+    spawn_kind(&mut map, ActorKind::Enforcer, 3.5, 1.5, PI, true);
+    let mut d = infight_defs();
+    let mut claw = 0;
+    for e in &mut d.enemies {
+        match e.kind {
+            ActorKind::Enforcer => e.health = 30,
+            ActorKind::Slasher => {
+                let EnemyAttack::Melee { damage, .. } = e.attack else {
+                    panic!("the Slasher is a melee enemy");
+                };
+                claw = damage;
+                e.pain_chance = 0.0;
+            }
+            _ => {}
+        }
+    }
+    assert!(claw > 0 && claw < 30, "two swipes kill the enforcer");
+    let mut c = Combat::spawn(&map, &d, 1);
+    c.actors[0].state = AiState::Chase;
+    c.actors[0].target = Target::Actor(1);
+    let mut p = Player::at(&map, 1.0, 7.0);
+    tough(&mut p);
+    let mut hurt = false;
+    for _ in 0..600 {
+        let ev = p.tick(&mut c, &mut map, &d);
+        hurt |= ev.contains(&CombatEvent::ActorHurt {
+            actor: 1,
+            amount: claw,
+        });
+        if ev.contains(&CombatEvent::ActorKilled {
+            actor: 1,
+            by: Shooter::Actor(0),
+        }) {
+            assert!(hurt, "a swipe landed before the kill");
+            assert_eq!(
+                p.vitals.health.hp, 100_000,
+                "the slasher left the player alone"
+            );
+            return;
+        }
+        assert!(
+            !ev.iter()
+                .any(|e| matches!(e, CombatEvent::ActorKilled { actor: 1, .. })),
+            "{ev:?}"
+        );
+    }
+    panic!("the slasher never clawed the enforcer to death");
 }

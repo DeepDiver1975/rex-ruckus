@@ -24,7 +24,7 @@ pub use projectiles::{
 
 use crate::combat::{FxQueue, FxReaders, LevelCombat, spawn_combat};
 use crate::coords::{core_angle_to_yaw, to_bevy};
-use crate::flow::{LevelEntity, SpawnLevel};
+use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::models::{Look, ModelLibrary, ModelReady, ModelSlot, TintCache, spawn_model_with};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -398,13 +398,23 @@ fn pose(kind: ActorKind, state: AiState) -> Look {
 /// Pulses per second of the phase-2 glow.
 const PULSE_HZ: f32 = 4.0;
 
-/// A boss past its first phase pulses with the hit glow (half of each 1/4 s period), unless it
-/// shows pain or is flashing anyway. Only a living boss pulses.
+/// A boss past its first phase pulses with a red glow over its normal skin (half of each 1/4 s
+/// period), unless it shows pain or is flashing anyway. Only a living boss pulses.
 pub fn phase_look(look: Look, phase: u8, alive: bool, t: f32) -> Look {
     if alive && phase > 0 && look == Look::Normal && (t * PULSE_HZ).fract() < 0.5 {
-        Look::Hit
+        Look::Pulse
     } else {
         look
+    }
+}
+
+/// The pulse clock after a frame of `dt`: it runs only while playing, so a phase-2 boss holds
+/// its glow under the pause menu and the other non-playing screens.
+fn advance_pulse(t: f32, dt: f32, state: PlayState) -> f32 {
+    if state == PlayState::Playing {
+        t + dt
+    } else {
+        t
     }
 }
 
@@ -413,6 +423,8 @@ pub fn phase_look(look: Look, phase: u8, alive: bool, t: f32) -> Look {
 #[allow(clippy::too_many_arguments)]
 fn tint_enemies(
     time: Res<Time>,
+    state: Res<PlayState>,
+    mut pulse: Local<f32>,
     combat: Res<LevelCombat>,
     lib: Res<ModelLibrary>,
     mut cache: ResMut<TintCache>,
@@ -421,6 +433,7 @@ fn tint_enemies(
     ready: Query<&ModelReady>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
+    *pulse = advance_pulse(*pulse, time.delta_secs(), *state);
     for (g, model, hit, mut look) in &mut roots {
         let (Some(actor), Ok(ready)) = (combat.0.actors.get(g.0), ready.get(model.root)) else {
             continue;
@@ -429,7 +442,7 @@ fn tint_enemies(
             skin_look(pose(model.kind, actor.state), actor.alive(), hit.0),
             actor.phase,
             actor.alive(),
-            time.elapsed_secs(),
+            *pulse,
         );
         if look.current == Some(want) {
             continue;
@@ -475,9 +488,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phase_two_pulses_between_normal_and_hit() {
+    fn phase_two_pulses_between_normal_and_pulse() {
         assert_eq!(phase_look(Look::Normal, 0, true, 0.1), Look::Normal);
-        assert_eq!(phase_look(Look::Normal, 1, true, 0.05), Look::Hit);
+        assert_eq!(phase_look(Look::Normal, 1, true, 0.05), Look::Pulse);
         assert_eq!(phase_look(Look::Normal, 1, true, 0.2), Look::Normal);
         assert_eq!(
             phase_look(Look::Pain, 1, true, 0.05),
@@ -489,7 +502,33 @@ mod tests {
             Look::Normal,
             "a dying or dead boss does not pulse"
         );
+        assert_eq!(
+            phase_look(Look::Hit, 1, true, 0.05),
+            Look::Hit,
+            "a hit flash wins"
+        );
         assert!(has_gun(ActorKind::Boss));
+    }
+
+    #[test]
+    fn the_pulse_clock_stops_while_not_playing() {
+        assert_eq!(advance_pulse(1.0, 0.1, PlayState::Playing), 1.1);
+        for s in [
+            PlayState::Menu,
+            PlayState::Paused,
+            PlayState::Dead,
+            PlayState::Complete,
+            PlayState::EpisodeEnd,
+        ] {
+            assert_eq!(advance_pulse(1.0, 0.1, s), 1.0, "{s:?}");
+        }
+        // A paused phase-2 boss keeps whichever look it paused on.
+        let t = 0.05;
+        let held = (0..100).fold(t, |t, _| advance_pulse(t, 0.016, PlayState::Paused));
+        assert_eq!(
+            phase_look(Look::Normal, 1, true, held),
+            phase_look(Look::Normal, 1, true, t)
+        );
     }
 
     #[test]

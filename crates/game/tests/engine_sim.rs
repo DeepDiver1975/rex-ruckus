@@ -1,5 +1,5 @@
 //! The M5b engine features end to end in the headless sim: triggers, quakes, hazards, death
-//! actions (and, from later tasks, props and the automap).
+//! actions, props and the automap.
 
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
@@ -327,7 +327,7 @@ fn kill_and_restart(app: &mut App) {
 
 #[test]
 fn the_automap_key_toggles_only_while_playing() {
-    // Review focus 5: a press while paused is dropped, not applied on resume.
+    // A press while paused is dropped, not applied on resume.
     let mut app = app(door_rooms("(kind: Door)", ""));
     input(&mut app).toggle_map = true;
     ticks(&mut app, 1);

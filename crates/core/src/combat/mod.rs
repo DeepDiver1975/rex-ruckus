@@ -40,12 +40,11 @@ use glam::{Vec2, Vec3};
 /// body `i + 1`.
 pub const BODY_PLAYER: usize = 0;
 
-/// What a combat tick did, for the game's presentation. `ActorWoke`, `PlayerKilled`,
-/// `CrackOpened`, `BombsDetonated`, `ProjectileGone`, `PhaseChanged` and `DeathAction` have no
-/// game reader yet: core tests consume them and they are spare hooks for audio or effects (the
-/// boss's are wired up later in M5b). The game reads the rest
-/// (`ActorKilled` drives the death sound, the kill stats and, for the player's own kills, the
-/// hero quips).
+/// What a combat tick did, for the game's presentation. The game's audio maps events to sounds
+/// (`audio::cues`; a boss's `ActorWoke` and `PhaseChanged` get its roar), `ActorKilled` also
+/// drives the kill stats and, for the player's own kills, the hero quips, and the game's combat
+/// tick routes `DeathAction` through the level's mechanics. `BombsDetonated` and
+/// `ProjectileGone` have no game reader: core tests consume them, and they are spare hooks.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CombatEvent {
     /// A non-ignored hit on actor `actor`; `amount` is the total damage dealt this attack.
@@ -79,7 +78,8 @@ pub enum CombatEvent {
     LightBroken(usize),
     /// The player entered a secret sector for the first time.
     SecretFound,
-    /// The player's floor burned them; a `PlayerHurt` follows.
+    /// The player's floor burned them; usually followed by a `PlayerHurt` (none when the hurt is
+    /// ignored, e.g. an invulnerable demo run).
     HazardBurn {
         kind: HazardKind,
     },
