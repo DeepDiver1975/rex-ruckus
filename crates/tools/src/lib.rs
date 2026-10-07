@@ -1,6 +1,7 @@
 //! Level and sound tooling for Rex Ruckus: Meltdown.
 
 pub mod audio;
+pub mod build;
 pub mod fonts;
 pub mod info;
 pub mod models;

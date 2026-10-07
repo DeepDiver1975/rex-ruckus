@@ -98,13 +98,13 @@ pub struct RawSector {
     pub hazard: Option<Hazard>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PlayerStart {
     pub pos: (f32, f32),
     pub angle_deg: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RawLight {
     pub pos: (f32, f32, f32),
     pub color: (f32, f32, f32),
@@ -121,7 +121,7 @@ pub struct RawLight {
 }
 
 /// Keycard colours. Locked doors and keyed switches name one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Key {
     Red,
     Blue,
@@ -157,7 +157,7 @@ impl KeySet {
 /// Trigger channel (Build's lotag/hitag pairing): a switch fires it and every mover listening toggles.
 pub type Channel = u16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MoverKind {
     /// The ceiling travels from the floor (closed, the start pose) up to the authored `ceil_z`.
     Door,
@@ -169,7 +169,7 @@ pub enum MoverKind {
     Crack,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MoverDef {
     pub kind: MoverKind,
     /// Metres per second.
@@ -193,7 +193,7 @@ fn default_mover_speed() -> f32 {
     2.5
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SwitchAction {
     Channel(Channel),
     Exit,
@@ -208,7 +208,7 @@ pub struct RawSwitch {
     pub key: Option<Key>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ItemKind {
     Key(Key),
     PistolAmmo,
@@ -262,7 +262,7 @@ fn always() -> Difficulty {
     Difficulty::Easy
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RawActor {
     pub kind: ActorKind,
     pub pos: (f32, f32),
@@ -289,7 +289,7 @@ pub struct RawTrigger {
 
 /// Screen shake while channel `channel` fires: `strength` in (0, 1], held for `duration`
 /// seconds and faded out over the last 30 %.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RawQuake {
     pub channel: Channel,
     pub duration: f32,
@@ -309,7 +309,7 @@ pub struct ActorSpawn {
     pub on_death: Option<SwitchAction>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RawItem {
     pub kind: ItemKind,
     pub pos: (f32, f32),
