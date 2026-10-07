@@ -426,10 +426,18 @@ fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
             bar.spawn(Node {
                 column_gap: Val::Px(10.0),
                 align_items: AlignItems::Center,
+                min_width: Val::Px(150.0),
+                flex_shrink: 0.0,
                 ..default()
             })
             .with_children(|w| {
-                cell(w, StatusCell::WeaponName, "");
+                w.spawn((
+                    Text::new(""),
+                    font(&ui, 26.0),
+                    TextColor(Color::WHITE),
+                    TextLayout::no_wrap(),
+                    StatusCell::WeaponName,
+                ));
                 for id in WeaponId::ALL {
                     cell(w, StatusCell::Slot(id), &id.slot().to_string());
                 }
@@ -584,7 +592,7 @@ fn update_status(
                 &mut text,
                 &format!("AMMO {}", ammo_label(a.current, a.readout(&defs.0))),
             ),
-            StatusCell::WeaponName => set(&mut text, &defs.0.weapon(a.current).name),
+            StatusCell::WeaponName => set(&mut text, defs.0.weapon(a.current).label()),
             StatusCell::Slot(id) => {
                 let c = if id == a.current {
                     Color::srgb(1.0, 0.85, 0.2)
