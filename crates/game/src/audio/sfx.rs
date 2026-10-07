@@ -2,8 +2,8 @@
 //! decide, and each admitted cue spawns an `AudioPlayer` entity.
 
 use super::{
-    AudioVolumes, GameCues, JetpackHum, MAX_LIVE_VOICES, MoverLoop, SfxRng, SfxVoice, SoundBank,
-    spatial_scale, voice_volume,
+    AudioVolumes, GameCues, JetpackHum, MAX_LIVE_VOICES, MoverLoop, QUAKE_FADE, QuakeLoop, SfxRng,
+    SfxVoice, SoundBank, spatial_scale, voice_volume,
 };
 use crate::combat::{FxQueue, LevelCombat, eye_of};
 use crate::coords::to_bevy;
@@ -33,6 +33,7 @@ pub struct LiveSounds<'w, 's> {
     voices: Query<'w, 's, &'static SfxVoice>,
     movers: Query<'w, 's, (Entity, &'static MoverLoop)>,
     hums: Query<'w, 's, Entity, With<JetpackHum>>,
+    quakes: Query<'w, 's, &'static mut QuakeLoop>,
 }
 
 /// Spawns voices within the caps. Counts include this frame's spawns.
@@ -107,7 +108,7 @@ pub fn play_cues(
     mut rng: ResMut<SfxRng>,
     mut src: CueSources,
     volumes: Res<AudioVolumes>,
-    live: LiveSounds,
+    mut live: LiveSounds,
     player: Query<&PlayerBody, With<Player>>,
 ) {
     let game = std::mem::take(&mut src.game.0);
@@ -152,6 +153,19 @@ pub fn play_cues(
             MechEvent::MoverStopped { sector, .. } => {
                 for e in movers.remove(&sector).unwrap_or_default() {
                     mix.stop(e);
+                }
+            }
+            MechEvent::QuakeStarted { duration, .. } => {
+                // One rumble at a time; a quake during one keeps it going.
+                if let Some(mut q) = live.quakes.iter_mut().next() {
+                    q.left = q.left.max(duration);
+                } else if mix.per_cue.get(&Cue::QuakeRumble).is_none_or(|n| *n == 0)
+                    && let Some(e) = mix.play(Cue::QuakeRumble, None)
+                {
+                    mix.commands.entity(e).insert(QuakeLoop {
+                        left: duration,
+                        fade: QUAKE_FADE,
+                    });
                 }
             }
             _ => {}

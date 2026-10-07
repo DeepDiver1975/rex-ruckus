@@ -139,7 +139,8 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
         MechEvent::Exit => out.push((Cue::LevelComplete, None)),
         // The trigger itself is silent: what it starts makes the noise.
         MechEvent::TriggerFired(_) => {}
-        MechEvent::QuakeStarted { .. } => out.push((Cue::QuakeRumble, None)),
+        // The game plays the rumble as a loop for the quake's duration, like the mover loops.
+        MechEvent::QuakeStarted { .. } => {}
         MechEvent::PropUsed {
             prop,
             kind,
@@ -392,7 +393,7 @@ mod tests {
                 strength: 0.8,
                 duration: 2.0
             }),
-            vec![Cue::QuakeRumble]
+            Vec::<Cue>::new()
         );
         let used = |prop, kind, outcome| MechEvent::PropUsed {
             prop,
@@ -638,7 +639,7 @@ mod tests {
             vec![(Cue::LevelComplete, None)],
             vec![(Cue::Pickup(PickupClass::Key), key_pos)],
             vec![],
-            vec![(Cue::QuakeRumble, None)],
+            vec![],
             vec![(Cue::ToiletFlush, toilet_pos)],
         ];
         for (e, want) in all_mech_events().iter().zip(expected) {
@@ -777,6 +778,7 @@ mod tests {
             Cue::NightVisionOff,
             Cue::Footstep,
             Cue::Land,
+            Cue::QuakeRumble,
         ];
         for cue in &all {
             assert!(

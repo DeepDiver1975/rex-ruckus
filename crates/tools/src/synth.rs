@@ -600,7 +600,8 @@ mod tests {
             let secs = pcm.len() as f64 / SAMPLE_RATE as f64;
             let max = if r.looped { 2.0 } else { 2.5 };
             assert!(secs <= max + 1e-9, "{} is {secs} s", r.name);
-            let looped = ["drone_hum", "lift_hum", "jetpack_loop"].contains(&r.name.as_str());
+            let looped = ["drone_hum", "lift_hum", "jetpack_loop", "quake_rumble"]
+                .contains(&r.name.as_str());
             assert_eq!(r.looped, looped, "{} loop flag", r.name);
             if looped {
                 assert!(secs >= 1.0, "{} loop is {secs} s", r.name);

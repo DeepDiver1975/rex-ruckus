@@ -4,7 +4,7 @@
 // ref_dist [4.0] (full volume up to here, then ref_dist / distance), max_dist [40.0] (silent
 // beyond), max_voices [4] (copies playing at once), pitch_jitter [0.0] (speed varies by up to
 // ± this), spatial [true] (false: centred on the player), looped [false] (only DoorStart,
-// LiftStart and JetpackLoop; the game starts and stops those).
+// LiftStart, JetpackLoop and QuakeRumble; the game starts and stops those).
 //
 // Files in `sounds/synth/` are our procedural WAVs; files in `sounds/cc0/` are CC0 recordings
 // (see CREDITS.md) imported with scripts/import-sfx.sh. All are peak-normalised to -1 dBFS, so
@@ -90,7 +90,7 @@
     // Engine features.
     HazardSizzle: (files: ["sounds/synth/hazard_sizzle.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
     HazardZap: (files: ["sounds/synth/hazard_zap.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
-    QuakeRumble: (files: ["sounds/synth/quake_rumble.wav"], volume: 0.9, max_voices: 1, spatial: false),
+    QuakeRumble: (files: ["sounds/synth/quake_rumble.wav"], volume: 0.9, max_voices: 1, spatial: false, looped: true),
     ToiletFlush: (files: ["sounds/synth/toilet_flush.wav"], volume: 0.7, max_voices: 1),
     VendingDispense: (files: ["sounds/synth/vending_dispense.wav"], volume: 0.7, max_voices: 1),
     VendingEmpty: (files: ["sounds/synth/vending_empty.wav"], volume: 0.6, max_voices: 1),
