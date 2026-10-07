@@ -31,17 +31,11 @@ fn settings_file(app: &App) -> PathBuf {
 
 /// An episode over the given maps, started at the title screen.
 fn menu_app(maps: Vec<Map>) -> App {
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins);
-    insert_level(&mut app, maps[0].clone(), Difficulty::Normal);
-    insert_defs(&mut app, Defs::builtin());
-    let mut episode = Episode::new(EpisodeDef {
-        name: "t".into(),
-        levels: vec![],
-    });
-    episode.maps = Some(maps);
-    app.insert_resource(episode);
-    app.insert_resource(PlayState::Menu);
+    menu_app_with(maps, Some(fresh_settings_path()))
+}
+
+/// A settings path in a fresh temp dir.
+fn fresh_settings_path() -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -55,9 +49,26 @@ fn menu_app(maps: Vec<Map>) -> App {
     // A stale dir from a recycled pid must never leak files into this test.
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("settings.ron");
-    app.insert_resource(SettingsFile(path.clone()));
-    app.add_plugins(SettingsPlugin { path: Some(path) });
+    dir.join("settings.ron")
+}
+
+/// Like `menu_app`, with the settings path given (`None` is a direct-level run).
+fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    insert_level(&mut app, maps[0].clone(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    let mut episode = Episode::new(EpisodeDef {
+        name: "t".into(),
+        levels: vec![],
+    });
+    episode.maps = Some(maps);
+    app.insert_resource(episode);
+    app.insert_resource(PlayState::Menu);
+    if let Some(path) = &path {
+        app.insert_resource(SettingsFile(path.clone()));
+    }
+    app.add_plugins(SettingsPlugin { path });
     app.add_plugins((
         FlowPlugin,
         PlayerSimPlugin,
@@ -645,4 +656,22 @@ fn difficulty_screen_highlights_the_current_difficulty() {
     press(&mut app, MenuAction::NewGame);
     app.update();
     assert_eq!(app.world().resource::<MenuSelection>().0, 2);
+}
+
+fn texts(app: &mut App) -> Vec<String> {
+    app.world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|t| t.0.clone())
+        .collect()
+}
+
+#[test]
+fn options_say_when_settings_are_not_saved() {
+    let mut app = menu_app_with(vec![combat_room()], None);
+    open_options(&mut app);
+    assert!(texts(&mut app).iter().any(|t| t.contains("not saved")));
+    let mut saved = menu_app(vec![combat_room()]);
+    open_options(&mut saved);
+    assert!(!texts(&mut saved).iter().any(|t| t.contains("not saved")));
 }

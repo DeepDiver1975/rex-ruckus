@@ -25,7 +25,7 @@ use crate::flow::{
 use crate::hud::UiFont;
 use crate::level::CurrentMap;
 use crate::player::{grab_cursor, pause_on_escape};
-use crate::settings::Settings;
+use crate::settings::{Settings, SettingsPath};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -381,6 +381,7 @@ fn rebuild_screen(
     map: Option<Res<CurrentMap>>,
     difficulty: Res<LevelDifficulty>,
     paused_from: Res<PausedFrom>,
+    settings_path: Res<SettingsPath>,
     roots: Query<Entity, With<MenuRoot>>,
     mut selection: ResMut<MenuSelection>,
 ) {
@@ -405,7 +406,9 @@ fn rebuild_screen(
             episode.is_some(),
             paused_from.0 == PlayState::Playing,
         ),
-        Some(Screen::Options) => options::spawn_options(&mut commands, &ui),
+        Some(Screen::Options) => {
+            options::spawn_options(&mut commands, &ui, settings_path.0.is_some())
+        }
         Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
         Some(Screen::Stats) => {
             let name = map.as_ref().map_or("", |m| m.0.name.as_str());
