@@ -9,11 +9,15 @@ use crate::fixtures::{combat_room, defs};
 use crate::map::ActorKind;
 use std::f32::consts::PI;
 
-/// Shipped defs with planted shooters and a Grunt tough enough to survive a volley.
+/// Shipped defs with planted shooters, a fixed muzzle just ahead of the body's centre line (so
+/// the lines of fire don't depend on where a model holds its gun) and a Grunt tough enough to
+/// survive a volley.
 fn infight_defs() -> Defs {
     let mut d = defs();
     for e in &mut d.enemies {
         e.strafe = false;
+        e.muzzle.0 = 0.6;
+        e.muzzle.1 = 0.0;
         if e.kind == ActorKind::Grunt {
             e.health = 200;
         }
