@@ -62,3 +62,8 @@ fn route_completes(level: &str, max_secs: u32) {
 fn hollywood_meltdown_route_completes() {
     route_completes("hollywood_meltdown.ron", 600);
 }
+
+#[test]
+fn neon_nights_route_completes() {
+    route_completes("neon_nights.ron", 700);
+}
