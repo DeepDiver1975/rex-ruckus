@@ -78,6 +78,16 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   attacker of another kind. Bosses never do, and ignore their own splash.
 - `on_death` runs when the actor is `Dead`, not at the kill. `rr-tools validate` counts triggers
   and `on_death` as channel sources and exits.
+- A `models.ron` weapon may set `spin: Some((node, axis))`: that glTF node turns about its local
+  `axis` while the weapon fires (the chaingun's `Barrels`). `rr-tools validate` checks the node
+  exists in the model and the axis is a finite, non-zero vector.
+- `weapons.ron` `hud_name` is the HUD label and must be at most 10 characters (checked when the
+  defs load), so it never wraps the status bar.
+- Low-res mode keeps 360 rows; its width follows the window aspect (`lowres.rs`), not a fixed 4:3.
+- Esc on the death screen opens pause (`PausedFrom` remembers where to return). The quake rumble
+  is a game-side loop like the mover hums; the core cue mapping no longer emits it.
+- `chase` holds and fires at a seen player it cannot reach (`steer::path_open`) instead of
+  pathing forever.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 
 ## Git and pull requests
