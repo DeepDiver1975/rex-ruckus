@@ -35,6 +35,13 @@ pub struct Segment {
     pub turn_deg: f32,
     /// Pitch the view eases to (linearly) by the end of the segment, degrees, up-positive.
     pub pitch_deg: Option<f32>,
+    /// Walk to this point (core x, y): each tick turn toward it (at most `GOTO_TURN_RATE`) and
+    /// move forward; the segment ends on arrival within `GOTO_ARRIVE` m, or after `secs` (a
+    /// timeout, logged). `forward` and `turn_deg` are ignored while it is set.
+    pub goto: Option<(f32, f32)>,
+    /// Absolute heading (degrees, 0 = east, CCW) the view turns to by the segment's end, the
+    /// short way round.
+    pub face_deg: Option<f32>,
     pub fire: bool,
     pub jump: bool,
     pub crouch: bool,
@@ -46,6 +53,27 @@ pub struct Segment {
     pub toggle_jetpack: bool,
     pub toggle_nv: bool,
     pub toggle_map: bool,
+}
+
+/// Turn rate a `goto` steers with, rad/s.
+pub const GOTO_TURN_RATE: f32 = 4.7;
+/// A `goto` has arrived within this distance, metres.
+pub const GOTO_ARRIVE: f32 = 0.4;
+
+/// Wraps an angle difference into −π..π.
+fn wrap(a: f32) -> f32 {
+    (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
+/// One tick of steering from `from` toward `to`: the new heading (turned by at most
+/// `max_turn`) and the forward input (full when roughly facing the target, a creep otherwise
+/// so tight corners do not overshoot).
+pub fn steer_to(angle: f32, from: Vec2, to: Vec2, max_turn: f32) -> (f32, f32) {
+    let d = to - from;
+    let err = wrap(d.y.atan2(d.x) - angle);
+    let turn = err.clamp(-max_turn, max_turn);
+    let forward = if (err - turn).abs() < 0.5 { 1.0 } else { 0.2 };
+    (angle + turn, forward)
 }
 
 impl Segment {
@@ -77,6 +105,8 @@ pub struct DemoPlayback {
     tick: u32,
     /// Pitch at the start of the current segment, for the linear ease.
     pitch_from: f32,
+    /// Heading at the start of the current segment, for `face_deg`.
+    angle_from: f32,
 }
 
 impl DemoPlayback {
@@ -86,6 +116,7 @@ impl DemoPlayback {
             segment: 0,
             tick: 0,
             pitch_from: 0.0,
+            angle_from: 0.0,
         }
     }
 
@@ -95,7 +126,7 @@ impl DemoPlayback {
 
     /// Applies one fixed tick of the script to the player's input and view, then advances.
     /// Returns false once the script has ended (and leaves the input idle).
-    pub fn step(&mut self, input: &mut PendingInput, look: &mut Look) -> bool {
+    pub fn step(&mut self, input: &mut PendingInput, look: &mut Look, pos: Vec2) -> bool {
         let Some(seg) = self.script.segments.get(self.segment) else {
             *input = PendingInput::default();
             return false;
@@ -103,6 +134,7 @@ impl DemoPlayback {
         let ticks = seg.ticks();
         if self.tick == 0 {
             self.pitch_from = look.pitch;
+            self.angle_from = look.angle;
             input.use_pressed |= seg.use_key;
             input.fire_pressed |= seg.fire;
             input.reload |= seg.reload;
@@ -120,13 +152,36 @@ impl DemoPlayback {
         input.jump = seg.jump;
         input.crouch = seg.crouch;
         input.fire = seg.fire;
-        look.angle += seg.turn_deg.to_radians() / ticks as f32;
+        let mut arrived = false;
+        if let Some(target) = seg.goto {
+            let target = Vec2::new(target.0, target.1);
+            if pos.distance(target) <= GOTO_ARRIVE {
+                arrived = true;
+                input.forward = 0.0;
+            } else {
+                let (a, f) = steer_to(look.angle, pos, target, GOTO_TURN_RATE / TICK_HZ);
+                look.angle = a;
+                input.forward = f;
+            }
+        } else {
+            look.angle += seg.turn_deg.to_radians() / ticks as f32;
+        }
         self.tick += 1;
+        if let Some(target) = seg.face_deg {
+            let t = self.tick as f32 / ticks as f32;
+            look.angle = self.angle_from + wrap(target.to_radians() - self.angle_from) * t;
+        }
         if let Some(target) = seg.pitch_deg {
             let t = self.tick as f32 / ticks as f32;
             look.pitch = self.pitch_from + (target.to_radians() - self.pitch_from) * t;
         }
-        if self.tick >= ticks {
+        if arrived || self.tick >= ticks {
+            if !arrived && seg.goto.is_some() {
+                warn!(
+                    "demo segment {} goto {:?} timed out at {pos}",
+                    self.segment, seg.goto
+                );
+            }
             self.segment += 1;
             self.tick = 0;
         }
@@ -187,7 +242,9 @@ fn drive_player(mut playback: ResMut<DemoPlayback>, mut player: Query<DemoPlayer
             vitals.0.heal_to(PLAYER_MAX_HEALTH, PLAYER_MAX_HEALTH);
         }
         let segment = playback.segment;
-        if playback.step(&mut input, &mut look) && playback.segment != segment {
+        if playback.step(&mut input, &mut look, body.0.pos.truncate())
+            && playback.segment != segment
+        {
             let p = body.0.pos;
             info!(
                 "demo segment {segment} ends at ({:.1}, {:.1}, {:.1}) heading {:.0}°",
@@ -241,6 +298,108 @@ mod tests {
     }
 
     #[test]
+    fn steer_turns_toward_target_capped_and_slows_when_off_heading() {
+        // Facing east, target due north: turn left by at most max_turn, creep forward.
+        let (a, f) = steer_to(0.0, Vec2::ZERO, Vec2::new(0.0, 10.0), 0.1);
+        assert!((a - 0.1).abs() < 1e-6);
+        assert!(f < 0.5);
+        // Facing the target: full speed, heading snaps exactly.
+        let (a, f) = steer_to(1.5, Vec2::ZERO, Vec2::new(0.0, 10.0), 0.1);
+        assert!((a - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert_eq!(f, 1.0);
+    }
+
+    #[test]
+    fn goto_ends_on_arrival_before_its_timeout() {
+        let mut p = DemoPlayback::new(DemoScript {
+            invulnerable: false,
+            segments: vec![
+                Segment {
+                    secs: 10.0,
+                    goto: Some((1.0, 0.0)),
+                    ..default()
+                },
+                Segment {
+                    secs: 1.0,
+                    ..default()
+                },
+            ],
+        });
+        let (mut input, mut look) = (PendingInput::default(), look());
+        p.step(&mut input, &mut look, Vec2::new(0.0, 0.0));
+        assert_eq!(p.segment, 0);
+        p.step(&mut input, &mut look, Vec2::new(0.8, 0.0)); // within 0.4 m
+        assert_eq!(p.segment, 1, "arrived: next segment");
+    }
+
+    #[test]
+    fn goto_times_out_when_blocked() {
+        let mut p = DemoPlayback::new(DemoScript {
+            invulnerable: false,
+            segments: vec![Segment {
+                secs: 0.1,
+                goto: Some((50.0, 0.0)),
+                ..default()
+            }],
+        });
+        let (mut input, mut look) = (PendingInput::default(), look());
+        for _ in 0..6 {
+            p.step(&mut input, &mut look, Vec2::ZERO);
+        }
+        assert!(p.finished(), "a blocked goto ends at its secs timeout");
+    }
+
+    #[test]
+    fn goto_arriving_on_first_tick_still_applies_one_shots() {
+        let mut p = DemoPlayback::new(DemoScript {
+            invulnerable: false,
+            segments: vec![Segment {
+                secs: 5.0,
+                goto: Some((1.0, 1.0)),
+                use_key: true,
+                ..default()
+            }],
+        });
+        let (mut input, mut look) = (PendingInput::default(), look());
+        p.step(&mut input, &mut look, Vec2::new(1.0, 1.0));
+        assert!(input.use_pressed);
+        assert_eq!(input.forward, 0.0);
+        assert_eq!(look.angle, 0.0, "no turn on the arrival tick");
+        assert!(p.finished());
+    }
+
+    #[test]
+    fn face_deg_takes_the_short_way() {
+        let mut p = DemoPlayback::new(DemoScript {
+            invulnerable: false,
+            segments: vec![Segment {
+                secs: 0.5,
+                face_deg: Some(-170.0),
+                ..default()
+            }],
+        });
+        let (mut input, mut look) = (
+            PendingInput::default(),
+            Look {
+                angle: 170f32.to_radians(),
+                pitch: 0.0,
+            },
+        );
+        p.step(&mut input, &mut look, Vec2::ZERO);
+        assert!(
+            look.angle > 170f32.to_radians(),
+            "turns left through 180°, not right"
+        );
+        while p.step(&mut input, &mut look, Vec2::ZERO) {}
+        let d = (look.angle - (-170f32).to_radians()).rem_euclid(std::f32::consts::TAU);
+        assert!(
+            !(1e-3..=std::f32::consts::TAU - 1e-3).contains(&d),
+            "ends at -170°: {}",
+            look.angle.to_degrees()
+        );
+    }
+
+    #[test]
     fn parses_segments_with_defaults() {
         let s = DemoScript::from_ron(
             "(segments: [(secs: 1.0, forward: 1.0), (secs: 0.5, select: Some(Shotgun), fire: true)])",
@@ -274,12 +433,12 @@ mod tests {
         let mut pb = DemoPlayback::new(script);
         let (mut input, mut look) = (PendingInput::default(), look());
         for _ in 0..30 {
-            assert!(pb.step(&mut input, &mut look));
+            assert!(pb.step(&mut input, &mut look, Vec2::ZERO));
             assert_eq!(input.forward, 1.0);
         }
         assert!((look.angle - 90f32.to_radians()).abs() < 1e-4);
         assert!(pb.finished());
-        assert!(!pb.step(&mut input, &mut look));
+        assert!(!pb.step(&mut input, &mut look, Vec2::ZERO));
         assert_eq!(input.forward, 0.0);
     }
 
@@ -296,13 +455,13 @@ mod tests {
         };
         let mut pb = DemoPlayback::new(script);
         let (mut input, mut look) = (PendingInput::default(), look());
-        pb.step(&mut input, &mut look);
+        pb.step(&mut input, &mut look, Vec2::ZERO);
         assert!(input.use_pressed);
         assert_eq!(input.select, Some(WeaponId::Rockets));
         // The sim consumes latches; later ticks of the segment must not set them again.
         input.use_pressed = false;
         input.select = None;
-        pb.step(&mut input, &mut look);
+        pb.step(&mut input, &mut look, Vec2::ZERO);
         assert!(!input.use_pressed);
         assert_eq!(input.select, None);
     }
@@ -320,11 +479,11 @@ mod tests {
         let mut pb = DemoPlayback::new(script);
         let (mut input, mut look) = (PendingInput::default(), look());
         for _ in 0..30 {
-            pb.step(&mut input, &mut look);
+            pb.step(&mut input, &mut look, Vec2::ZERO);
         }
         assert!((look.pitch - (-10f32).to_radians()).abs() < 1e-4);
         for _ in 0..30 {
-            pb.step(&mut input, &mut look);
+            pb.step(&mut input, &mut look, Vec2::ZERO);
         }
         assert!((look.pitch - (-20f32).to_radians()).abs() < 1e-4);
     }
