@@ -1,5 +1,6 @@
 //! Low-res mode: the 3D view (viewmodel included) renders into a 360-row image, as wide as the
-//! window's aspect needs so pixels stay square, shown full screen behind the UI, so the HUD and menus stay crisp at window resolution.
+//! window's aspect needs so pixels stay square, shown full screen behind the UI, so the HUD and
+//! menus stay crisp at window resolution.
 
 use crate::player::PlayerCamera;
 use crate::settings::Settings;

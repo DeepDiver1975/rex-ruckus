@@ -104,7 +104,7 @@ pub struct EnemyAssets {
     pub gltf: Handle<Gltf>,
     pub model: ModelScene,
     pub attach: Option<AttachScene>,
-    /// sRGB multiplier for the `Normal`/`Dim` looks (see [`TintCache::get`]).
+    /// sRGB multiplier applied to every look (see [`TintCache::get`]).
     pub tint: Option<(f32, f32, f32)>,
     /// `None` until the `Gltf` has loaded and [`build_graphs`] has run.
     pub graph: Option<EnemyGraph>,

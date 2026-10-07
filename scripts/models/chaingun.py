@@ -41,7 +41,7 @@ def materials():
 
 
 def build_body(b, m):
-    """The receiver and everything that does not spin, on bone `Gun`."""
+    """The receiver and everything that does not spin (static meshes, no bone)."""
     g, dk, st, br, hz, gr = m["gun"], m["dark"], m["steel"], m["brass"], m["hazard"], m["grip"]
     z = AXIS_Z
     # Receiver: a slab with a slightly narrower top, and a heavy rear cap.

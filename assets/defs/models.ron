@@ -114,7 +114,7 @@
         // the cluster does not hide it.
         (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.12, yaw_deg: 90.0, offset: (0.01, -0.015, 0.0)), muzzle: Some((0.01, 0.05, -0.18))), // 0.22 / 1.82
         (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.081, yaw_deg: 90.0), muzzle: Some((0.0, 0.03, -0.27))), // 0.3 / 3.69
-        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.5, yaw_deg: 184.0, pitch_deg: 4.0, offset: (0.05, -0.095, -0.04)), muzzle: Some((0.029, -0.066, -0.342)), spin: Some((node: "Barrels", axis: (0.0, 0.0, 1.0)))), // 0.4 / 0.665
+        (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.5, yaw_deg: 184.0, pitch_deg: 4.0, offset: (0.05, -0.095, -0.04)), muzzle: Some((0.029, -0.066, -0.342)), spin: Some((node: "Barrels", axis: (0.0, 0.0, 1.0)))), // 0.33 / 0.665
         (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.14, offset: (0.0, 0.02, -0.13)), muzzle: Some((0.0, 0.02, -0.35))), // 0.44 / 3.14
     ],
     items: [

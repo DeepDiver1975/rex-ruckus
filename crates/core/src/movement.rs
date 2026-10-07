@@ -92,8 +92,9 @@ impl Pass {
 pub const FLYER_MIN_CLEARANCE: f32 = 0.3;
 
 /// One tick of flying movement: no gravity. Horizontal motion is `wish.truncate()` (length
-/// clamped to 1) times `speed`, slid along walls, glass and openings too low for it, like a walker, but a flyer ignores
-/// floor steps: it may enter any sector whose opening fits its height. Vertical: `z` eases toward
+/// clamped to 1) times `speed`. Like a walker it slides along walls, glass and openings too low
+/// for it; unlike a walker it ignores floor steps and may enter any sector whose opening fits its
+/// height. Vertical: `z` eases toward
 /// `floor_z + hover` at up to `speed` m/s and is clamped to
 /// `[floor_z + FLYER_MIN_CLEARANCE, ceil_z - height]` of the sector range under the body; where
 /// that range is empty the body sits at the (lowered) floor clearance, clipped by the ceiling.

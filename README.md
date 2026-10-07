@@ -49,7 +49,7 @@ The game opens on the main menu. **New Game** asks for a difficulty (Easy, Norma
 plays the episode (`assets/episode.ron`) level by level, carrying health, armour, weapons and ammo
 over; an end-of-level stats screen follows each level. **Esc** pauses (resume, options, restart level,
 quit to menu). **Options** has mouse sensitivity, invert Y, field of view, the master, effects,
-voice and music volumes, a *Low-res mode* (640x360) toggle for a chunky retro look, and **Controls**, where you pick an
+voice and music volumes, a *Low-res mode* (360 rows, at the window's aspect) toggle for a chunky retro look, and **Controls**, where you pick an
 action and press the new key or mouse button to rebind it (each action keeps up to two bindings,
 Esc always opens the menu and cannot be rebound, Esc while capturing cancels).
 
