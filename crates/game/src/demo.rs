@@ -107,6 +107,8 @@ pub struct DemoPlayback {
     pitch_from: f32,
     /// Heading at the start of the current segment, for `face_deg`.
     angle_from: f32,
+    /// Segments whose `goto` ran out of time before arriving: (segment index, where it ended).
+    goto_timeouts: Vec<(usize, Vec2)>,
 }
 
 impl DemoPlayback {
@@ -117,7 +119,27 @@ impl DemoPlayback {
             tick: 0,
             pitch_from: 0.0,
             angle_from: 0.0,
+            goto_timeouts: Vec::new(),
         }
+    }
+
+    /// How many `goto` segments timed out before arriving (a route that has drifted).
+    pub fn goto_timeouts(&self) -> u32 {
+        self.goto_timeouts.len() as u32
+    }
+
+    /// The timed-out `goto` segments: index, target and where the player stood at the timeout.
+    pub fn goto_timeout_details(&self) -> Vec<String> {
+        self.goto_timeouts
+            .iter()
+            .map(|&(i, pos)| {
+                let target = self.script.segments[i].goto.unwrap_or_default();
+                format!(
+                    "segment {i} goto {target:?} timed out at ({:.2}, {:.2})",
+                    pos.x, pos.y
+                )
+            })
+            .collect()
     }
 
     pub fn finished(&self) -> bool {
@@ -177,6 +199,7 @@ impl DemoPlayback {
         }
         if arrived || self.tick >= ticks {
             if !arrived && seg.goto.is_some() {
+                self.goto_timeouts.push((self.segment, pos));
                 warn!(
                     "demo segment {} goto {:?} timed out at {pos}",
                     self.segment, seg.goto
@@ -330,6 +353,7 @@ mod tests {
         assert_eq!(p.segment, 0);
         p.step(&mut input, &mut look, Vec2::new(0.8, 0.0)); // within 0.4 m
         assert_eq!(p.segment, 1, "arrived: next segment");
+        assert_eq!(p.goto_timeouts(), 0);
     }
 
     #[test]
@@ -347,6 +371,8 @@ mod tests {
             p.step(&mut input, &mut look, Vec2::ZERO);
         }
         assert!(p.finished(), "a blocked goto ends at its secs timeout");
+        assert_eq!(p.goto_timeouts(), 1, "the timeout is counted");
+        assert!(p.goto_timeout_details()[0].starts_with("segment 0 goto (50.0, 0.0)"));
     }
 
     #[test]

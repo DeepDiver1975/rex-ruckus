@@ -1,11 +1,11 @@
 //! Each episode level's demo route plays headless at the recording rate and ends on the
-//! level-complete screen. `DEMO_TRACE=1` prints the run (tuning aid).
+//! level-complete screen without any `goto` timing out. `DEMO_TRACE=1` prints the run (tuning aid).
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_game::combat::{CombatSimPlugin, insert_defs};
-use rr_game::demo::DemoPlugin;
+use rr_game::demo::{DemoPlayback, DemoPlugin};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::player::{PlayerBody, PlayerSimPlugin};
@@ -49,6 +49,13 @@ fn route_completes(level: &str, max_secs: u32) {
             );
         }
         if *world.resource::<PlayState>() == PlayState::Complete {
+            let playback = world.resource::<DemoPlayback>();
+            assert_eq!(
+                playback.goto_timeouts(),
+                0,
+                "{level}: the route drifted; {}",
+                playback.goto_timeout_details().join("; ")
+            );
             return;
         }
         if app.should_exit().is_some() {
