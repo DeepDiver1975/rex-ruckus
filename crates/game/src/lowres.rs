@@ -1,15 +1,25 @@
-//! Low-res mode: the 3D view (viewmodel included) renders into a 640x360 image that is shown
-//! full screen behind the UI, so the HUD and menus stay crisp at window resolution.
+//! Low-res mode: the 3D view (viewmodel included) renders into a 360-row image, as wide as the
+//! window's aspect needs so pixels stay square, shown full screen behind the UI, so the HUD and menus stay crisp at window resolution.
 
 use crate::player::PlayerCamera;
 use crate::settings::Settings;
 use bevy::camera::{ClearColorConfig, RenderTarget};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
-use bevy::window::WindowRef;
+use bevy::render::render_resource::{Extent3d, TextureFormat};
+use bevy::window::{PrimaryWindow, WindowRef, WindowResized};
 
-/// Render resolution of the low-res mode.
-pub const LOW_RES: UVec2 = UVec2::new(640, 360);
+/// Rows of the low-res image; its width follows the window so pixels stay square.
+pub const LOW_RES_ROWS: u32 = 360;
+
+/// Size of the low-res image for a window of `window` physical pixels: 360 rows, an even width
+/// matching the aspect (clamped to 2..=4096). A zero-sized (minimised) window gives 640x360.
+pub fn low_res_size(window: UVec2) -> UVec2 {
+    if window.x == 0 || window.y == 0 {
+        return UVec2::new(640, LOW_RES_ROWS);
+    }
+    let w = (LOW_RES_ROWS as f32 * window.x as f32 / window.y as f32).round() as u32;
+    UVec2::new(((w + 1) & !1).clamp(2, 4096), LOW_RES_ROWS)
+}
 
 /// The image the 3D camera renders into while low-res is on.
 #[derive(Resource)]
@@ -32,15 +42,25 @@ pub struct LowResPlugin;
 
 impl Plugin for LowResPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_low_res)
-            .add_systems(Update, apply_low_res.run_if(resource_changed::<Settings>));
+        app.add_systems(Startup, setup_low_res).add_systems(
+            Update,
+            (
+                apply_low_res.run_if(resource_changed::<Settings>),
+                resize_low_res,
+            ),
+        );
     }
 }
 
-fn setup_low_res(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+fn setup_low_res(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+) {
+    let size = low_res_size(window.single().map_or(UVec2::ZERO, |w| w.physical_size()));
     let image = Image::new_target_texture(
-        LOW_RES.x,
-        LOW_RES.y,
+        size.x,
+        size.y,
         TextureFormat::Bgra8Unorm,
         Some(TextureFormat::Bgra8UnormSrgb),
     );
@@ -70,6 +90,35 @@ fn setup_low_res(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     ));
 }
 
+/// Keeps the low-res image at the window's aspect when the window is resized.
+fn resize_low_res(
+    mut resized: MessageReader<WindowResized>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    image: Option<Res<LowResImage>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if resized.read().count() == 0 {
+        return;
+    }
+    let (Some(image), Ok(window)) = (image, window.single()) else {
+        return;
+    };
+    let size = low_res_size(window.physical_size());
+    let Some(img) = images.get(&image.0) else {
+        return;
+    };
+    if img.size() == size {
+        return;
+    }
+    if let Some(mut img) = images.get_mut(&image.0) {
+        img.resize(Extent3d {
+            width: size.x,
+            height: size.y,
+            depth_or_array_layers: 1,
+        });
+    }
+}
+
 fn apply_low_res(
     settings: Res<Settings>,
     image: Option<Res<LowResImage>>,
@@ -95,6 +144,20 @@ fn apply_low_res(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn width_follows_the_window_aspect() {
+        assert_eq!(low_res_size(UVec2::new(1280, 720)), UVec2::new(640, 360));
+        assert_eq!(low_res_size(UVec2::new(1024, 768)), UVec2::new(480, 360));
+        assert_eq!(low_res_size(UVec2::new(2560, 1080)), UVec2::new(854, 360));
+    }
+
+    #[test]
+    fn degenerate_windows_stay_valid() {
+        assert_eq!(low_res_size(UVec2::ZERO), UVec2::new(640, 360));
+        assert_eq!(low_res_size(UVec2::new(1, 4000)).x, 2);
+        assert_eq!(low_res_size(UVec2::new(100_000, 10)).x, 4096);
+    }
 
     #[test]
     fn target_follows_the_toggle() {
