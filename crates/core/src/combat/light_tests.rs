@@ -15,6 +15,7 @@ fn light(pos: (f32, f32, f32), breakable: bool) -> RawLight {
         intensity: 1000.0,
         range: 8.0,
         breakable,
+        shadows: true,
     }
 }
 

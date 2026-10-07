@@ -275,7 +275,7 @@ fn spawn_level(
                 color: Color::srgb(l.color.0, l.color.1, l.color.2),
                 intensity: l.intensity,
                 range: l.range,
-                shadow_maps_enabled: true,
+                shadow_maps_enabled: l.shadows,
                 ..default()
             },
             Transform::from_translation(to_bevy(Vec3::new(l.pos.0, l.pos.1, l.pos.2))),

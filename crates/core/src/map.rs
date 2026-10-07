@@ -102,6 +102,10 @@ pub struct RawLight {
     /// A shot or blast can break the fixture, putting the light out for good.
     #[serde(default)]
     pub breakable: bool,
+    /// Casts shadows. Turn it off for fill lights: every shadowed point light renders six
+    /// shadow maps a frame.
+    #[serde(default = "yes")]
+    pub shadows: bool,
 }
 
 /// Keycard colours. Locked doors and keyed switches name one.
@@ -716,6 +720,20 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn light_shadows_default_on_and_can_be_turned_off() {
+        let map = Map::from_ron(r#"(name: "t", materials: ["m"],
+            vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
+            sectors: [(loops: [[0, 1, 2, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)],
+            player_start: (pos: (2.0, 2.0), angle_deg: 0.0),
+            lights: [
+                (pos: (1.0, 1.0, 2.0), color: (1.0, 1.0, 1.0), intensity: 1000.0, range: 5.0),
+                (pos: (3.0, 3.0, 2.0), color: (1.0, 1.0, 1.0), intensity: 1000.0, range: 5.0, shadows: false),
+            ])"#).unwrap();
+        assert!(map.lights[0].shadows);
+        assert!(!map.lights[1].shadows);
+    }
+
     use super::*;
     use crate::fixtures::{pillar_room, two_rooms};
 
