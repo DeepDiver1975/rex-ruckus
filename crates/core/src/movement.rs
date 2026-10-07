@@ -92,7 +92,7 @@ impl Pass {
 pub const FLYER_MIN_CLEARANCE: f32 = 0.3;
 
 /// One tick of flying movement: no gravity. Horizontal motion is `wish.truncate()` (length
-/// clamped to 1) times `speed`, slid along walls and glass like a walker, but a flyer ignores
+/// clamped to 1) times `speed`, slid along walls, glass and openings too low for it, like a walker, but a flyer ignores
 /// floor steps: it may enter any sector whose opening fits its height. Vertical: `z` eases toward
 /// `floor_z + hover` at up to `speed` m/s and is clamped to
 /// `[floor_z + FLYER_MIN_CLEARANCE, ceil_z - height]` of the sector range under the body; where
@@ -108,18 +108,36 @@ pub fn step_flyer(map: &Map, body: &mut Body, wish: Vec3, speed: f32, hover: f32
     let (start, start_sector, z) = (body.pos, body.sector, body.pos.z);
 
     // Clip with the feet on the floor and an unlimited step: `clip_move` then only blocks what
-    // is too low for the body anywhere, and the check below applies the same opening rule as
-    // `Pass::Fly` (lowest ceiling minus highest floor).
-    let (floor, _) = z_range(map, body.pos.truncate(), body.radius, body.sector);
-    body.pos.z = floor;
+    // is too low for the body anywhere, and the fit check applies the same opening rule as
+    // `Pass::Fly` (lowest ceiling minus highest floor). A move that ends where the body does not
+    // fit is undone and reported as failed.
+    let try_move = |body: &mut Body, delta: Vec2| -> bool {
+        let (floor, _) = z_range(map, body.pos.truncate(), body.radius, body.sector);
+        body.pos.z = floor;
+        clip_move(map, body, delta, f32::MAX);
+        body.pos.z = z;
+        if was_fitting && !fits(body) {
+            // The opening it slid into is too low for its height.
+            body.pos = start;
+            body.sector = start_sector;
+            return false;
+        }
+        true
+    };
     let delta = wish.truncate().clamp_length_max(1.0) * speed * dt;
-    clip_move(map, body, delta, f32::MAX);
-    body.pos.z = z;
-    if was_fitting && !fits(body) {
-        // The opening it slid into is too low for its height.
-        body.pos.x = start.x;
-        body.pos.y = start.y;
-        body.sector = start_sector;
+    if !try_move(body, delta) {
+        // Slide: keep the axis of the main heading first.
+        let (dx, dy) = (Vec2::new(delta.x, 0.0), Vec2::new(0.0, delta.y));
+        let axes = if delta.x.abs() < delta.y.abs() {
+            [dy, dx]
+        } else {
+            [dx, dy]
+        };
+        for axis in axes {
+            if axis != Vec2::ZERO && try_move(body, axis) {
+                break;
+            }
+        }
     }
 
     let (floor, ceil) = z_range(map, body.pos.truncate(), body.radius, body.sector);

@@ -68,6 +68,20 @@ fn drone_blocked_by_low_opening() {
 }
 
 #[test]
+fn drone_slides_along_a_too_low_opening() {
+    let d = drone_def();
+    for map in [two_rooms(0.0, 0.5), two_rooms(2.8, 5.0)] {
+        let mut b = Body::spawn(&map, Vec2::new(3.0, 1.0), d.radius, d.height).unwrap();
+        let wish = Vec3::new(1.0, 1.0, 0.0);
+        for _ in 0..60 {
+            step_flyer(&map, &mut b, wish, d.speed, 2.5, DT);
+        }
+        assert_eq!(b.sector, 0);
+        assert!(b.pos.y > 2.5, "stuck at {}", b.pos);
+    }
+}
+
+#[test]
 fn flyer_hovers_without_gravity() {
     let map = two_rooms(0.0, 4.0);
     let d = drone_def();
