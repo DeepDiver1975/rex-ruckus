@@ -21,5 +21,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Built levels are up to date
+        shell: bash
+        run: |
+          shopt -s nullglob
+          set -- levels/src/*.ron
+          [ $# -eq 0 ] || cargo run -p rr-tools -- build --check "$@"
       - name: Validate levels
         run: cargo run -p rr-tools -- validate assets/levels/*.ron

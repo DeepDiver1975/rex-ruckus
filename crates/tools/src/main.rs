@@ -1,12 +1,13 @@
 use clap::{Parser, Subcommand};
 use rr_core::map::{Map, RawLevel};
+use rr_tools::build::build_source_named;
 use rr_tools::{
     audio::validate_audio,
     fonts::validate_fonts,
     models::validate_models,
     svg::{SvgOptions, render_svg_with},
     synth::synth_file,
-    validate_episode, validate_file,
+    validate_episode, validate_file, validate_source,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -43,6 +44,16 @@ enum Cmd {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    /// Compile level sources (levels/src/*.ron) into game levels; --check verifies the
+    /// committed output is up to date instead of writing it.
+    Build {
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long)]
+        check: bool,
+        #[arg(long, default_value = "assets/levels")]
+        out_dir: PathBuf,
+    },
     /// Render a sound-effect recipe file to one WAV per recipe.
     Synth {
         recipes: PathBuf,
@@ -66,8 +77,54 @@ fn load_raw(path: &std::path::Path) -> Result<(RawLevel, Map), String> {
     Ok((raw, map))
 }
 
+/// Builds one source; returns whether it is fine (and, without `check`, written).
+fn build_one(path: &std::path::Path, out_dir: &std::path::Path, check: bool) -> bool {
+    let (Some(name), Some(stem)) = (path.file_name(), path.file_stem()) else {
+        eprintln!("{}: error: not a file path", path.display());
+        return false;
+    };
+    let built = std::fs::read_to_string(path)
+        .map_err(|e| e.to_string())
+        .and_then(|src| build_source_named(&src, &stem.to_string_lossy()));
+    let out = match built {
+        Ok(out) => out,
+        Err(e) => {
+            eprintln!("{}: error: {e}", path.display());
+            return false;
+        }
+    };
+    let out_path = out_dir.join(name);
+    let (report, mut ok) = validate_source(&out_path.display().to_string(), &out);
+    print!("{report}");
+    if check {
+        if std::fs::read_to_string(&out_path).ok().as_deref() != Some(out.as_str()) {
+            eprintln!("{}: out of date; run rr-tools build", out_path.display());
+            ok = false;
+        }
+    } else if let Err(e) = std::fs::write(&out_path, &out) {
+        eprintln!("{}: error: {e}", out_path.display());
+        ok = false;
+    }
+    ok
+}
+
 fn main() -> ExitCode {
     match Cli::parse().cmd {
+        Cmd::Build {
+            sources,
+            check,
+            out_dir,
+        } => {
+            let mut all_ok = true;
+            for path in &sources {
+                all_ok &= build_one(path, &out_dir, check);
+            }
+            if all_ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
         Cmd::Validate { levels } => {
             let mut all_ok = true;
             for path in &levels {

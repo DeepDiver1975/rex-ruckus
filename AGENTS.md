@@ -16,9 +16,10 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 |---|---|
 | `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting and boss phases, automap (`automap.rs`). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
 | `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay); `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
-| `crates/tools` (`rr-tools`) | `validate`, `info` and `render-svg [--ids]` for level files. |
+| `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
 | `assets/episode.ron` | The episode: its name and the levels in play order. |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
+| `levels/src/*.ron` | Level sources for `rr-tools build`: sectors as `rect`/`poly` coordinates with ids, named materials, `stairs`; built into `assets/levels/` (never hand-edit a built level). |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). |
 | `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons, pickups and gag props to models (scale, placement, clip names, muzzles). |
 | `assets/models/` | glTF (`.glb`) for enemies, viewmodel weapons, pickups and gag props (`props/`; a prop kind without a model gets a code-built fallback): original models built from `scripts/models/`, the rest CC0. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
@@ -39,6 +40,7 @@ Run all of these before opening a PR; CI runs the same:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo test --workspace
+    cargo run -p rr-tools -- build --check levels/src/*.ron
     cargo run -p rr-tools -- validate assets/levels/*.ron
 
 CI uses the latest stable Rust, so its clippy can flag lints an older local toolchain misses.
@@ -90,6 +92,7 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   otherwise it follows the route, and with no route it faces the player and strafes in place (so it
   keeps firing) instead of grinding on the opening.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
+- Material names must be in `rr_core::map::KNOWN_MATERIALS` (each has a `texel()` arm); `validate` rejects others. Fill lights set `shadows: false`; keep ≤ 12 shadowed lights per level.
 
 ## Git and pull requests
 
