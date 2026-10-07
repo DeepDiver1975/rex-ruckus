@@ -1,7 +1,7 @@
 //! The player's weapon events: hitscan and melee rays, launched projectiles and remote
 //! detonation.
 
-use super::blasts::PendingBlast;
+use super::blasts::{PendingBlast, Via};
 use super::{Combat, CombatEvent};
 use crate::collide::Body;
 use crate::defs::{Attack, Defs, WeaponId};
@@ -157,6 +157,7 @@ impl Combat {
                     splash,
                     owner: p.owner,
                 },
+                via: Via::Direct,
             }));
             out.push(CombatEvent::ProjectileGone(p.id));
             false

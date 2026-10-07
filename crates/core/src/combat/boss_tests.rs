@@ -137,3 +137,23 @@ fn boss_health_shows_while_the_boss_is_awake() {
     c.damage_actor(&d, 0, max / 4, Shooter::Player);
     assert!((c.boss_health().unwrap() - 0.75).abs() < 0.01);
 }
+
+#[test]
+fn boss_is_hurt_by_a_barrel_it_set_off_but_not_by_its_own_rockets() {
+    let mut map = boss_room(None);
+    spawn_kind(&mut map, ActorKind::Barrel, 7.8, 6.0, 0.0, true); // actor 1, next to the boss
+    let d = defs();
+    let mut c = Combat::spawn(&map, &d, 1);
+    let hp = c.actors[0].health.hp;
+    // The boss's rocket kills the barrel: the barrel's blast is owned by the boss.
+    c.damage_actor(&d, 1, 1000, Shooter::Actor(0));
+    let mut player = Player::at(&map, 1.0, 1.0);
+    for _ in 0..120 {
+        player.tick(&mut c, &mut map, &d);
+    }
+    assert!(c.actors[0].health.hp < hp, "the barrel blast hurt the boss");
+    // Its own direct splash is still ignored.
+    let now = c.actors[0].health.hp;
+    assert!(c.damage_actor(&d, 0, 50, Shooter::Actor(0)).is_empty());
+    assert_eq!(c.actors[0].health.hp, now);
+}

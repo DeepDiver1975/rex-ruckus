@@ -14,7 +14,7 @@
 mod blasts;
 mod player_attack;
 
-pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast};
+pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast, Via};
 
 use crate::actors::{
     Actor, AiState, Perception, Target, effective_muzzle, flyer_hover, hurt, retargets,
@@ -231,9 +231,22 @@ impl Combat {
     /// hurt by another one may turn on it (`retargets`). A boss ignores its own damage (its
     /// rocket splash) and may change phase on a hit (`PhaseChanged`).
     fn damage_actor(&mut self, defs: &Defs, i: usize, n: i32, by: Shooter) -> Vec<CombatEvent> {
+        self.damage_actor_via(defs, i, n, by, Via::Direct)
+    }
+
+    /// `damage_actor` with the route the damage took (`via`): a boss shrugs off its own direct
+    /// splash, but a barrel it set off still hurts it. Kill credit and retargeting use `by`.
+    fn damage_actor_via(
+        &mut self,
+        defs: &Defs,
+        i: usize,
+        n: i32,
+        by: Shooter,
+        via: Via,
+    ) -> Vec<CombatEvent> {
         let def = defs.enemy(self.actors[i].kind);
         // A boss shrugs off its own rocket splash.
-        if def.boss && by == Shooter::Actor(i) {
+        if def.boss && by == Shooter::Actor(i) && via == Via::Direct {
             return Vec::new();
         }
         let a = &mut self.actors[i];
@@ -281,7 +294,7 @@ impl Combat {
                 splash,
                 owner: by,
             };
-            self.queue_blast(def.death_fuse, blast);
+            self.queue_barrel_blast(def.death_fuse, blast);
         }
         out
     }

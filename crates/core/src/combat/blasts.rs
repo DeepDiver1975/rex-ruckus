@@ -15,18 +15,41 @@ pub const BLAST_NUDGE: f32 = 0.05;
 /// wake up.
 pub const BLAST_NOISE: f32 = 40.0;
 
+/// How a blast's damage reaches its victims: straight from its owner, or through a barrel the
+/// owner set off. A boss ignores its own direct splash but not a barrel it blew up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Via {
+    Direct,
+    Barrel,
+}
+
 /// A blast waiting to go off.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PendingBlast {
     /// Seconds until it goes off; 0 means this tick.
     pub fuse: f32,
     pub blast: Blast,
+    pub via: Via,
 }
 
 impl Combat {
     /// Queues `blast` to go off in `fuse` seconds.
     pub(super) fn queue_blast(&mut self, fuse: f32, blast: Blast) {
-        self.pending_blasts.push(PendingBlast { fuse, blast });
+        self.pending_blasts.push(PendingBlast {
+            fuse,
+            blast,
+            via: Via::Direct,
+        });
+    }
+
+    /// Queues the death blast of a barrel: like `queue_blast`, but its damage counts as coming
+    /// through the barrel, so even a boss that set it off is hurt.
+    pub(super) fn queue_barrel_blast(&mut self, fuse: f32, blast: Blast) {
+        self.pending_blasts.push(PendingBlast {
+            fuse,
+            blast,
+            via: Via::Barrel,
+        });
     }
 
     /// Runs every queued blast's fuse down by `dt` and sets off, in queue order, those that
@@ -93,7 +116,13 @@ impl Combat {
             if hit.body == BODY_PLAYER {
                 hurt_player(player, hit.damage, self.damage_scale, blast.center, out);
             } else {
-                out.extend(self.damage_actor(defs, hit.body - 1, hit.damage, blast.owner));
+                out.extend(self.damage_actor_via(
+                    defs,
+                    hit.body - 1,
+                    hit.damage,
+                    blast.owner,
+                    pb.via,
+                ));
             }
         }
         // Everything the blast reaches is found before any pane breaks, so a pane shields what

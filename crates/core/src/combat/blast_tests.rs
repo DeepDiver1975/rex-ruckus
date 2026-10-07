@@ -213,6 +213,7 @@ fn explosion_wakes_sleeping_grunt_out_of_splash_range() {
     let mut p = Player::at(&map, 1.5, 1.5);
     c.pending_blasts.push(PendingBlast {
         fuse: 0.0,
+        via: Via::Direct,
         blast: Blast {
             center: Vec3::new(1.0, 7.0, 0.5),
             sector: 0,
@@ -523,6 +524,7 @@ fn two_splashes_one_barrel_one_explosion() {
     for y in [5.5, 7.5] {
         c.pending_blasts.push(PendingBlast {
             fuse: 0.0,
+            via: Via::Direct,
             blast: Blast {
                 center: Vec3::new(6.0, y, 0.5),
                 sector: 0,
@@ -570,6 +572,7 @@ fn chain_terminates() {
     p.vitals.health.hp = 10_000;
     c.pending_blasts.push(PendingBlast {
         fuse: 0.0,
+        via: Via::Direct,
         blast: Blast {
             center: Vec3::new(0.5, 6.5, 0.5),
             sector: 0,
@@ -607,6 +610,7 @@ fn grunt_killed_by_splash_reports_once() {
     let mut p = Player::at(&map, 1.5, 1.5);
     c.pending_blasts.push(PendingBlast {
         fuse: 0.0,
+        via: Via::Direct,
         blast: Blast {
             center: Vec3::new(6.5, 6.5, 0.5),
             sector: 0,
