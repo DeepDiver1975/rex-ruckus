@@ -42,11 +42,17 @@ fn menu_app(maps: Vec<Map>) -> App {
     app.insert_resource(episode);
     app.insert_resource(PlayState::Menu);
     static N: AtomicUsize = AtomicUsize::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     let dir = std::env::temp_dir().join(format!(
-        "rr-menu-sim-{}-{}",
+        "rr-menu-sim-{}-{nanos}-{}",
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ));
+    // A stale dir from a recycled pid must never leak files into this test.
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("settings.ron");
     app.insert_resource(SettingsFile(path.clone()));
