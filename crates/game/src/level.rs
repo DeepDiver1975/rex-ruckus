@@ -80,7 +80,7 @@ impl Plugin for LevelRenderPlugin {
             })
             .init_resource::<DirtySectors>()
             .add_systems(SpawnLevel, spawn_level)
-            .add_systems(Update, (rebuild_dirty_sectors, scroll_hazard_floors));
+            .add_systems(Update, (rebuild_dirty_sectors, scroll_materials));
     }
 }
 
@@ -145,34 +145,40 @@ pub fn rebuild_dirty_sectors(
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LevelLight(pub usize);
 
-/// The glow of a hazard floor material, if it is one.
-fn hazard_glow(name: &str) -> Option<LinearRgba> {
+/// The glow of an emissive level material (hazard floors, neon, marquee bulbs…), if any.
+pub fn material_glow(name: &str) -> Option<LinearRgba> {
     match name {
         textures::SLIME => Some(LinearRgba::rgb(0.4, 1.6, 0.3)),
         textures::ELECTRIC => Some(LinearRgba::rgb(0.6, 1.0, 2.5)),
+        "neon" => Some(LinearRgba::rgb(2.0, 1.2, 2.2)),
+        "marquee" => Some(LinearRgba::rgb(1.8, 1.4, 0.6)),
+        "dancefloor" => Some(LinearRgba::rgb(1.2, 1.2, 1.2)),
+        "glowstrip" => Some(LinearRgba::rgb(0.6, 1.8, 1.6)),
         _ => None,
     }
 }
 
-/// UV scroll speed (texture lengths per second) of an animated hazard floor.
-pub fn hazard_scroll(name: &str) -> Option<f32> {
+/// UV scroll speed (texture lengths per second) of an animated material.
+pub fn material_scroll(name: &str) -> Option<f32> {
     match name {
         textures::SLIME => Some(0.15),
         textures::ELECTRIC => Some(0.6),
+        "marquee" => Some(0.25),
+        "dancefloor" => Some(0.1),
         _ => None,
     }
 }
 
-/// Scrolls the slime and electric floor textures (same material-update pattern as the fireball
-/// fade in `fx.rs`).
-fn scroll_hazard_floors(
+/// Scrolls the animated level materials (slime, electric, marquee, dance floor), using the same
+/// material-update pattern as the fireball fade in `fx.rs`.
+fn scroll_materials(
     time: Res<Time>,
     mats: Option<Res<LevelMaterials>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Some(mats) = mats else { return };
     for (h, name) in mats.0.iter().zip(&mats.1) {
-        if let Some(speed) = hazard_scroll(name)
+        if let Some(speed) = material_scroll(name)
             && let Some(mut m) = materials.get_mut(h)
         {
             let v = (time.elapsed_secs() * speed).fract();
@@ -189,7 +195,7 @@ fn level_material(name: &str, texture: Handle<Image>) -> StandardMaterial {
         unlit: name == "sky",
         ..default()
     };
-    if let Some(glow) = hazard_glow(name) {
+    if let Some(glow) = material_glow(name) {
         m.emissive = glow;
         m.emissive_texture = m.base_color_texture.clone();
     }
@@ -300,9 +306,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_hazard_materials_scroll() {
-        assert!(hazard_scroll("slime").is_some() && hazard_scroll("electric").is_some());
-        assert_eq!(hazard_scroll("brick"), None);
+    fn only_animated_materials_scroll() {
+        assert!(material_scroll("slime").is_some() && material_scroll("electric").is_some());
+        assert_eq!(material_scroll("brick"), None);
+    }
+
+    #[test]
+    fn glowing_materials_glow_and_plain_ones_do_not() {
+        for name in [
+            "slime",
+            "electric",
+            "neon",
+            "marquee",
+            "dancefloor",
+            "glowstrip",
+        ] {
+            assert!(material_glow(name).is_some(), "{name}");
+        }
+        for name in ["brick", "carpet", "hull", "sky"] {
+            assert!(material_glow(name).is_none(), "{name}");
+        }
+        assert!(material_scroll("marquee").is_some());
+        assert!(material_scroll("dancefloor").is_some());
+        assert!(material_scroll("carpet").is_none());
     }
 
     #[test]

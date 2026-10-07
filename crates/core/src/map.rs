@@ -64,6 +64,18 @@ pub const KNOWN_MATERIALS: &[&str] = &[
     "tile",
     "wood",
     "door",
+    "asphalt",
+    "gravel",
+    "carpet",
+    "velvet",
+    "ceiling_tile",
+    "hull",
+    "grate",
+    "flesh",
+    "neon",
+    "marquee",
+    "dancefloor",
+    "glowstrip",
 ];
 
 #[derive(Debug, Clone, Deserialize)]
