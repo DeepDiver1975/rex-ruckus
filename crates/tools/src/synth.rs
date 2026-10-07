@@ -573,6 +573,17 @@ mod tests {
         "enemy_pain",
         "enemy_death",
         "level_complete",
+        "hazard_sizzle",
+        "hazard_zap",
+        "quake_rumble",
+        "toilet_flush",
+        "vending_dispense",
+        "vending_empty",
+        "pool_break",
+        "boss_roar",
+        "boss_rocket",
+        "boss_minigun",
+        "boss_death",
     ];
 
     #[test]

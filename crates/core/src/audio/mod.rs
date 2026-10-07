@@ -110,14 +110,36 @@ pub enum Cue {
     Footstep,
     /// Raised by the game from player movement (no core event).
     Land,
+    /// The player burns on a slime floor.
+    HazardSizzle,
+    /// The player burns on a live electric grate.
+    HazardZap,
+    /// A scripted quake starts.
+    QuakeRumble,
+    /// A toilet was used.
+    ToiletFlush,
+    /// A vending machine paid out.
+    VendingDispense,
+    /// A vending machine is sold out.
+    VendingEmpty,
+    /// A pool table was racked.
+    PoolBreak,
+    /// The boss wakes or enters a new phase.
+    BossRoar,
+    /// The boss fires in phase 1 (rocket).
+    BossRocket,
+    /// The boss fires in a later phase (minigun).
+    BossMinigun,
+    /// The boss dies.
+    BossDeath,
 }
 
 impl Cue {
     /// Every cue, with `WeaponId`, `ActorKind` and `PickupClass` expanded. Exactly the cues the
     /// mapping can emit or the game raises itself, with no duplicates. Left out because they
     /// never occur: every `Actor*` cue for `Barrel` (a static body; `combat_cues` drops those
-    /// events for it, death included), and for now every `Actor*` cue for the `Boss` (silent until
-    /// its sounds land). `Fire(Boot)` stays: the boot swing emits `Fire`.
+    /// events for it, death included), and for the `Boss` all but `ActorPain` (it has its own
+    /// `Boss*` cues). `Fire(Boot)` stays: the boot swing emits `Fire`.
     pub fn all() -> Vec<Cue> {
         use Cue::*;
         let mut v: Vec<Cue> = WeaponId::ALL.into_iter().map(Fire).collect();
@@ -125,8 +147,10 @@ impl Cue {
             DryFire, Reload, Switch, Kick, Impact, Explosion, GlassBreak, LightBreak, CrackOpen,
         ]);
         for k in ActorKind::ALL {
-            if !matches!(k, ActorKind::Barrel | ActorKind::Boss) {
-                v.extend([ActorWake(k), ActorFire(k), ActorPain(k), ActorDeath(k)]);
+            match k {
+                ActorKind::Barrel => {}
+                ActorKind::Boss => v.push(ActorPain(k)),
+                _ => v.extend([ActorWake(k), ActorFire(k), ActorPain(k), ActorDeath(k)]),
             }
         }
         v.extend([
@@ -150,6 +174,17 @@ impl Cue {
             NightVisionOff,
             Footstep,
             Land,
+            HazardSizzle,
+            HazardZap,
+            QuakeRumble,
+            ToiletFlush,
+            VendingDispense,
+            VendingEmpty,
+            PoolBreak,
+            BossRoar,
+            BossRocket,
+            BossMinigun,
+            BossDeath,
         ]);
         v
     }

@@ -86,4 +86,18 @@
     // Movement.
     Footstep: (files: ["sounds/cc0/footstep_1.ogg", "sounds/cc0/footstep_2.ogg", "sounds/cc0/footstep_3.ogg", "sounds/cc0/footstep_4.ogg"], volume: 0.25, max_voices: 2, pitch_jitter: 0.1, spatial: false),
     Land: (files: ["sounds/cc0/land.ogg"], volume: 0.4, max_voices: 1, pitch_jitter: 0.05, spatial: false),
+
+    // Engine features.
+    HazardSizzle: (files: ["sounds/synth/hazard_sizzle.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
+    HazardZap: (files: ["sounds/synth/hazard_zap.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
+    QuakeRumble: (files: ["sounds/synth/quake_rumble.wav"], volume: 0.9, max_voices: 1, spatial: false),
+    ToiletFlush: (files: ["sounds/synth/toilet_flush.wav"], volume: 0.7, max_voices: 1),
+    VendingDispense: (files: ["sounds/synth/vending_dispense.wav"], volume: 0.7, max_voices: 1),
+    VendingEmpty: (files: ["sounds/synth/vending_empty.wav"], volume: 0.6, max_voices: 1),
+    PoolBreak: (files: ["sounds/synth/pool_break.wav"], volume: 0.6, max_voices: 1),
+    ActorPain(Boss): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.8, max_voices: 1, pitch_jitter: 0.05),
+    BossRoar: (files: ["sounds/synth/boss_roar.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, max_voices: 1),
+    BossRocket: (files: ["sounds/synth/boss_rocket.wav"], volume: 0.9, ref_dist: 6.0, max_dist: 60.0, max_voices: 3, pitch_jitter: 0.05),
+    BossMinigun: (files: ["sounds/synth/boss_minigun.wav"], volume: 0.7, ref_dist: 6.0, max_dist: 60.0, max_voices: 6, pitch_jitter: 0.08),
+    BossDeath: (files: ["sounds/synth/boss_death.wav"], volume: 1.0, ref_dist: 10.0, max_dist: 90.0, max_voices: 1),
 }

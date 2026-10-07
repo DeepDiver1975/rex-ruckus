@@ -2,8 +2,10 @@
 
 use super::{Cue, CuePos};
 use crate::combat::{Combat, CombatEvent};
+use crate::hazard::HazardKind;
 use crate::map::{ActorKind, Map, MoverKind, SectorId, WallId};
 use crate::mechanics::MechEvent;
+use crate::props::{PropKind, PropOutcome};
 use crate::weapons::WeaponEvent;
 use glam::Vec3;
 
@@ -20,14 +22,40 @@ fn wall_mid(map: &Map, w: WallId) -> Vec3 {
 ///
 /// `ProjectileGone` and `BombsDetonated` give nothing: the `Impact` or `Explosion` event that
 /// accompanies them already carries the sound. Barrels are static bodies, so all their events
-/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. The boss,
-/// its `PhaseChanged` and every `DeathAction` stay silent until their sounds land. An actor
-/// index out of range gives nothing.
+/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. The boss
+/// has its own voice (roar on waking and on a phase change, rocket or minigun by phase, death);
+/// only its pain uses the generic arm. A non-boss `PhaseChanged` and every `DeathAction` are
+/// silent. An actor index out of range gives nothing.
 pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) {
+    let boss = |i: usize| combat.actors.get(i).filter(|a| a.kind == ActorKind::Boss);
+    match *ev {
+        CombatEvent::ActorWoke(i) | CombatEvent::PhaseChanged { actor: i, .. }
+            if boss(i).is_some() =>
+        {
+            out.push((Cue::BossRoar, boss(i).map(|a| a.body.pos)));
+            return;
+        }
+        CombatEvent::ActorFired { actor } if boss(actor).is_some() => {
+            if let Some(a) = boss(actor) {
+                let cue = if a.phase > 0 {
+                    Cue::BossMinigun
+                } else {
+                    Cue::BossRocket
+                };
+                out.push((cue, Some(a.body.pos)));
+            }
+            return;
+        }
+        CombatEvent::ActorKilled { actor, .. } if boss(actor).is_some() => {
+            out.push((Cue::BossDeath, boss(actor).map(|a| a.body.pos)));
+            return;
+        }
+        _ => {}
+    }
     let actor = |i: usize| combat.actors.get(i).map(|a| (a.kind, a.body.pos));
     let mut living = |i: usize, cue: fn(ActorKind) -> Cue| {
         if let Some((k, p)) = actor(i)
-            && !matches!(k, ActorKind::Barrel | ActorKind::Boss)
+            && k != ActorKind::Barrel
         {
             out.push((cue(k), Some(p)));
         }
@@ -50,8 +78,13 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
             }
         }
         CombatEvent::SecretFound => out.push((Cue::Secret, None)),
-        // Silent until the engine-room sounds land.
-        CombatEvent::HazardBurn { .. } => {}
+        CombatEvent::HazardBurn { kind } => out.push((
+            match kind {
+                HazardKind::Slime => Cue::HazardSizzle,
+                HazardKind::Electric => Cue::HazardZap,
+            },
+            None,
+        )),
         CombatEvent::Impact { point, .. } => out.push((Cue::Impact, Some(point))),
         CombatEvent::Explosion { point, .. } => out.push((Cue::Explosion, Some(point))),
         CombatEvent::GlassBroken { wall, .. } => {
@@ -60,7 +93,7 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
             }
         }
         CombatEvent::ProjectileGone(_) | CombatEvent::BombsDetonated => {}
-        // Silent until the engine-room sounds land.
+        // The boss arms above took its phase changes; the rest are silent.
         CombatEvent::PhaseChanged { .. } | CombatEvent::DeathAction(_) => {}
     }
 }
@@ -104,10 +137,25 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
         }
         MechEvent::NeedKey(_) => out.push((Cue::Denied, None)),
         MechEvent::Exit => out.push((Cue::LevelComplete, None)),
-        // Sounds for these come later.
-        MechEvent::TriggerFired(_)
-        | MechEvent::QuakeStarted { .. }
-        | MechEvent::PropUsed { .. } => {}
+        // The trigger itself is silent: what it starts makes the noise.
+        MechEvent::TriggerFired(_) => {}
+        MechEvent::QuakeStarted { .. } => out.push((Cue::QuakeRumble, None)),
+        MechEvent::PropUsed {
+            prop,
+            kind,
+            outcome,
+        } => {
+            let cue = match (kind, outcome) {
+                (_, PropOutcome::Busy) => return,
+                (PropKind::Toilet, _) => Cue::ToiletFlush,
+                (PropKind::Vending, PropOutcome::SoldOut) => Cue::VendingEmpty,
+                (PropKind::Vending, _) => Cue::VendingDispense,
+                (PropKind::PoolTable, _) => Cue::PoolBreak,
+            };
+            if let Some(p) = map.props.get(prop) {
+                out.push((cue, Some(p.pos.extend(map.sectors[p.sector].floor_z + 0.5))));
+            }
+        }
         MechEvent::ItemTaken { item, kind } => {
             if let Some(it) = map.items.get(item) {
                 let z = map
@@ -136,6 +184,7 @@ mod tests {
         items: [(kind: Medkit, pos: (2.0, 2.0)), (kind: Key(Red), pos: (6.0, 2.0))],
         switches: [(wall: (7, 0), action: Exit)],
         lights: [(pos: (1.0, 2.0, 2.5), color: (1.0, 1.0, 1.0), intensity: 100.0, range: 5.0, breakable: true)],
+        props: [(kind: Toilet, pos: (1.0, 1.0)), (kind: Vending, pos: (2.5, 3.0), angle_deg: 270.0), (kind: PoolTable, pos: (6.5, 2.0), angle_deg: 90.0)],
     "#;
 
     fn setup() -> (Map, Combat) {
@@ -150,6 +199,7 @@ mod tests {
         };
         map.actors.push(spawn(ActorKind::Grunt, 2.0));
         map.actors.push(spawn(ActorKind::Barrel, 6.0));
+        map.actors.push(spawn(ActorKind::Boss, 7.5));
         let combat = Combat::spawn(&map, &defs(), 1);
         (map, combat)
     }
@@ -241,7 +291,7 @@ mod tests {
             vec![(Cue::CrackOpen, Some(map.sector_centre(1)))],
             vec![(Cue::LightBreak, Some(p.with_z(2.5)))],
             vec![(Cue::Secret, None)],
-            vec![],
+            vec![(Cue::HazardSizzle, None)],
             vec![(Cue::Impact, Some(p))],
             vec![],
             vec![(Cue::Explosion, Some(p))],
@@ -267,6 +317,112 @@ mod tests {
                 &map
             ),
             vec![]
+        );
+    }
+
+    #[test]
+    fn boss_voice_follows_its_phase() {
+        let (map, mut c) = setup();
+        let cue = |c: &Combat, e: CombatEvent| {
+            run_combat(&e, c, &map)
+                .into_iter()
+                .map(|(q, _)| q)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(cue(&c, CombatEvent::ActorWoke(2)), vec![Cue::BossRoar]);
+        assert_eq!(
+            cue(&c, CombatEvent::ActorFired { actor: 2 }),
+            vec![Cue::BossRocket]
+        );
+        c.actors[2].phase = 1;
+        assert_eq!(
+            cue(&c, CombatEvent::ActorFired { actor: 2 }),
+            vec![Cue::BossMinigun]
+        );
+        assert_eq!(
+            cue(&c, CombatEvent::PhaseChanged { actor: 2, phase: 1 }),
+            vec![Cue::BossRoar]
+        );
+        assert_eq!(
+            cue(
+                &c,
+                CombatEvent::ActorKilled {
+                    actor: 2,
+                    by: Shooter::Player
+                }
+            ),
+            vec![Cue::BossDeath]
+        );
+        assert_eq!(
+            cue(
+                &c,
+                CombatEvent::ActorHurt {
+                    actor: 2,
+                    amount: 5
+                }
+            ),
+            vec![Cue::ActorPain(ActorKind::Boss)]
+        );
+    }
+
+    #[test]
+    fn hazards_quakes_and_props_have_cues() {
+        use crate::hazard::HazardKind;
+        let (map, c) = setup();
+        let one = |e: &CombatEvent| run_combat(e, &c, &map);
+        assert_eq!(
+            one(&CombatEvent::HazardBurn {
+                kind: HazardKind::Slime
+            }),
+            vec![(Cue::HazardSizzle, None)]
+        );
+        assert_eq!(
+            one(&CombatEvent::HazardBurn {
+                kind: HazardKind::Electric
+            }),
+            vec![(Cue::HazardZap, None)]
+        );
+        let mech = |e: MechEvent| {
+            let mut out = Vec::new();
+            mech_cues(&e, &map, &mut out);
+            out.into_iter().map(|(q, _)| q).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            mech(MechEvent::QuakeStarted {
+                strength: 0.8,
+                duration: 2.0
+            }),
+            vec![Cue::QuakeRumble]
+        );
+        let used = |prop, kind, outcome| MechEvent::PropUsed {
+            prop,
+            kind,
+            outcome,
+        };
+        assert_eq!(
+            mech(used(0, PropKind::Toilet, PropOutcome::Healed(10))),
+            vec![Cue::ToiletFlush]
+        );
+        assert_eq!(
+            mech(used(0, PropKind::Toilet, PropOutcome::Flushed)),
+            vec![Cue::ToiletFlush]
+        );
+        assert_eq!(
+            mech(used(1, PropKind::Vending, PropOutcome::Dispensed(5))),
+            vec![Cue::VendingDispense]
+        );
+        assert_eq!(
+            mech(used(1, PropKind::Vending, PropOutcome::SoldOut)),
+            vec![Cue::VendingEmpty]
+        );
+        assert_eq!(
+            mech(used(2, PropKind::PoolTable, PropOutcome::Racked)),
+            vec![Cue::PoolBreak]
+        );
+        assert_eq!(
+            mech(used(9, PropKind::PoolTable, PropOutcome::Racked)),
+            vec![],
+            "out of range"
         );
     }
 
@@ -468,6 +624,8 @@ mod tests {
                 .extend((sec.floor_z + sec.ceil_z) * 0.5),
         );
         let key_pos = Some(Vec3::new(6.0, 2.0, map.sectors[2].floor_z + 0.5));
+        let toilet = &map.props[0];
+        let toilet_pos = Some(toilet.pos.extend(map.sectors[toilet.sector].floor_z + 0.5));
         let expected: Vec<Out> = vec![
             vec![(Cue::DoorStart, centre)],
             vec![(Cue::DoorStop, centre)],
@@ -480,9 +638,8 @@ mod tests {
             vec![(Cue::LevelComplete, None)],
             vec![(Cue::Pickup(PickupClass::Key), key_pos)],
             vec![],
-            vec![],
-            // Silent for now; Task 15 maps the toilet flush to a cue.
-            vec![],
+            vec![(Cue::QuakeRumble, None)],
+            vec![(Cue::ToiletFlush, toilet_pos)],
         ];
         for (e, want) in all_mech_events().iter().zip(expected) {
             let mut out = Vec::new();
@@ -535,6 +692,44 @@ mod tests {
             ] {
                 combat_cues(&e, &g, &map, &mut out);
             }
+            g.actors[0].phase = 1;
+            combat_cues(&CombatEvent::ActorFired { actor: 0 }, &g, &map, &mut out);
+        }
+        for e in [
+            CombatEvent::PhaseChanged { actor: 2, phase: 1 },
+            CombatEvent::HazardBurn {
+                kind: crate::hazard::HazardKind::Slime,
+            },
+            CombatEvent::HazardBurn {
+                kind: crate::hazard::HazardKind::Electric,
+            },
+        ] {
+            combat_cues(&e, &c, &map, &mut out);
+        }
+        mech_cues(
+            &MechEvent::QuakeStarted {
+                strength: 0.5,
+                duration: 1.0,
+            },
+            &map,
+            &mut out,
+        );
+        for (prop, kind, outcome) in [
+            (0, PropKind::Toilet, PropOutcome::Healed(10)),
+            (0, PropKind::Toilet, PropOutcome::Flushed),
+            (1, PropKind::Vending, PropOutcome::Dispensed(5)),
+            (1, PropKind::Vending, PropOutcome::SoldOut),
+            (2, PropKind::PoolTable, PropOutcome::Racked),
+        ] {
+            mech_cues(
+                &MechEvent::PropUsed {
+                    prop,
+                    kind,
+                    outcome,
+                },
+                &map,
+                &mut out,
+            );
         }
         for e in all_weapon_events() {
             weapon_cues(&e, &mut out);
