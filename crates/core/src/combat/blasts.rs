@@ -93,7 +93,7 @@ impl Combat {
             if hit.body == BODY_PLAYER {
                 hurt_player(player, hit.damage, self.damage_scale, blast.center, out);
             } else {
-                out.extend(self.damage_actor(defs, hit.body - 1, hit.damage));
+                out.extend(self.damage_actor(defs, hit.body - 1, hit.damage, blast.owner));
             }
         }
         // Everything the blast reaches is found before any pane breaks, so a pane shields what

@@ -45,6 +45,7 @@ pub struct Segment {
     pub use_medkit: bool,
     pub toggle_jetpack: bool,
     pub toggle_nv: bool,
+    pub toggle_map: bool,
 }
 
 impl Segment {
@@ -109,6 +110,7 @@ impl DemoPlayback {
             input.use_medkit |= seg.use_medkit;
             input.toggle_jetpack |= seg.toggle_jetpack;
             input.toggle_nv |= seg.toggle_nv;
+            input.toggle_map |= seg.toggle_map;
             if seg.select.is_some() {
                 input.select = seg.select;
             }

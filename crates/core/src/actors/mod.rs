@@ -7,7 +7,7 @@
 use crate::collide::Body;
 use crate::defs::{EnemyAttack, EnemyDef, Locomotion};
 use crate::health::{DamageOutcome, Health};
-use crate::map::{ActorKind, ActorSpawn, Map, SectorId, WallId};
+use crate::map::{ActorKind, ActorSpawn, Map, SectorId, SwitchAction, WallId};
 use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
@@ -66,17 +66,58 @@ pub struct Actor {
     pub muzzle_offset: Vec3,
     /// Copied from the def; `Static` actors never think, wake or feel pain.
     pub locomotion: Locomotion,
+    /// Whom it hunts: the player at spawn, another actor after infighting.
+    pub target: Target,
+    /// Boss phase (`EnemyDef::phase_for`); 0 for every other actor.
+    pub phase: u8,
+    /// Copied from the def: a boss never infights and shrugs off its own splash.
+    pub boss: bool,
+    /// The spawn's action once the actor is dead; taken (fired once) on that tick.
+    pub on_death: Option<SwitchAction>,
 }
 
-/// What an actor knows about the player this tick.
+/// Whom an actor hunts. Infighting points it at another actor (by index; actors are never
+/// removed, so indices stay valid); when that one dies it goes back to the player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Target {
+    #[default]
+    Player,
+    Actor(usize),
+}
+
+/// What an actor knows about its target (the player, or another actor) this tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Perception {
-    /// The player's eye point (what actors try to see).
+    /// The target's eye point (what actors try to see).
     pub eye: Vec3,
-    /// The player's chest point (feet + 0.6 · height), where actors aim.
+    /// The target's chest point (feet + 0.6 · height), where actors aim.
     pub chest: Vec3,
     pub sector: SectorId,
     pub alive: bool,
+}
+
+impl Perception {
+    /// Another actor's body as a target: eye at 0.9 and chest at 0.6 of its height.
+    pub fn of_body(b: &Body) -> Perception {
+        Perception {
+            eye: b.pos + Vec3::Z * 0.9 * b.height,
+            chest: b.pos + Vec3::Z * 0.6 * b.height,
+            sector: b.sector,
+            alive: true,
+        }
+    }
+}
+
+/// Doom-style infighting: whether `victim`, just hurt by `attacker`, turns on it. Both alive,
+/// different kinds, neither static (barrels never hunt nor are hunted), and the victim is no
+/// boss (a boss only ever hunts the player; others may still turn on it).
+pub fn retargets(victim: &Actor, attacker: &Actor) -> bool {
+    victim.alive()
+        && attacker.alive()
+        && victim.kind != attacker.kind
+        && victim.locomotion != Locomotion::Static
+        && attacker.locomotion != Locomotion::Static
+        && !victim.boss
 }
 
 /// How long a chase route stays valid before `next_hop` runs again.
@@ -130,6 +171,10 @@ impl Actor {
             strafe: 0.0,
             muzzle_offset: Vec3::from(def.muzzle),
             locomotion: def.locomotion,
+            target: Target::Player,
+            phase: 0,
+            boss: def.boss,
+            on_death: spawn.on_death,
         })
     }
 
@@ -387,12 +432,14 @@ pub struct Volley {
     /// Glass walls pellets hit, once each. The volley is traced on the map as it was, so every
     /// pellet stops at a pane; the caller breaks them (`Destruct::break_glass`).
     pub glass: Vec<WallId>,
+    /// Damage per actor (index, sum) from pellets that hit an actor body, ascending.
+    pub actor_damage: Vec<(usize, i32)>,
 }
 
 /// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
 /// direction, already jittered by the aim error) with `spread_deg` extra spread, up to
 /// `def.attack_range`. `bodies` is `[player, actor 0, actor 1, ...]` and `alive(i)` says whether
-/// actor `i` is a living target. Pellets stopped by another actor do no damage (no infighting).
+/// actor `i` is a living target. Pellets that stop at another actor hurt it (`actor_damage`).
 #[allow(clippy::too_many_arguments)]
 pub fn volley(
     map: &Map,
@@ -415,6 +462,7 @@ pub fn volley(
     let (origin, sector) = effective_muzzle(map, a);
     let skip = |i: usize| i != 0 && (i - 1 == shooter || !alive(i - 1));
     let mut out = Volley::default();
+    let mut dealt = vec![0; bodies.len()];
     for d in crate::weapons::spread_dirs(dir, pellets, spread_deg, rng) {
         let ray = Ray {
             origin,
@@ -427,7 +475,7 @@ pub fn volley(
         };
         match h.kind {
             HitKind::Body(0) => out.player_damage += damage,
-            HitKind::Body(_) => {}
+            HitKind::Body(b) => dealt[b] += damage,
             HitKind::Wall(w) if crate::destruct::hits_pane(map, &h) => {
                 if !out.glass.contains(&w) {
                     out.glass.push(w);
@@ -436,6 +484,10 @@ pub fn volley(
             _ => out.impacts.push(h),
         }
     }
+    out.actor_damage = (1..dealt.len())
+        .filter(|&b| dealt[b] > 0)
+        .map(|b| (b - 1, dealt[b]))
+        .collect();
     out
 }
 
@@ -641,6 +693,7 @@ mod tests {
             angle,
             asleep,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         Actor::new(map, def, &spawn).expect("spawn inside the map")
     }
@@ -1118,6 +1171,7 @@ mod tests {
             angle: 0.0,
             asleep: false,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         let mut a = Actor::new(&map, &def, &spawn).unwrap();
         a.state = AiState::Chase;

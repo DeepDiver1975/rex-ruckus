@@ -18,6 +18,7 @@ use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use rr_core::defs::WeaponId;
 use rr_core::map::{ActorKind, ItemKind};
 use rr_core::models::{Clips, ItemKindModel, ModelDefs, Placement};
+use rr_core::props::PropKind;
 
 /// Loads the model library, builds animation graphs and binds them to spawned enemy models.
 pub struct ModelsPlugin;
@@ -116,6 +117,7 @@ pub struct ModelLibrary {
     enemies: HashMap<ActorKind, EnemyAssets>,
     weapons: HashMap<WeaponId, ModelScene>,
     items: HashMap<ItemKindModel, ModelScene>,
+    props: HashMap<PropKind, ModelScene>,
     pub held_bomb: ModelScene,
     pub detonator: ModelScene,
 }
@@ -158,12 +160,18 @@ impl ModelLibrary {
             .iter()
             .map(|i| (i.kind, scene(&i.scene, &i.place)))
             .collect();
+        let props = defs
+            .props
+            .iter()
+            .map(|p| (p.kind, scene(&p.scene, &p.place)))
+            .collect();
         ModelLibrary {
             held_bomb: scene(&defs.extras.held_bomb.scene, &defs.extras.held_bomb.place),
             detonator: scene(&defs.extras.detonator.scene, &defs.extras.detonator.place),
             enemies,
             weapons,
             items,
+            props,
             defs,
         }
     }
@@ -187,6 +195,11 @@ impl ModelLibrary {
     /// Every keycard colour shares one scene.
     pub fn item(&self, kind: ItemKind) -> &ModelScene {
         &self.items[&ItemKindModel::of(kind)]
+    }
+
+    /// `None` for props that stay code-built.
+    pub fn prop(&self, kind: PropKind) -> Option<&ModelScene> {
+        self.props.get(&kind)
     }
 
     /// The graph node playing `role` for `kind`; `None` until the graph is built or if the
@@ -401,13 +414,20 @@ pub enum Look {
     Pain,
     /// Warm-white flash after a hit.
     Hit,
+    /// A phase-2 boss's pulse: the `Normal` skin (texture and tint kept) plus a red glow.
+    Pulse,
 }
 
 /// Brightness of the `Dim` look relative to `Normal`.
 const DIM: f32 = 0.45;
 
+/// Colour and strength of the `Pulse` look's emissive.
+const PULSE_GLOW: (f32, f32, f32) = (1.0, 0.1, 0.05);
+const PULSE_STRENGTH: f32 = 0.8;
+
 /// `base` as drawn with `look`; `tint` (sRGB multiplier) applies to `Normal` and `Dim`.
-/// Textures, roughness and alpha are kept; `Pain` and `Hit` override colour and glow.
+/// Textures, roughness and alpha are kept; `Pain` and `Hit` override colour and glow, while
+/// `Pulse` keeps the `Normal` colour and only adds a red emissive.
 pub fn tinted(
     base: &StandardMaterial,
     look: Look,
@@ -429,6 +449,12 @@ pub fn tinted(
         Look::Dim => scale(&mut m, (r * DIM, g * DIM, b * DIM)),
         Look::Pain => glow(&mut m, Color::srgb(0.85, 0.15, 0.1), 1.5),
         Look::Hit => glow(&mut m, Color::srgb(1.0, 0.85, 0.7), 2.5),
+        Look::Pulse => {
+            scale(&mut m, (r, g, b));
+            let (pr, pg, pb) = PULSE_GLOW;
+            m.emissive = Color::srgb(pr, pg, pb).to_linear() * PULSE_STRENGTH;
+            m.emissive_texture = None;
+        }
     }
     m
 }
@@ -491,6 +517,25 @@ mod tests {
         let m = tinted(&base(), Look::Normal, None);
         assert!(close(m.base_color, base().base_color));
         assert_eq!(m.perceptual_roughness, 0.3);
+    }
+
+    #[test]
+    fn pulse_keeps_the_skin_and_adds_a_red_glow() {
+        let tex = Handle::<Image>::default();
+        let src = StandardMaterial {
+            base_color_texture: Some(tex.clone()),
+            ..base()
+        };
+        let p = tinted(&src, Look::Pulse, None);
+        assert!(close(p.base_color, base().base_color), "base colour kept");
+        assert_eq!(p.base_color_texture, Some(tex), "texture kept");
+        assert_eq!(p.perceptual_roughness, 0.3);
+        let e = p.emissive;
+        assert!(e.red > 0.5, "glows: {e:?}");
+        assert!(e.red > 5.0 * e.green && e.red > 5.0 * e.blue, "red: {e:?}");
+        // The enemy tint still applies, as for `Normal`.
+        let t = tinted(&src, Look::Pulse, Some((1.0, 0.5, 2.0)));
+        assert!(close(t.base_color, Color::srgba(0.5, 0.2, 0.4, 0.9)));
     }
 
     #[test]

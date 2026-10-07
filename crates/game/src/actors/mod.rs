@@ -4,9 +4,9 @@
 //! Purely presentational: every system here only reads the simulation ([`LevelCombat`],
 //! [`FxQueue`]) and writes transforms, materials, animation players and visual-only entities.
 //! Every actor gets an [`ActorVisual`] root plus the marker of its kind, with its model spawned
-//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher) and
-//! attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks and
-//! plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
+//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher, Boss)
+//! and attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks
+//! and plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
 
 mod anim;
 mod barrel;
@@ -17,14 +17,14 @@ mod projectiles;
 pub use anim::{AnimCmd, anim_for, pick_role};
 pub use barrel::BarrelVisual;
 pub use drone::DroneVisual;
-pub use humanoid::{EnforcerVisual, GruntVisual, SlasherVisual};
+pub use humanoid::{BossVisual, EnforcerVisual, GruntVisual, SlasherVisual};
 pub use projectiles::{
     BoltVisual, BombVisual, ProjKind, RocketVisual, SPARK_SECS, Spark, proj_kind,
 };
 
 use crate::combat::{FxQueue, FxReaders, LevelCombat, spawn_combat};
 use crate::coords::{core_angle_to_yaw, to_bevy};
-use crate::flow::{LevelEntity, SpawnLevel};
+use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::models::{Look, ModelLibrary, ModelReady, ModelSlot, TintCache, spawn_model_with};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -172,7 +172,7 @@ pub fn death_pitch(t_left: f32, death_time: f32) -> f32 {
 fn has_gun(kind: ActorKind) -> bool {
     matches!(
         kind,
-        ActorKind::Grunt | ActorKind::Enforcer | ActorKind::Drone
+        ActorKind::Grunt | ActorKind::Enforcer | ActorKind::Drone | ActorKind::Boss
     )
 }
 
@@ -214,6 +214,7 @@ fn spawn_actors(
             ActorKind::Slasher => e.insert(SlasherVisual(i)),
             ActorKind::Drone => e.insert(DroneVisual(i)),
             ActorKind::Barrel => e.insert(BarrelVisual(i)),
+            ActorKind::Boss => e.insert(BossVisual(i)),
         };
         let Some(lib) = lib.as_deref() else {
             continue;
@@ -394,9 +395,36 @@ fn pose(kind: ActorKind, state: AiState) -> Look {
     }
 }
 
+/// Pulses per second of the phase-2 glow.
+const PULSE_HZ: f32 = 4.0;
+
+/// A boss past its first phase pulses with a red glow over its normal skin (half of each 1/4 s
+/// period), unless it shows pain or is flashing anyway. Only a living boss pulses.
+pub fn phase_look(look: Look, phase: u8, alive: bool, t: f32) -> Look {
+    if alive && phase > 0 && look == Look::Normal && (t * PULSE_HZ).fract() < 0.5 {
+        Look::Pulse
+    } else {
+        look
+    }
+}
+
+/// The pulse clock after a frame of `dt`: it runs only while playing, so a phase-2 boss holds
+/// its glow under the pause menu and the other non-playing screens.
+fn advance_pulse(t: f32, dt: f32, state: PlayState) -> f32 {
+    if state == PlayState::Playing {
+        t + dt
+    } else {
+        t
+    }
+}
+
 /// Swaps every mesh of each ready model to the [`TintCache`] variant of its original material
 /// for the actor's look, only when the look changes. The enemy's `tint` colours `Normal`/`Dim`.
+#[allow(clippy::too_many_arguments)]
 fn tint_enemies(
+    time: Res<Time>,
+    state: Res<PlayState>,
+    mut pulse: Local<f32>,
     combat: Res<LevelCombat>,
     lib: Res<ModelLibrary>,
     mut cache: ResMut<TintCache>,
@@ -405,11 +433,17 @@ fn tint_enemies(
     ready: Query<&ModelReady>,
     mut mats: Query<&mut MeshMaterial3d<StandardMaterial>>,
 ) {
+    *pulse = advance_pulse(*pulse, time.delta_secs(), *state);
     for (g, model, hit, mut look) in &mut roots {
         let (Some(actor), Ok(ready)) = (combat.0.actors.get(g.0), ready.get(model.root)) else {
             continue;
         };
-        let want = skin_look(pose(model.kind, actor.state), actor.alive(), hit.0);
+        let want = phase_look(
+            skin_look(pose(model.kind, actor.state), actor.alive(), hit.0),
+            actor.phase,
+            actor.alive(),
+            *pulse,
+        );
         if look.current == Some(want) {
             continue;
         }
@@ -452,6 +486,50 @@ fn place_walker(t: &mut Transform, actor: &Actor, alpha: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phase_two_pulses_between_normal_and_pulse() {
+        assert_eq!(phase_look(Look::Normal, 0, true, 0.1), Look::Normal);
+        assert_eq!(phase_look(Look::Normal, 1, true, 0.05), Look::Pulse);
+        assert_eq!(phase_look(Look::Normal, 1, true, 0.2), Look::Normal);
+        assert_eq!(
+            phase_look(Look::Pain, 1, true, 0.05),
+            Look::Pain,
+            "pain wins"
+        );
+        assert_eq!(
+            phase_look(Look::Normal, 1, false, 0.05),
+            Look::Normal,
+            "a dying or dead boss does not pulse"
+        );
+        assert_eq!(
+            phase_look(Look::Hit, 1, true, 0.05),
+            Look::Hit,
+            "a hit flash wins"
+        );
+        assert!(has_gun(ActorKind::Boss));
+    }
+
+    #[test]
+    fn the_pulse_clock_stops_while_not_playing() {
+        assert_eq!(advance_pulse(1.0, 0.1, PlayState::Playing), 1.1);
+        for s in [
+            PlayState::Menu,
+            PlayState::Paused,
+            PlayState::Dead,
+            PlayState::Complete,
+            PlayState::EpisodeEnd,
+        ] {
+            assert_eq!(advance_pulse(1.0, 0.1, s), 1.0, "{s:?}");
+        }
+        // A paused phase-2 boss keeps whichever look it paused on.
+        let t = 0.05;
+        let held = (0..100).fold(t, |t, _| advance_pulse(t, 0.016, PlayState::Paused));
+        assert_eq!(
+            phase_look(Look::Normal, 1, true, held),
+            phase_look(Look::Normal, 1, true, t)
+        );
+    }
 
     #[test]
     fn death_pitch_is_monotonic_and_clamped() {

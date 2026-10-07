@@ -68,7 +68,7 @@ writes the settings file.
 
 ## Controls
 
-Defaults (the actions are rebindable under Options, except Esc; the M, `[` and `]` sound keys are fixed, and yield to any action bound to them). Click to capture the mouse (that first click does not fire) · Esc pauses and releases the mouse · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
+Defaults (the actions are rebindable under Options, except Esc; the M, `[` and `]` sound keys are fixed, and yield to any action bound to them). Click to capture the mouse (that first click does not fire) · Esc pauses and releases the mouse · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · Tab toggle the automap (rotates with you; walls appear as you see them; the game keeps running) · M mute / unmute · `[` and `]` lower / raise the master volume by 10%
 
 ## Audio
 
@@ -97,7 +97,36 @@ The default level is `arsenal_depot.ron`, the M4a showcase: rockets and explodin
 
     cargo run -p rr-game --release -- test_yard.ron
 
+`engine_lab.ron` is the M5b showcase (not part of the episode): a gag room (a toilet to flush, a
+vending machine, a pool table), a slime pit to cross by jetpack, a Grunt and an Enforcer that
+fight each other, a live electric grate, a trigger pad that sets off a quake and drops the floor
+ahead, and a boss whose death ends the level. `assets/demo/engine_lab.ron` tours it.
+
 Add `--mute` to start with the sound off (`M` toggles it in game).
+
+### Level format: engine features
+
+Every engine field defaults off, so older levels parse unchanged:
+
+```ron
+sectors: [ ( ..., hazard: Some((damage: 4, interval: 0.75, kind: Slime)) ),   // or Electric
+           ( ..., mover: Some((kind: Lift(to: -1.5), channel: Some(7), speed: 0.8, one_shot: true)) ) ],
+triggers: [ (sector: 5, action: Channel(7)), (sector: 12, action: Exit) ],   // once: true default
+quakes:   [ (channel: 7, duration: 3.0, strength: 0.8) ],
+props:    [ (kind: Toilet, pos: (3.0, 9.5), angle_deg: 270.0),
+            (kind: Vending, pos: (6.0, 2.0), angle_deg: 90.0, stock: 3),
+            (kind: PoolTable, pos: (10.0, 6.0), angle_deg: 0.0) ],
+actors:   [ (kind: Boss, pos: (20.0, 20.0), on_death: Some(Exit)) ],
+```
+
+- **Hazards** burn the player on the floor (not in jetpack flight) at once, then every `interval`
+  seconds; their floors are drawn as slime or a live grate whatever material the sector names.
+- **One-shot movers** stay put once they reach their end: a `Lift` on a channel is a collapsing
+  floor.
+- **Triggers** run a switch action when the player enters the sector; **quakes** shake the screen
+  when their channel fires.
+- **Props** block movement and respond to the use key (the toilet and the vending machine heal).
+- **`on_death`** runs a switch action when the actor is dead (here: the boss exits the level).
 
 ## Models
 
@@ -113,10 +142,19 @@ Weapon and enemy stats live in `assets/defs/weapons.ron` and `assets/defs/enemie
 
     cargo run -p rr-tools -- validate assets/levels/*.ron
     cargo run -p rr-tools -- render-svg assets/levels/arsenal_depot.ron -o depot.svg
+    cargo run -p rr-tools -- info assets/levels/engine_lab.ron
+    cargo run -p rr-tools -- render-svg assets/levels/engine_lab.ron --ids -o lab.svg
 
 `validate` also checks that the sound bank covers every event, that quip files exist, that level music files exist and that models cover every enemy, weapon and pickup (clip and bone names, triangle budget) and that every third-party audio and model file is listed in `CREDITS.md`.
 
-In the SVG, glass panes are dashed cyan, crack walls hatched and secret sectors starred.
+`info` prints the sector table (heights, area, vertex ids, hazard and mover flags), the channel
+table (switches, triggers and `on_death` actors to movers and quakes), the exits and the actor,
+item and prop counts. `validate` also counts triggers and `on_death` as channel sources and exits,
+allows one boss per level and keeps props inside their sector and out of mover sectors.
+
+In the SVG, glass panes are dashed cyan, crack walls hatched and secret sectors starred; it also
+shows lights, hazard floors, props, trigger sectors and the boss, and `--ids` labels sectors and
+vertices.
 
 ## Property tests
 

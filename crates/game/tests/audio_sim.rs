@@ -11,6 +11,7 @@ use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{ItemKind, Key, Map, MoverKind};
 use rr_core::mechanics::MechEvent;
+use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
 use rr_game::audio::{
     AudioFxPlugin, AudioOptions, AudioVolumes, GameCues, JetpackHum, MoverLoop, MusicTrack,
@@ -297,8 +298,26 @@ fn skip_cooldown(app: &mut App) {
 
 fn kill_burst(app: &mut App) {
     for _ in 0..3 {
-        fx(app).combat.push(CombatEvent::ActorKilled(0));
+        fx(app).combat.push(CombatEvent::ActorKilled {
+            actor: 0,
+            by: Shooter::Player,
+        });
     }
+}
+
+#[test]
+fn infight_kills_say_nothing() {
+    let mut app = app();
+    skip_cooldown(&mut app);
+    let before = (quip_voice(&mut app), subtitle(&app));
+    for _ in 0..3 {
+        fx(&mut app).combat.push(CombatEvent::ActorKilled {
+            actor: 0,
+            by: Shooter::Actor(1),
+        });
+    }
+    app.update();
+    assert_eq!((quip_voice(&mut app), subtitle(&app)), before);
 }
 
 #[test]

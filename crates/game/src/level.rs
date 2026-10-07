@@ -80,7 +80,7 @@ impl Plugin for LevelRenderPlugin {
             })
             .init_resource::<DirtySectors>()
             .add_systems(SpawnLevel, spawn_level)
-            .add_systems(Update, rebuild_dirty_sectors);
+            .add_systems(Update, (rebuild_dirty_sectors, scroll_hazard_floors));
     }
 }
 
@@ -145,6 +145,42 @@ pub fn rebuild_dirty_sectors(
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LevelLight(pub usize);
 
+/// The glow of a hazard floor material, if it is one.
+fn hazard_glow(name: &str) -> Option<LinearRgba> {
+    match name {
+        textures::SLIME => Some(LinearRgba::rgb(0.4, 1.6, 0.3)),
+        textures::ELECTRIC => Some(LinearRgba::rgb(0.6, 1.0, 2.5)),
+        _ => None,
+    }
+}
+
+/// UV scroll speed (texture lengths per second) of an animated hazard floor.
+pub fn hazard_scroll(name: &str) -> Option<f32> {
+    match name {
+        textures::SLIME => Some(0.15),
+        textures::ELECTRIC => Some(0.6),
+        _ => None,
+    }
+}
+
+/// Scrolls the slime and electric floor textures (same material-update pattern as the fireball
+/// fade in `fx.rs`).
+fn scroll_hazard_floors(
+    time: Res<Time>,
+    mats: Option<Res<LevelMaterials>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(mats) = mats else { return };
+    for (h, name) in mats.0.iter().zip(&mats.1) {
+        if let Some(speed) = hazard_scroll(name)
+            && let Some(mut m) = materials.get_mut(h)
+        {
+            let v = (time.elapsed_secs() * speed).fract();
+            m.uv_transform = bevy::math::Affine2::from_translation(Vec2::new(0.0, v));
+        }
+    }
+}
+
 /// The material of a named level texture. Glass is translucent light cyan; the sky is unlit.
 fn level_material(name: &str, texture: Handle<Image>) -> StandardMaterial {
     let mut m = StandardMaterial {
@@ -153,6 +189,10 @@ fn level_material(name: &str, texture: Handle<Image>) -> StandardMaterial {
         unlit: name == "sky",
         ..default()
     };
+    if let Some(glow) = hazard_glow(name) {
+        m.emissive = glow;
+        m.emissive_texture = m.base_color_texture.clone();
+    }
     if name == GLASS_MATERIAL {
         // Both faces of a pane are separate quads facing opposite ways, so back-face culling
         // stays on and the coplanar quads never z-fight.
@@ -258,6 +298,12 @@ fn spawn_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_hazard_materials_scroll() {
+        assert!(hazard_scroll("slime").is_some() && hazard_scroll("electric").is_some());
+        assert_eq!(hazard_scroll("brick"), None);
+    }
 
     #[test]
     fn level_arg_is_a_name_under_assets_or_an_existing_path() {

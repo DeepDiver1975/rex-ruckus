@@ -4,7 +4,9 @@
 //! Spawned once at startup; it is not a `LevelEntity`, so it persists across restarts.
 
 use crate::bindings::{Action, Bindings};
-use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
+use crate::combat::{
+    FxQueue, FxReaders, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, HudSubtitle, LevelMechanics, UsePrompt};
@@ -13,9 +15,11 @@ use crate::props::key_color;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::WeaponId;
+use rr_core::hazard::HazardKind;
 use rr_core::inventory::{BATTERY_MAX, FUEL_MAX, Inventory as Carried, MEDKIT_MAX};
 use rr_core::map::{Key, Map, MoverKind, SwitchAction};
 use rr_core::mechanics::{Mechanics, UseTarget};
+use rr_core::props::PropKind;
 
 /// Damage that fills the flash completely.
 const FLASH_FULL_DAMAGE: f32 = 25.0;
@@ -39,6 +43,12 @@ struct PromptText;
 struct MessageText;
 #[derive(Component)]
 struct SubtitleText;
+/// The boss health bar's frame; hidden unless a boss lives.
+#[derive(Component)]
+struct BossBar;
+/// The red fill inside the [`BossBar`].
+#[derive(Component)]
+struct BossBarFill;
 /// One text cell of the status bar.
 #[derive(Component, Clone, Copy)]
 enum StatusCell {
@@ -67,6 +77,41 @@ struct OverlayNode;
 #[derive(Component)]
 struct OverlayText;
 
+const HURT_RED: Color = Color::srgb(0.85, 0.0, 0.0);
+
+/// The flash colour; red unless a hazard burned.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct FlashColor(pub Color);
+
+impl Default for FlashColor {
+    fn default() -> Self {
+        FlashColor(HURT_RED)
+    }
+}
+
+pub fn hazard_color(kind: HazardKind) -> Color {
+    match kind {
+        HazardKind::Slime => Color::srgb(0.25, 0.85, 0.1),
+        HazardKind::Electric => Color::srgb(0.3, 0.6, 1.0),
+    }
+}
+
+/// The flash colour for a frame's events: `None` without a `PlayerHurt`; a hazard's colour when
+/// a `HazardBurn` came with it; red otherwise.
+pub fn hurt_tint(events: &[CombatEvent]) -> Option<Color> {
+    if !events
+        .iter()
+        .any(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
+    {
+        return None;
+    }
+    let hazard = events.iter().rev().find_map(|e| match e {
+        CombatEvent::HazardBurn { kind } => Some(hazard_color(*kind)),
+        _ => None,
+    });
+    Some(hazard.unwrap_or(HURT_RED))
+}
+
 /// Red screen flash strength in 0..=1.
 #[derive(Resource, Default, Debug)]
 pub struct DamageFlash(pub f32);
@@ -83,6 +128,12 @@ pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget, key: &str) -> Str
         UseTarget::Switch(i) => match map.switches[i].action {
             SwitchAction::Exit => "Exit",
             SwitchAction::Channel(_) => "Switch",
+        },
+        UseTarget::Prop(i) => match (map.props[i].kind, mech.props[i].stock) {
+            (PropKind::Toilet, _) => "Use toilet",
+            (PropKind::Vending, 0) => "Sold out",
+            (PropKind::Vending, _) => "Buy soda",
+            (PropKind::PoolTable, _) => "Rack 'em",
         },
     };
     format!("[{key}] {what}")
@@ -165,6 +216,7 @@ impl Plugin for HudPlugin {
             app.insert_resource(ui);
         }
         app.init_resource::<DamageFlash>()
+            .init_resource::<FlashColor>()
             .init_resource::<HudSubtitle>()
             .add_systems(Startup, spawn_hud)
             .add_systems(
@@ -173,6 +225,7 @@ impl Plugin for HudPlugin {
                     update_prompt,
                     update_message,
                     update_subtitle,
+                    update_boss_bar,
                     update_status,
                     update_keycards,
                     read_hurt.in_set(FxReaders),
@@ -227,7 +280,56 @@ fn row(top: Val) -> Node {
     }
 }
 
+/// The boss bar's fill percent for the boss's health fraction; `None` when no boss lives.
+pub fn boss_bar_percent(frac: Option<f32>) -> Option<f32> {
+    frac.map(|f| f.clamp(0.0, 1.0) * 100.0)
+}
+
+fn update_boss_bar(
+    combat: Option<Res<LevelCombat>>,
+    mut bar: Single<&mut Visibility, With<BossBar>>,
+    mut fill: Single<&mut Node, With<BossBarFill>>,
+) {
+    match boss_bar_percent(combat.and_then(|c| c.0.boss_health())) {
+        Some(p) => {
+            bar.set_if_neq(Visibility::Inherited);
+            if fill.width != Val::Percent(p) {
+                fill.width = Val::Percent(p);
+            }
+        }
+        None => {
+            bar.set_if_neq(Visibility::Hidden);
+        }
+    }
+}
+
 fn spawn_hud(mut commands: Commands, ui: Res<UiFont>) {
+    // The boss bar sits under the message row.
+    commands
+        .spawn((row(Val::Px(56.0)), HudRoot))
+        .with_children(|p| {
+            p.spawn((
+                Node {
+                    width: Val::Percent(40.0),
+                    height: Val::Px(12.0),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+                Visibility::Hidden,
+                BossBar,
+            ))
+            .with_children(|b| {
+                b.spawn((
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.85, 0.1, 0.05)),
+                    BossBarFill,
+                ));
+            });
+        });
     commands
         .spawn((row(Val::Percent(60.0)), HudRoot))
         .with_children(|p| {
@@ -513,7 +615,10 @@ fn update_keycards(
 }
 
 /// An [`FxReaders`] system: it only reads the queue.
-fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>) {
+fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>, mut color: ResMut<FlashColor>) {
+    if let Some(c) = hurt_tint(&fx.combat) {
+        color.0 = c;
+    }
     for ev in &fx.combat {
         if let CombatEvent::PlayerHurt { amount, .. } = ev {
             flash.0 = flash_add(flash.0, *amount);
@@ -524,12 +629,10 @@ fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>) {
 fn update_flash(
     time: Res<Time>,
     mut flash: ResMut<DamageFlash>,
+    color: Res<FlashColor>,
     mut node: Single<&mut BackgroundColor, With<FlashNode>>,
 ) {
-    set_bg(
-        &mut node,
-        Color::srgba(0.85, 0.0, 0.0, flash.0 * FLASH_ALPHA),
-    );
+    set_bg(&mut node, color.0.with_alpha(flash.0 * FLASH_ALPHA));
     if flash.0 > 0.0 {
         flash.0 = flash_decay(flash.0, time.delta_secs());
     }
@@ -557,7 +660,33 @@ fn update_overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rr_core::hazard::HazardKind;
+
+    #[test]
+    fn hazard_burns_tint_the_flash() {
+        let hurt = CombatEvent::PlayerHurt {
+            amount: 4,
+            from: Vec3::ZERO,
+        };
+        assert_eq!(hurt_tint(&[]), None);
+        assert_eq!(hurt_tint(std::slice::from_ref(&hurt)), Some(HURT_RED));
+        let slime = CombatEvent::HazardBurn {
+            kind: HazardKind::Slime,
+        };
+        assert_eq!(
+            hurt_tint(&[slime, hurt]),
+            Some(hazard_color(HazardKind::Slime))
+        );
+    }
+
     use rr_core::fixtures::{door_rooms, lift_shaft};
+
+    #[test]
+    fn boss_bar_follows_the_boss() {
+        assert_eq!(boss_bar_percent(None), None);
+        assert_eq!(boss_bar_percent(Some(0.5)), Some(50.0));
+        assert_eq!(boss_bar_percent(Some(-0.2)), Some(0.0));
+    }
 
     #[test]
     fn prompt_names_the_target() {
@@ -577,6 +706,25 @@ mod tests {
         assert_eq!(
             prompt_label(&map, &mech, UseTarget::Switch(1), "X"),
             "[X] Switch"
+        );
+        let mut map = rr_core::fixtures::engine_room("");
+        let mut mech = Mechanics::new(&mut map);
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(0), "E"),
+            "[E] Use toilet"
+        );
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(1), "E"),
+            "[E] Buy soda"
+        );
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(2), "E"),
+            "[E] Rack 'em"
+        );
+        mech.props[1].stock = 0;
+        assert_eq!(
+            prompt_label(&map, &mech, UseTarget::Prop(1), "E"),
+            "[E] Sold out"
         );
         let mut b = Bindings::default();
         assert_eq!(use_key_label(Some(&b)), "E");

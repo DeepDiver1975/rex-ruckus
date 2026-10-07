@@ -1,0 +1,89 @@
+// Demo tour of engine_lab.ron (the M5b showcase), replayed by `rex-ruckus --demo`.
+// Segments run back to back; headings are core degrees (0 = east, 90 = north, CCW).
+(
+    invulnerable: true,
+    segments: [
+        // Hall: grab the jetpack, then into the gag room.
+        (secs: 0.5),
+        (secs: 0.4, turn_deg: -90.0),
+        (secs: 0.5, forward: 0.5),
+        (secs: 0.6, turn_deg: 157.0),
+        (secs: 2.0, forward: 0.5),
+        // Gag room: the medkit, then flush the toilet.
+        (secs: 0.4, turn_deg: 113.0),
+        (secs: 0.95, forward: 0.5),
+        (secs: 0.4, turn_deg: -90.0),
+        (secs: 0.55, forward: 0.5),
+        (secs: 0.3),
+        (secs: 1.2, use_key: true),
+        // The automap.
+        (secs: 1.5, toggle_map: true),
+        (secs: 0.3, toggle_map: true),
+        // The vending machine, twice.
+        (secs: 0.5, turn_deg: -84.0),
+        (secs: 1.5, forward: 0.5),
+        (secs: 0.4, turn_deg: -96.0),
+        (secs: 0.25, forward: 0.5),
+        (secs: 0.4, turn_deg: 90.0),
+        (secs: 0.8, use_key: true),
+        (secs: 0.8, use_key: true),
+        // The pool table.
+        (secs: 0.5, turn_deg: 180.0),
+        (secs: 0.3, forward: 0.5),
+        (secs: 1.2, use_key: true),
+        // Back through the hall to the pit doorway.
+        (secs: 0.4, turn_deg: 90.0),
+        (secs: 0.3, forward: 0.5),
+        (secs: 0.3, turn_deg: -45.0),
+        (secs: 0.55, forward: 0.5),
+        (secs: 0.5, turn_deg: 106.0),
+        (secs: 2.0, forward: 0.5),
+        (secs: 0.3, turn_deg: 29.0),
+        (secs: 0.55, forward: 0.5),
+        // Down into the slime, then the jetpack across to the east ledge and the launcher.
+        (secs: 0.45, forward: 0.5),
+        (secs: 1.2),
+        (secs: 0.4, toggle_jetpack: true, jump: true),
+        (secs: 0.5, jump: true, forward: 0.5),
+        (secs: 0.3, turn_deg: -15.0, forward: 0.5),
+        (secs: 0.7, forward: 0.5),
+        (secs: 0.3, toggle_jetpack: true),
+        (secs: 0.5),
+        (secs: 0.3, turn_deg: -75.0),
+        (secs: 0.3, forward: 0.5),
+        // North into the arena doorway: the Enforcer's volleys hit the Grunt.
+        (secs: 0.5, turn_deg: 195.0),
+        (secs: 1.6, forward: 0.5),
+        (secs: 0.3, turn_deg: -12.0),
+        (secs: 2.7),
+        // Finish the winner with the shotgun.
+        (secs: 0.3, select: Some(Shotgun)),
+        (secs: 0.9, fire: true),
+        (secs: 0.9, fire: true),
+        (secs: 0.9, fire: true),
+        // Through the arena, over the live grate onto the trigger pad.
+        (secs: 0.4, turn_deg: -46.4),
+        (secs: 1.75, forward: 0.5),
+        (secs: 0.3, turn_deg: -43.6),
+        (secs: 0.85, forward: 0.5),
+        (secs: 3.5, pitch_deg: Some(-25.0)),
+        // Into the hole and south through the tunnel.
+        (secs: 1.0, forward: 0.5, pitch_deg: Some(0.0)),
+        (secs: 0.4, turn_deg: -90.0),
+        (secs: 1.0, forward: 0.5),
+        (secs: 0.4, turn_deg: 90.0),
+        (secs: 2.1, forward: 0.5),
+        // The boss: rockets, then the chaingun once they run out (the auto-switch), until it dies.
+        (secs: 0.4, turn_deg: -54.5, select: Some(Rockets)),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        (secs: 1.0, fire: true),
+        // Its death ends the level.
+        (secs: 3.0),
+    ],
+)

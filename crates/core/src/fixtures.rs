@@ -150,3 +150,43 @@ pub fn combat_room() -> Map {
     )
     .expect("combat_room fixture is valid")
 }
+
+/// The M5b engine room, five cells in a row along x, all y∈[0,4], ceilings 4: hall H x∈[0,6]
+/// (sector 0, start (1,2) facing east), trigger pad T x∈[6,7] (sector 1; trigger 0 fires
+/// channel 7 once), collapse floor C x∈[7,9] (sector 2; one-shot `Lift(to: -2.0)` on channel 7,
+/// 1 m/s), slime pit P x∈[9,13] (sector 3, floor -0.5, 4 damage every 0.75 s), gag room G
+/// x∈[13,19] (sector 4) with a toilet (prop 0, facing south), a vending machine (prop 1, stock 2,
+/// facing west) and a pool table (prop 2). Quake 0: channel 7, 2 s, strength 0.8. Materials:
+/// 0 wall, 1 floor, 2 ceiling. `extra` is spliced into the level (it must not repeat a field).
+pub fn engine_room_ron(extra: &str) -> String {
+    format!(
+        r#"(
+        name: "engine room",
+        materials: ["wall", "floor", "ceiling"],
+        vertices: [(0.0, 0.0), (6.0, 0.0), (7.0, 0.0), (9.0, 0.0), (13.0, 0.0), (19.0, 0.0),
+                   (19.0, 4.0), (13.0, 4.0), (9.0, 4.0), (7.0, 4.0), (6.0, 4.0), (0.0, 4.0)],
+        sectors: [
+            (loops: [[0, 1, 10, 11]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[1, 2, 9, 10]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[2, 3, 8, 9]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0,
+             mover: Some((kind: Lift(to: -2.0), channel: Some(7), speed: 1.0, one_shot: true))),
+            (loops: [[3, 4, 7, 8]], floor_z: -0.5, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0,
+             hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+            (loops: [[4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+        ],
+        player_start: (pos: (1.0, 2.0), angle_deg: 0.0),
+        triggers: [(sector: 1, action: Channel(7))],
+        quakes: [(channel: 7, duration: 2.0, strength: 0.8)],
+        props: [
+            (kind: Toilet, pos: (14.0, 3.4), angle_deg: 270.0),
+            (kind: Vending, pos: (18.4, 2.0), angle_deg: 180.0, stock: 2),
+            (kind: PoolTable, pos: (16.0, 1.2), angle_deg: 0.0),
+        ],
+        {extra}
+    )"#
+    )
+}
+
+pub fn engine_room(extra: &str) -> Map {
+    Map::from_ron(&engine_room_ron(extra)).expect("engine_room fixture is valid")
+}

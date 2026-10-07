@@ -14,14 +14,14 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 
 | Path | What lives there |
 |---|---|
-| `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors. **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
-| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback; `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
-| `crates/tools` (`rr-tools`) | `validate` and `render-svg` for level files. |
+| `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting and boss phases, automap (`automap.rs`). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
+| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay); `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
+| `crates/tools` (`rr-tools`) | `validate`, `info` and `render-svg [--ids]` for level files. |
 | `assets/episode.ron` | The episode: its name and the levels in play order. |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). |
-| `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons and pickups to models (scale, placement, clip names, muzzles). |
-| `assets/models/` | glTF (`.glb`) for enemies, viewmodel weapons and pickups: original models built from `scripts/models/`, the rest CC0. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
+| `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons, pickups and gag props to models (scale, placement, clip names, muzzles). |
+| `assets/models/` | glTF (`.glb`) for enemies, viewmodel weapons, pickups and gag props (`props/`; a prop kind without a model gets a code-built fallback): original models built from `scripts/models/`, the rest CC0. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
 | `assets/demo/*.ron` | Scripted demo runs (`--demo`). |
 | `assets/sounds/` | `bank.ron` (event to sound map), `synth.ron` recipes, `synth/` rendered output, `cc0/` curated CC0 recordings. |
 | `assets/music/` | Level music (OGG). |
@@ -69,6 +69,16 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - Headless tests do not add `AudioPlugin`; audio systems are gated on the `SoundBank` resource,
   so tests without audio need no changes.
 - Bevy debug builds are large; dependencies are built without debuginfo on purpose.
+- New level fields (`hazard`, `mover.one_shot`, `triggers`, `quakes`, `props`, `on_death`) default
+  off. A trigger fires when the player *enters* its sector (so the start sector's triggers fire on
+  the first tick); `once` defaults to true.
+- Props collide with bodies but not with shots or pathfinding, and must not stand in a mover
+  sector (`validate` enforces it).
+- Enemy bolts and pellets hit any body in the way (friendly fire); a hurt enemy turns on an
+  attacker of another kind. Bosses never do, and ignore their own splash.
+- `on_death` runs when the actor is `Dead`, not at the kill. `rr-tools validate` counts triggers
+  and `on_death` as channel sources and exits.
+- `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 
 ## Git and pull requests
 

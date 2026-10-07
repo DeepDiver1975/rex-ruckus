@@ -19,6 +19,7 @@ pub(super) fn spawn_at(map: &mut Map, x: f32, y: f32, angle: f32, asleep: bool) 
         angle,
         asleep,
         skill: Difficulty::Easy,
+        on_death: None,
     });
 }
 
@@ -131,7 +132,10 @@ fn pistol_kills_grunt_in_three_shots() {
             actor: 0,
             amount: 12
         }));
-        let killed = ev.contains(&CombatEvent::ActorKilled(0));
+        let killed = ev.contains(&CombatEvent::ActorKilled {
+            actor: 0,
+            by: Shooter::Player,
+        });
         assert_eq!(killed, shot == 3, "shot {shot}: {ev:?}");
         assert_eq!(count(&ev, |e| matches!(e, CombatEvent::Impact { .. })), 0);
     }
@@ -142,7 +146,7 @@ fn pistol_kills_grunt_in_three_shots() {
     assert_eq!(
         count(&ev, |e| matches!(
             e,
-            CombatEvent::ActorHurt { .. } | CombatEvent::ActorKilled(_)
+            CombatEvent::ActorHurt { .. } | CombatEvent::ActorKilled { .. }
         )),
         0
     );
@@ -269,7 +273,10 @@ fn hit_wakes_sleeper_but_kill_reports_only_killed() {
     let mut c = Combat::spawn(&map, &d, 1);
     let dir = p.aim_at(&c, 0);
     let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
-    assert!(ev.contains(&CombatEvent::ActorKilled(0)));
+    assert!(ev.contains(&CombatEvent::ActorKilled {
+        actor: 0,
+        by: Shooter::Player
+    }));
     assert!(!ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
 }
 
@@ -290,7 +297,10 @@ fn actor_killed_this_tick_does_not_fire() {
 
     let dir = p.aim_at(&c, 0);
     let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
-    assert!(ev.contains(&CombatEvent::ActorKilled(0)));
+    assert!(ev.contains(&CombatEvent::ActorKilled {
+        actor: 0,
+        by: Shooter::Player
+    }));
     for _ in 0..120 {
         let ev = p.tick(&mut c, &mut map, &d);
         assert!(
@@ -518,7 +528,13 @@ fn corpse_does_not_hold_door_open() {
     let (mut map, mut mech, mut c, mut p, d) = doorway();
     let dir = p.aim_at(&c, 0);
     let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
-    assert!(ev.contains(&CombatEvent::ActorKilled(0)), "{ev:?}");
+    assert!(
+        ev.contains(&CombatEvent::ActorKilled {
+            actor: 0,
+            by: Shooter::Player
+        }),
+        "{ev:?}"
+    );
     assert!(c.living_bodies().0.is_empty());
     mech.toggle(0);
     for _ in 0..180 {
@@ -624,6 +640,7 @@ pub(super) fn spawn_kind(map: &mut Map, kind: ActorKind, x: f32, y: f32, angle: 
         angle,
         asleep,
         skill: Difficulty::Easy,
+        on_death: None,
     });
 }
 
@@ -702,7 +719,7 @@ fn enforcer_hitscan_hurts_player() {
 }
 
 #[test]
-fn hitscan_pellets_stop_at_other_bodies() {
+fn pellets_hurt_bodies_in_the_way() {
     let mut map = combat_room();
     spawn_kind(&mut map, ActorKind::Enforcer, 2.0, 1.5, 0.0, false);
     spawn_kind(&mut map, ActorKind::Barrel, 3.5, 1.5, 0.0, true);
@@ -717,7 +734,7 @@ fn hitscan_pellets_stop_at_other_bodies() {
     c.actors[0].state = AiState::Chase;
     let mut p = Player::at(&map, 7.0, 1.5);
     // Actors walk through each other, so only the first volley, fired from behind the
-    // crate, is guaranteed to be blocked.
+    // crate, is guaranteed to hit it.
     let ev = p.tick(&mut c, &mut map, &d);
     assert!(ev.contains(&CombatEvent::ActorFired { actor: 0 }), "{ev:?}");
     assert_eq!(
@@ -725,7 +742,10 @@ fn hitscan_pellets_stop_at_other_bodies() {
         0
     );
     assert_eq!(p.vitals.health.hp, PLAYER_MAX_HEALTH);
-    assert_eq!(c.actors[1].health.hp, d.enemy(ActorKind::Barrel).health);
+    assert!(
+        c.actors[1].health.hp < d.enemy(ActorKind::Barrel).health,
+        "the crate took the pellets"
+    );
 }
 
 #[test]
@@ -839,8 +859,11 @@ fn barrel_never_thinks() {
     );
     assert!(c.actors[0].health.hp < def.health);
     assert_eq!(c.actors[0].state, AiState::Sleep, "no wake, no pain");
-    let ev = c.damage_actor(&d, 0, 1000);
-    assert!(ev.contains(&CombatEvent::ActorKilled(0)));
+    let ev = c.damage_actor(&d, 0, 1000, Shooter::Player);
+    assert!(ev.contains(&CombatEvent::ActorKilled {
+        actor: 0,
+        by: Shooter::Player
+    }));
     for _ in 0..30 {
         p.tick(&mut c, &mut map, &d);
     }

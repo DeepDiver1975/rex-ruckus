@@ -66,6 +66,7 @@ pub fn validate(map: &Map) -> Vec<Issue> {
     check_wiring(map, &mut r);
     let reached = check_reachability(map, &mut r);
     check_actors(map, reached.as_deref(), &mut r);
+    check_props(map, &mut r);
     r.0
 }
 
@@ -167,6 +168,14 @@ fn check_overlaps(map: &Map, r: &mut Report) {
     }
 }
 
+/// Who can fire channel `c`: switches, triggers and `on_death` actions.
+fn channel_sourced(map: &Map, c: Channel) -> bool {
+    let fires = |a: SwitchAction| a == SwitchAction::Channel(c);
+    map.switches.iter().any(|s| fires(s.action))
+        || map.triggers.iter().any(|t| fires(t.action))
+        || map.actors.iter().any(|a| a.on_death.is_some_and(fires))
+}
+
 fn check_wiring(map: &Map, r: &mut Report) {
     let t = Tuning::default();
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
@@ -192,13 +201,21 @@ fn check_wiring(map: &Map, r: &mut Report) {
             r.error(format!("sector {s}: crack wall has no portal to open"));
         }
         if let Some(c) = def.channel
-            && !map
+            && !channel_sourced(map, c)
+        {
+            r.error(format!(
+                "sector {s}: mover listens on channel {c}, but nothing fires it"
+            ));
+        }
+        if def.one_shot
+            && let Some(c) = def.channel
+            && map
                 .switches
                 .iter()
                 .any(|sw| sw.action == SwitchAction::Channel(c))
         {
-            r.error(format!(
-                "sector {s}: mover listens on channel {c}, but no switch fires it"
+            r.warn(format!(
+                "sector {s}: one-shot mover on switch channel {c} only ever moves once"
             ));
         }
         if let Some(k) = def.lock
@@ -219,6 +236,7 @@ fn check_wiring(map: &Map, r: &mut Report) {
                 .sectors
                 .iter()
                 .any(|s| s.mover.is_some_and(|m| m.channel == Some(c)))
+            && !map.quakes.iter().any(|q| q.channel == c)
         {
             r.warn(format!("switch {i}: channel {c} has no listeners"));
         }
@@ -236,12 +254,22 @@ fn check_wiring(map: &Map, r: &mut Report) {
             r.error(format!("item {i} at {} is outside every sector", item.pos));
         }
     }
-    if !map
+    for (i, q) in map.quakes.iter().enumerate() {
+        if !channel_sourced(map, q.channel) {
+            r.error(format!("quake {i}: channel {} has no source", q.channel));
+        }
+    }
+    let exit_here = map
         .switches
         .iter()
         .any(|sw| sw.action == SwitchAction::Exit)
-    {
-        r.warn("level has no exit switch".into());
+        || map.triggers.iter().any(|t| t.action == SwitchAction::Exit)
+        || map
+            .actors
+            .iter()
+            .any(|a| a.on_death == Some(SwitchAction::Exit));
+    if !exit_here {
+        r.warn("level has no exit".into());
     }
 }
 
@@ -311,8 +339,10 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
     let usable = |sw: &Switch, keys: KeySet| switch_usable(map, sw, keys);
     let mut keys = KeySet::default();
     let mut fired: Vec<Channel> = Vec::new();
-    let reached = loop {
-        let reached = flood(map, start, keys, &fired, &t);
+    // Monotone (keys and channels only ever grow), so this always converges; the bound is a guard.
+    let rounds = map.switches.len() + map.triggers.len() + map.actors.len() + Key::ALL.len() + 1;
+    let mut reached = flood(map, start, keys, &fired, &t);
+    for _ in 0..rounds {
         let mut changed = false;
         for item in &map.items {
             let ItemKind::Key(k) = item.kind else {
@@ -333,10 +363,28 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
                 changed = true;
             }
         }
-        if !changed {
-            break reached;
+        let sources = map
+            .triggers
+            .iter()
+            .filter(|t| reached[t.sector])
+            .map(|t| t.action)
+            .chain(map.actors.iter().filter_map(|a| {
+                let s = map.find_sector(a.pos, None)?;
+                a.on_death.filter(|_| reached[s])
+            }));
+        for action in sources {
+            if let SwitchAction::Channel(c) = action
+                && !fired.contains(&c)
+            {
+                fired.push(c);
+                changed = true;
+            }
         }
-    };
+        if !changed {
+            break;
+        }
+        reached = flood(map, start, keys, &fired, &t);
+    }
     for (i, item) in map.items.iter().enumerate() {
         if !map.find_sector(item.pos, None).is_some_and(|s| reached[s]) {
             r.warn(format!(
@@ -345,19 +393,49 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
             ));
         }
     }
-    let exits: Vec<&Switch> = map
+    let switch_exits: Vec<&Switch> = map
         .switches
         .iter()
         .filter(|sw| sw.action == SwitchAction::Exit)
         .collect();
-    if !exits.is_empty()
-        && !exits
+    let trigger_exits = || {
+        map.triggers
             .iter()
-            .any(|sw| reached[map.walls[sw.wall].sector] && usable(sw, keys))
-    {
-        r.error("no exit switch can be reached and used from the start".into());
+            .filter(|t| t.action == SwitchAction::Exit)
+    };
+    let death_exits = || {
+        map.actors
+            .iter()
+            .filter(|a| a.on_death == Some(SwitchAction::Exit))
+    };
+    let any_exit = !switch_exits.is_empty()
+        || trigger_exits().next().is_some()
+        || death_exits().next().is_some();
+    let exit_reached = switch_exits
+        .iter()
+        .any(|sw| reached[map.walls[sw.wall].sector] && usable(sw, keys))
+        || trigger_exits().any(|t| reached[t.sector])
+        || death_exits().any(|a| map.find_sector(a.pos, None).is_some_and(|s| reached[s]));
+    if any_exit && !exit_reached {
+        r.error("no exit can be reached from the start".into());
     }
     Some(reached)
+}
+
+fn check_props(map: &Map, r: &mut Report) {
+    for (i, p) in map.props.iter().enumerate() {
+        let who = format!("prop {i} ({:?})", p.kind);
+        if map.sectors[p.sector].mover.is_some() {
+            r.error(format!("{who} is in a mover sector ({})", p.sector));
+        }
+        if !p
+            .corners()
+            .iter()
+            .all(|&c| map.find_sector(c, Some(p.sector)) == Some(p.sector))
+        {
+            r.error(format!("{who}: box leaves sector {}", p.sector));
+        }
+    }
 }
 
 /// Awake actors closer than this (straight-line XY, metres) to the player start get a warning.
@@ -370,6 +448,15 @@ const NEAR_START: f32 = 3.0;
 fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
     let defs = Defs::builtin();
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
+    if map
+        .actors
+        .iter()
+        .filter(|a| defs.enemy(a.kind).boss)
+        .count()
+        > 1
+    {
+        r.error("level has more than one boss; at most one boss per level".into());
+    }
     for (i, a) in map.actors.iter().enumerate() {
         let at = format!("({:?}, {:?})", a.pos.x, a.pos.y);
         let who = format!("actor {i} ({:?}) at {at}", a.kind);
@@ -378,6 +465,11 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
             continue;
         };
         let def = defs.enemy(a.kind);
+        if a.on_death.is_some() && a.skill != Difficulty::Easy {
+            r.error(format!(
+                "{who}: on_death actor must appear on every skill (skill: Easy)"
+            ));
+        }
         let sec = &map.sectors[s];
         if sec.ceil_z - sec.floor_z < def.height {
             r.error(format!(
@@ -415,7 +507,9 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
 mod tests {
     use super::*;
     use crate::difficulty::Difficulty;
-    use crate::fixtures::{combat_room, door_rooms, lift_shaft, pillar_room, two_rooms};
+    use crate::fixtures::{
+        combat_room, door_rooms, engine_room, lift_shaft, pillar_room, two_rooms,
+    };
     use crate::map::{ActorKind, ActorSpawn};
 
     fn errors(map: &Map) -> Vec<String> {
@@ -656,6 +750,7 @@ mod tests {
             lock: Some(Key::Blue),
             channel: Some(1),
             auto_return: None,
+            one_shot: false,
         });
         let need = channel_required_keys(&map, 1);
         assert!(need.contains(Key::Red) && need.contains(Key::Blue) && !need.contains(Key::Yellow));
@@ -779,6 +874,7 @@ mod tests {
             angle: 0.0,
             asleep: true,
             skill: Difficulty::Easy,
+            on_death: None,
         };
         // Pillar occupies x 4..6, y 4..6: 0.2 m from its west face is inside the 0.35 m radius.
         map.actors = vec![spawn(3.8, 5.0), spawn(3.0, 5.0)];
@@ -788,5 +884,107 @@ mod tests {
             "{errs:?}"
         );
         assert!(!has(&errs, "actor 1"), "{errs:?}");
+    }
+
+    #[test]
+    fn triggers_and_deaths_are_channel_sources() {
+        assert!(!has(&errors(&engine_room("")), "channel 7"));
+        let map = door_rooms(
+            "(kind: Door, channel: Some(3))",
+            "actors: [(kind: Grunt, pos: (2.0, 2.0), on_death: Some(Channel(3)))],
+             switches: [(wall: (3, 4), action: Exit)],",
+        );
+        assert!(errors(&map).is_empty(), "{:?}", errors(&map));
+    }
+
+    #[test]
+    fn quakes_need_a_source() {
+        let mut map = engine_room("");
+        map.triggers.clear();
+        assert!(has(&errors(&map), "quake 0: channel 7 has no source"));
+    }
+
+    #[test]
+    fn reachability_fires_trigger_channels() {
+        let open = door_rooms(
+            "(kind: Door, channel: Some(3))",
+            "triggers: [(sector: 0, action: Channel(3))], switches: [(wall: (3, 4), action: Exit)],",
+        );
+        assert!(!has(&errors(&open), "exit"), "{:?}", errors(&open));
+        let mut shut = open.clone();
+        shut.triggers.clear();
+        assert!(has(&errors(&shut), "no exit"));
+    }
+
+    #[test]
+    fn on_death_exit_counts_as_an_exit() {
+        let map = door_rooms(
+            "(kind: Door)",
+            "actors: [(kind: Grunt, pos: (6.5, 2.0), on_death: Some(Exit))],",
+        );
+        assert!(!has(&warnings(&map), "no exit"));
+        assert!(!has(&errors(&map), "exit"), "{:?}", errors(&map));
+        // The same actor behind a channel door nothing fires: the exit cannot be reached.
+        let shut = door_rooms(
+            "(kind: Door, channel: Some(3))",
+            "actors: [(kind: Grunt, pos: (6.5, 2.0), on_death: Some(Exit))],",
+        );
+        assert!(
+            has(&errors(&shut), "no exit can be reached"),
+            "{:?}",
+            errors(&shut)
+        );
+    }
+
+    #[test]
+    fn on_death_must_appear_on_every_skill() {
+        let hard = door_rooms(
+            "(kind: Door)",
+            "actors: [(kind: Grunt, pos: (6.5, 2.0), skill: Hard, on_death: Some(Exit))],",
+        );
+        assert!(
+            has(&errors(&hard), "on_death actor must appear on every skill"),
+            "{:?}",
+            errors(&hard)
+        );
+        // A plain Hard actor is fine.
+        let plain = door_rooms(
+            "(kind: Door)",
+            "actors: [(kind: Grunt, pos: (6.5, 2.0), skill: Hard)],",
+        );
+        assert!(!has(&errors(&plain), "every skill"));
+    }
+
+    #[test]
+    fn at_most_one_boss() {
+        let one = "(kind: Boss, pos: (6.5, 2.0))";
+        let map = door_rooms("(kind: Door)", &format!("actors: [{one}, {one}],"));
+        assert!(has(&errors(&map), "at most one boss"));
+    }
+
+    #[test]
+    fn props_stay_inside_a_still_sector() {
+        let mut map = engine_room("");
+        map.props[2].pos.x = 13.5; // the pool table reaches into the pit
+        assert!(has(
+            &errors(&map),
+            "prop 2 (PoolTable): box leaves sector 4"
+        ));
+        let mut map = engine_room("");
+        map.props[0].pos = Vec2::new(8.0, 2.0);
+        map.props[0].sector = 2;
+        assert!(has(
+            &errors(&map),
+            "prop 0 (Toilet) is in a mover sector (2)"
+        ));
+    }
+
+    #[test]
+    fn one_shot_mover_on_a_switch_channel_warns() {
+        let map = door_rooms(
+            "(kind: Door, channel: Some(1), one_shot: true)",
+            "switches: [(wall: (7, 0), action: Channel(1))],",
+        );
+        assert!(has(&warnings(&map), "one-shot"));
     }
 }

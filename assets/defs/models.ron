@@ -86,6 +86,21 @@
             place: (scale: 0.98), // 1.0 / 1.02
             tip: Offset((0.0, 0.5, 0.0)),
         ),
+        (
+            kind: Boss,
+            scene: "models/enemies/boss.glb",
+            place: (scale: 1.02, yaw_deg: 180.0), // 3.0 / 2.94; glTF faces +Z
+            clips: (
+                idle: Some("RobotArmature|Idle"),
+                walk: Some("RobotArmature|Walk"),
+                run: Some("RobotArmature|Run"),
+                attack: Some("RobotArmature|Shoot_Big"),
+                pain: Some("RobotArmature|HitRecieve_1"),
+                death: Some("RobotArmature|Death"),
+            ),
+            // Between the two shoulder cannons in the Shoot_Big pose (one central muzzle).
+            tip: Offset((0.0, 2.1, -0.35)),
+        ),
     ],
     weapons: [
         // Viewmodel guns, relative to the view rig (x right, y up, -z forward): about 0.2-0.45 m
@@ -113,6 +128,11 @@
         (kind: Jetpack, scene: "models/pickups/jetpack.glb", place: (scale: 0.08)), // 0.5 / 6.35
         (kind: NightVision, scene: "models/pickups/night_vision.glb", place: (scale: 0.76, offset: (18.61, -0.16, -1.14))), // 0.35 / 0.46; mesh sits off-origin, centred
         (kind: Key, scene: "models/pickups/keycard.glb", place: (scale: 0.34)), // 0.35 / 1.04
+    ],
+    // Gag props; the vending machine and the pool table stay code-built.
+    props: [
+        // 0.46 m deep model, front on +Z natively; footprint is 0.7 x 0.5 m.
+        (kind: Toilet, scene: "models/props/toilet.glb", place: (scale: 1.45, yaw_deg: 180.0, offset: (0.0, 0.0, 0.12))),
     ],
     extras: (
         held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 0.5, offset: (0.0, 0.015, 0.0))), // 0.11 / 0.21

@@ -131,6 +131,7 @@ fn arena() -> Map {
         angle: std::f32::consts::PI,
         asleep: false,
         skill: Difficulty::Easy,
+        on_death: None,
     });
     map
 }
@@ -707,4 +708,30 @@ fn switching_to_a_level_with_more_materials_renders_it() {
             .len(),
         last + 1
     );
+}
+
+#[test]
+fn engine_lab_loads_restarts_and_switches_cleanly() {
+    // The M5b showcase with the real level, props, models and lights: restarts and a round
+    // trip through another level leave exactly the same entities behind.
+    let mut app = full_app(rr_game::level::load_map("engine_lab.ron"));
+    let (level, all) = (count_level(&mut app), count_all(&mut app));
+    assert!(
+        level > 20,
+        "{level} level entities: sectors, props, lights, actors"
+    );
+    for _ in 0..2 {
+        kill_player(&mut app);
+        restart(&mut app);
+        app.update();
+        assert_eq!((count_level(&mut app), count_all(&mut app)), (level, all));
+    }
+    rr_game::flow::load_level(
+        app.world_mut(),
+        rr_game::level::load_map("arsenal_depot.ron"),
+    );
+    app.update();
+    rr_game::flow::load_level(app.world_mut(), rr_game::level::load_map("engine_lab.ron"));
+    app.update();
+    assert_eq!(count_level(&mut app), level);
 }

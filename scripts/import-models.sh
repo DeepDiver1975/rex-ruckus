@@ -19,6 +19,7 @@ out="$assets/models"
 # dest (under assets/models)   poly.pizza id   static file   sha256
 manifest=$(cat <<'EOF'
 enemies/barrel.glb           1orHe0kCc1 dbb58868-50d4-4ef0-945a-12b07222fb69.glb 730a8da4cb342533ddc20fdb8f52a47f3befd20d0bafa44b668eac066252f2f3
+enemies/boss.glb             4UvIHxnoSR dab7180d-5393-4cb1-aa8f-b56154b0d724.glb 9a05a569ec684cf783120e3cac34ae2f3c07ee26ac903a2395c716a977056dd7
 weapons/pistol.glb           J3i9KDQ3kt f5a88c73-af97-49ca-8650-4bde579d2f80.glb 4622ab2909aa0f4e88b74a13f52f9e28183a6ff5fca5896fc7e98d44008f2148
 weapons/shotgun.glb          29FXKu7G91 9a6ee0ee-068b-4774-8b0f-679c3cef0b6e.glb b5d9d6ef843eea412e6422cbed55ac5325e5bd1f8a688c702d51f5cd88dea190
 weapons/chaingun.glb         Bgvuu4CUMV 9a0e478c-de82-4773-9b70-a0219bb0057c.glb a6b90047927c65d0026bb19b5d4625b5ed3270e4ea5e39619cc50f0770aa6259
@@ -34,6 +35,7 @@ pickups/armour.glb           TMUoxILh9w 60ccfcdb-6aa7-4caf-a688-9b16a2a5f300.glb
 pickups/keycard.glb          EDvCEBvs8k 1dd9cceb-d8ce-48bc-b747-fc0420ae58d3.glb 51ed8a7045f018bf1a45fb57e07bfa6d5ce98087bfd0f58eb679ce906a6a36bc
 pickups/atom.glb             1xtAc12dmv 6a161332-261b-480c-aec2-8464ae78055f.glb 6ef9dd5963101a757174865cf49a3e6f5c5e3f9db23db238d7045983aa4d3b8a
 pickups/night_vision.glb     PLmfHOiB08 2c2a1082-c325-47c0-bf23-93b0effa6392.glb 515918afbab1162f9b2fb2f88bdd44e74be7113a4a8df14cceebfac045a0d691
+props/toilet.glb             ZGtHqPsLv2 68e03d0b-fd3e-4954-9852-8b3cf63c536d.glb 4311471a6685e182f1c7643de16d7e3d32e3beed8182887e5806cfb4e2daf6e1
 EOF
 )
 

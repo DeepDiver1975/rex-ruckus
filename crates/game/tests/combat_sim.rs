@@ -4,6 +4,7 @@ use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, door_rooms, glass_rooms, lift_shaft};
 use rr_core::map::{ActorKind, ActorSpawn, Map};
 use rr_core::mechanics::Motion;
+use rr_core::projectile::Shooter;
 use rr_core::weapons::{WeaponEvent, WeaponPhase};
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
@@ -208,6 +209,7 @@ fn pistol_kills_grunt_headless() {
         angle: std::f32::consts::PI,
         asleep: true,
         skill: Difficulty::Easy,
+        on_death: None,
     });
     let mut app = app(map);
     input(&mut app).fire = true;
@@ -218,7 +220,10 @@ fn pistol_kills_grunt_headless() {
         let fx = take_fx(&mut app);
         killed |= fx
             .combat
-            .contains(&rr_core::combat::CombatEvent::ActorKilled(0));
+            .contains(&rr_core::combat::CombatEvent::ActorKilled {
+                actor: 0,
+                by: Shooter::Player,
+            });
         if killed {
             break;
         }

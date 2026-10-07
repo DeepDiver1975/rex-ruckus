@@ -1,7 +1,12 @@
 use clap::{Parser, Subcommand};
+use rr_core::map::{Map, RawLevel};
 use rr_tools::{
-    audio::validate_audio, fonts::validate_fonts, models::validate_models, svg::render_svg,
-    synth::synth_file, validate_episode, validate_file,
+    audio::validate_audio,
+    fonts::validate_fonts,
+    models::validate_models,
+    svg::{SvgOptions, render_svg_with},
+    synth::synth_file,
+    validate_episode, validate_file,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -26,9 +31,14 @@ enum Cmd {
         #[arg(required = true)]
         levels: Vec<PathBuf>,
     },
+    /// Print a level's sectors, channels and counts.
+    Info { level: PathBuf },
     /// Draw a level top-down as SVG.
     RenderSvg {
         level: PathBuf,
+        /// Label every vertex with its index.
+        #[arg(long)]
+        ids: bool,
         /// Output file (default: stdout).
         #[arg(short, long)]
         out: Option<PathBuf>,
@@ -46,6 +56,14 @@ enum Cmd {
         #[arg(default_value = "assets/quips/quips.ron")]
         quips: PathBuf,
     },
+}
+
+/// Reads a level file as its raw form and the built map.
+fn load_raw(path: &std::path::Path) -> Result<(RawLevel, Map), String> {
+    let src = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let raw: RawLevel = ron::from_str(&src).map_err(|e| e.to_string())?;
+    let map = Map::from_raw(raw.clone()).map_err(|e| e.to_string())?;
+    Ok((raw, map))
 }
 
 fn main() -> ExitCode {
@@ -85,18 +103,28 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         }
-        Cmd::RenderSvg { level, out } => {
-            let map = match std::fs::read_to_string(&level)
-                .map_err(|e| e.to_string())
-                .and_then(|src| rr_core::map::Map::from_ron(&src).map_err(|e| e.to_string()))
-            {
-                Ok(m) => m,
+        Cmd::Info { level } => match load_raw(&level) {
+            Ok((raw, map)) => {
+                print!("{}", rr_tools::info::level_info(&raw, &map));
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{}: error: {e}", level.display());
+                ExitCode::FAILURE
+            }
+        },
+        Cmd::RenderSvg { level, ids, out } => {
+            let (raw, map) = match load_raw(&level) {
+                Ok(v) => v,
                 Err(e) => {
                     eprintln!("{}: error: {e}", level.display());
                     return ExitCode::FAILURE;
                 }
             };
-            let svg = render_svg(&map);
+            let opts = SvgOptions {
+                vertices: ids.then_some(raw.vertices.as_slice()),
+            };
+            let svg = render_svg_with(&map, &opts);
             match out {
                 Some(path) => {
                     if let Err(e) = std::fs::write(&path, svg) {

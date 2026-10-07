@@ -16,6 +16,7 @@ use rr_core::combat::{CombatEvent, level_seed};
 use rr_core::defs::WeaponId;
 use rr_core::map::ActorKind;
 use rr_core::mechanics::MechEvent;
+use rr_core::projectile::Shooter;
 
 /// Mixed into the level seed so the quip picks have a stream of their own.
 const QUIP_RNG_SALT: u64 = 0x2545_f491_4f6c_dd1d;
@@ -108,10 +109,14 @@ pub fn play_quips(
         .any(|e| matches!(e, CombatEvent::Explosion { .. }));
     for ev in &fx.combat {
         match *ev {
-            CombatEvent::ActorKilled(i) => {
+            // Only the player's own kills earn a line; infighting is the enemies' business.
+            CombatEvent::ActorKilled {
+                actor,
+                by: Shooter::Player,
+            } => {
                 let Some(kind) = combat
                     .as_ref()
-                    .and_then(|c| c.0.actors.get(i))
+                    .and_then(|c| c.0.actors.get(actor))
                     .map(|a| a.kind)
                 else {
                     continue;

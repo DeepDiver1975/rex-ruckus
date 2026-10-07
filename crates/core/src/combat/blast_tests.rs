@@ -118,7 +118,8 @@ fn player_rocket_hurts_grunt() {
     let log = p.tick_until_explosion(&mut c, &mut map, &d, 60);
     assert_eq!(hurts(&log, 0)[0], pd.damage, "direct hit first: {log:?}");
     assert!(
-        log.contains(&CombatEvent::ActorKilled(0)),
+        log.iter()
+            .any(|e| matches!(e, CombatEvent::ActorKilled { actor: 0, .. })),
         "then the splash kills it"
     );
     assert!(
@@ -473,14 +474,17 @@ fn barrel_chain_explodes_each_once() {
         let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![aim]);
         log.extend(ev.into_iter().map(|e| (0, e)));
     }
-    assert!(log.iter().any(|(_, e)| *e == CombatEvent::ActorKilled(0)));
+    assert!(
+        log.iter()
+            .any(|(_, e)| matches!(e, CombatEvent::ActorKilled { actor: 0, .. }))
+    );
     for t in 1..=120 {
         log.extend(p.tick(&mut c, &mut map, &d).into_iter().map(|e| (t, e)));
     }
     for i in 0..3 {
         assert_eq!(
             log.iter()
-                .filter(|(_, e)| *e == CombatEvent::ActorKilled(i))
+                .filter(|(_, e)| matches!(e, CombatEvent::ActorKilled { actor, .. } if *actor == i))
                 .count(),
             1,
             "barrel {i}"
@@ -529,14 +533,26 @@ fn two_splashes_one_barrel_one_explosion() {
     }
     let ev = p.tick(&mut c, &mut map, &d);
     assert_eq!(explosions(&ev).len(), 2);
-    assert_eq!(count(&ev, |e| *e == CombatEvent::ActorKilled(0)), 1);
+    assert_eq!(
+        count(&ev, |e| matches!(
+            e,
+            CombatEvent::ActorKilled { actor: 0, .. }
+        )),
+        1
+    );
     assert_eq!(c.pending_blasts.len(), 1, "the barrel's own, on its fuse");
     let mut log = ev;
     for _ in 0..60 {
         log.extend(p.tick(&mut c, &mut map, &d));
     }
     assert_eq!(explosions(&log).len(), 3);
-    assert_eq!(count(&log, |e| *e == CombatEvent::ActorKilled(0)), 1);
+    assert_eq!(
+        count(&log, |e| matches!(
+            e,
+            CombatEvent::ActorKilled { actor: 0, .. }
+        )),
+        1
+    );
 }
 
 #[test]
@@ -568,7 +584,13 @@ fn chain_terminates() {
     assert!(c.pending_blasts.is_empty());
     assert!(c.actors.iter().all(|a| !a.alive()));
     for i in 0..c.actors.len() {
-        assert_eq!(count(&log, |e| *e == CombatEvent::ActorKilled(i)), 1);
+        assert_eq!(
+            count(
+                &log,
+                |e| matches!(e, CombatEvent::ActorKilled { actor, .. } if *actor == i)
+            ),
+            1
+        );
     }
     assert_eq!(explosions(&log).len(), 1 + c.actors.len());
     for _ in 0..60 {
@@ -594,7 +616,10 @@ fn grunt_killed_by_splash_reports_once() {
     });
     let ev = p.tick(&mut c, &mut map, &d);
     assert_eq!(
-        count(&ev, |e| *e == CombatEvent::ActorKilled(0)),
+        count(&ev, |e| matches!(
+            e,
+            CombatEvent::ActorKilled { actor: 0, .. }
+        )),
         1,
         "{ev:?}"
     );

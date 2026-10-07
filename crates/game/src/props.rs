@@ -1,13 +1,14 @@
 //! Glowing wall panels for switches and spinning glTF item props that ride their sector's live
 //! floor (lifts included); keycards are tinted with their key colour.
 
-use crate::coords::to_bevy;
+use crate::coords::{core_angle_to_yaw, to_bevy};
 use crate::flow::{LevelEntity, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::mechanics::LevelMechanics;
 use crate::models::{Look, ModelLibrary, ModelReady, TintCache, spawn_model};
 use bevy::prelude::*;
 use rr_core::map::{ItemKind, Key, Map, SectorId, SwitchAction};
+use rr_core::props::PropKind;
 
 #[derive(Component)]
 pub struct SwitchPanel(pub usize);
@@ -25,6 +26,55 @@ pub struct ItemProp {
 struct ItemModel {
     tint: Option<(f32, f32, f32)>,
     tinted: bool,
+}
+
+/// A gag prop's root; the index is into `map.props`.
+#[derive(Component)]
+pub struct GagProp(pub usize);
+
+/// Code-built stand-in: (size, centre, colour) boxes in model space (x across, y up, -z the
+/// front). The first box is the body and spans the whole footprint.
+pub fn fallback_parts(kind: PropKind) -> Vec<(Vec3, Vec3, Color)> {
+    let h = kind.half_extents();
+    let (w, d, ht) = (2.0 * h.y, 2.0 * h.x, kind.height());
+    match kind {
+        PropKind::Toilet => vec![
+            (
+                Vec3::new(w, 0.45, d),
+                Vec3::new(0.0, 0.225, 0.0),
+                Color::srgb(0.92, 0.92, 0.9),
+            ),
+            (
+                Vec3::new(w, ht, 0.2),
+                Vec3::new(0.0, ht * 0.5, d * 0.5 - 0.1),
+                Color::srgb(0.85, 0.85, 0.82),
+            ),
+        ],
+        PropKind::Vending => vec![
+            (
+                Vec3::new(w, ht, d),
+                Vec3::new(0.0, ht * 0.5, 0.0),
+                Color::srgb(0.75, 0.1, 0.1),
+            ),
+            (
+                Vec3::new(w * 0.6, ht * 0.5, 0.02),
+                Vec3::new(-w * 0.1, ht * 0.6, -d * 0.5 - 0.01),
+                Color::srgb(0.9, 0.9, 1.0),
+            ),
+        ],
+        PropKind::PoolTable => vec![
+            (
+                Vec3::new(w, ht, d),
+                Vec3::new(0.0, ht * 0.5, 0.0),
+                Color::srgb(0.35, 0.2, 0.1),
+            ),
+            (
+                Vec3::new(w - 0.16, 0.02, d - 0.16),
+                Vec3::new(0.0, ht + 0.01 - 0.02, 0.0),
+                Color::srgb(0.05, 0.45, 0.15),
+            ),
+        ],
+    }
 }
 
 /// Height of an item prop's centre above its floor.
@@ -130,6 +180,41 @@ fn spawn_props(
             tinted: tint.is_none(),
         });
     }
+    for (i, p) in map.props.iter().enumerate() {
+        let floor = map.sectors[p.sector].floor_z;
+        let root = commands
+            .spawn((
+                Transform::from_translation(to_bevy(p.pos.extend(floor)))
+                    .with_rotation(Quat::from_rotation_y(core_angle_to_yaw(p.angle))),
+                Visibility::default(),
+                GagProp(i),
+                LevelEntity,
+            ))
+            .id();
+        if let Some(m) = lib.prop(p.kind) {
+            spawn_model(&mut commands, root, &m.scene, &m.place);
+            continue;
+        }
+        for (size, centre, c) in fallback_parts(p.kind) {
+            // The vending machine's front panel glows.
+            let emissive = if p.kind == PropKind::Vending && size.z < 0.05 {
+                c.to_linear() * 2.0
+            } else {
+                LinearRgba::BLACK
+            };
+            commands.spawn((
+                Mesh3d(meshes.add(Cuboid::from_size(size))),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: c,
+                    emissive,
+                    perceptual_roughness: 0.7,
+                    ..default()
+                })),
+                Transform::from_translation(centre),
+                ChildOf(root),
+            ));
+        }
+    }
 }
 
 /// Tints each keycard model with its key colour once the model is ready (the `Normal` look with
@@ -218,6 +303,25 @@ mod tests {
     use bevy::math::Vec2;
     use rr_core::fixtures::lift_shaft;
     use rr_core::mechanics::Mechanics;
+    use rr_core::props::PropKind;
+
+    #[test]
+    fn fallback_footprints_match_the_core_boxes() {
+        for kind in PropKind::ALL {
+            let parts = fallback_parts(kind);
+            let (size, _, _) = parts[0]; // the body block comes first
+            let h = kind.half_extents();
+            assert!(
+                (size.x - 2.0 * h.y).abs() < 1e-5 && (size.z - 2.0 * h.x).abs() < 1e-5,
+                "{kind:?}"
+            );
+            assert!(
+                parts
+                    .iter()
+                    .all(|(s, c, _)| c.y + s.y * 0.5 <= kind.height() + 1e-5)
+            );
+        }
+    }
 
     #[test]
     fn item_prop_z_tracks_lift_floor() {

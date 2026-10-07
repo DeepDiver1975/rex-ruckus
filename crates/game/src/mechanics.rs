@@ -9,10 +9,12 @@ use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSim
 use crate::textures;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
+use rr_core::hazard::HazardKind;
 use rr_core::interact::use_target;
-use rr_core::map::{Map, MoverKind, SectorId};
+use rr_core::map::{Map, MaterialId, MoverKind, SectorId};
 use rr_core::mechanics::{Mechanics, UseOutcome, UseTarget};
 use rr_core::pickups::{Loadout, apply_pickup};
+use rr_core::props::PropOutcome;
 use std::collections::BTreeSet;
 
 /// How long a HUD message stays up, in seconds.
@@ -60,6 +62,7 @@ impl HudSubtitle {
 pub fn fresh_level(mut map: Map) -> (CurrentMap, LevelMechanics) {
     let mech = Mechanics::new(&mut map);
     mark_crack_walls(&mut map);
+    mark_hazard_floors(&mut map);
     (CurrentMap(map), LevelMechanics(mech))
 }
 
@@ -72,13 +75,7 @@ pub fn mark_crack_walls(map: &mut Map) {
     if !map.sectors.iter().any(is_crack) {
         return;
     }
-    let id = match map.materials.iter().position(|m| m == textures::CRACKED) {
-        Some(i) => i,
-        None => {
-            map.materials.push(textures::CRACKED.to_string());
-            map.materials.len() - 1
-        }
-    };
+    let id = material_id(map, textures::CRACKED);
     for s in 0..map.sectors.len() {
         if !is_crack(&map.sectors[s]) {
             continue;
@@ -90,6 +87,38 @@ pub fn mark_crack_walls(map: &mut Map) {
             map.walls[w].material = id;
         }
     }
+}
+
+/// The id of material `name`, appended to `Map::materials` when missing.
+fn material_id(map: &mut Map, name: &str) -> MaterialId {
+    match map.materials.iter().position(|m| m == name) {
+        Some(i) => i,
+        None => {
+            map.materials.push(name.to_string());
+            map.materials.len() - 1
+        }
+    }
+}
+
+/// Points each hazard sector's floor at the `slime` or `electric` material (appended to
+/// `Map::materials` when missing), like `mark_crack_walls` does for cracks.
+pub fn mark_hazard_floors(map: &mut Map) {
+    for s in 0..map.sectors.len() {
+        let Some(h) = map.sectors[s].hazard else {
+            continue;
+        };
+        let name = match h.kind {
+            HazardKind::Slime => textures::SLIME,
+            HazardKind::Electric => textures::ELECTRIC,
+        };
+        map.sectors[s].floor_mat = material_id(map, name);
+    }
+}
+
+/// The level is won: freeze play on the completion screen.
+pub fn finish_level(state: &mut PlayState, msg: &mut HudMessage) {
+    *state = PlayState::Complete;
+    msg.show("Level complete!");
 }
 
 /// Inserts the map and its mechanics in their start pose, and keeps the authored map in
@@ -137,39 +166,69 @@ impl Plugin for MechanicsSimPlugin {
     }
 }
 
+/// The HUD line for using a prop.
+pub fn prop_message(o: PropOutcome) -> Option<String> {
+    Some(match o {
+        PropOutcome::Healed(n) => format!("+{n} health. Much better."),
+        PropOutcome::Flushed => "Flush. Nothing like it.".into(),
+        PropOutcome::Dispensed(0) => "Soda. Already topped up.".into(),
+        PropOutcome::Dispensed(n) => format!("Soda! +{n} health"),
+        PropOutcome::SoldOut => "Sold out.".into(),
+        PropOutcome::Racked => "Racked 'em. No time for a game.".into(),
+        PropOutcome::Busy => return None,
+    })
+}
+
+/// What `use_key` reads per player; vitals are optional so headless tests may omit them.
+type UseQuery = (
+    &'static PlayerBody,
+    &'static Look,
+    &'static Inventory,
+    &'static mut PendingInput,
+    Option<&'static mut PlayerVitals>,
+);
+
 pub fn use_key(
     map: Res<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
     mut prompt: ResMut<UsePrompt>,
     mut msg: ResMut<HudMessage>,
     mut state: ResMut<PlayState>,
-    mut q: Query<(&PlayerBody, &Look, &Inventory, &mut PendingInput), With<Player>>,
+    mut q: Query<UseQuery, With<Player>>,
 ) {
-    for (body, look, inv, mut input) in &mut q {
+    for (body, look, inv, mut input, mut vitals) in &mut q {
         let target = use_target(&map.0, &mech.0, &body.0, look.angle);
         prompt.0 = target;
         if !std::mem::take(&mut input.use_pressed) {
             continue;
         }
         let Some(t) = target else { continue };
+        if let UseTarget::Prop(i) = t {
+            if let Some(v) = vitals.as_deref_mut()
+                && let Some(text) = prop_message(mech.0.use_prop(i, &mut v.0))
+            {
+                msg.show(text);
+            }
+            continue;
+        }
         match mech.0.activate(&map.0, t, inv.keys) {
             UseOutcome::Activated => {}
             UseOutcome::NeedKey(k) => msg.show(format!("You need the {} keycard", k.name())),
-            UseOutcome::Exit => {
-                *state = PlayState::Complete;
-                msg.show("Level complete!");
-            }
+            UseOutcome::Exit => finish_level(&mut state, &mut msg),
         }
     }
 }
 
 /// Moves doors and lifts; the player and every living actor ride lifts and block doors.
+#[allow(clippy::too_many_arguments)]
 fn tick_movers(
     time: Res<Time<Fixed>>,
     mut map: ResMut<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
     mut combat: ResMut<LevelCombat>,
     mut dirty: ResMut<DirtySectors>,
+    mut state: ResMut<PlayState>,
+    mut msg: ResMut<HudMessage>,
     mut q: Query<&mut PlayerBody>,
 ) {
     // Bodies slice: players first, then the living actors.
@@ -177,6 +236,12 @@ fn tick_movers(
     let players = bodies.len();
     let (idx, actors) = combat.0.living_bodies();
     bodies.extend(actors);
+    // Entering a trigger sector fires its action (an Exit ends the level).
+    for b in &bodies[..players] {
+        if mech.0.enter(&map.0, b.sector) {
+            finish_level(&mut state, &mut msg);
+        }
+    }
     let changed = mech
         .0
         .tick(&mut map.0, &mut bodies, time.timestep().as_secs_f32());
@@ -222,5 +287,23 @@ pub fn pickup_items(
                 .map(|text| msg.show(text))
                 .is_some()
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prop_messages() {
+        assert_eq!(
+            prop_message(PropOutcome::Healed(10)).as_deref(),
+            Some("+10 health. Much better.")
+        );
+        assert_eq!(
+            prop_message(PropOutcome::SoldOut).as_deref(),
+            Some("Sold out.")
+        );
+        assert_eq!(prop_message(PropOutcome::Busy), None);
     }
 }

@@ -17,15 +17,16 @@ mod player_attack;
 pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast};
 
 use crate::actors::{
-    Actor, AiState, Perception, effective_muzzle, flyer_hover, hurt, swipe_reaches, think, tuning,
-    volley, wake,
+    Actor, AiState, Perception, Target, effective_muzzle, flyer_hover, hurt, retargets,
+    swipe_reaches, think, tuning, volley, wake,
 };
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
 use crate::destruct::{Destruct, hits_pane};
 use crate::explosion::Blast;
+use crate::hazard::{HazardClock, HazardKind};
 use crate::health::DamageOutcome;
-use crate::map::{Map, SectorId, WallId};
+use crate::map::{Map, OPEN_GAP, SectorId, SwitchAction, WallId};
 use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_flyer, step_player};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
@@ -39,13 +40,11 @@ use glam::{Vec2, Vec3};
 /// body `i + 1`.
 pub const BODY_PLAYER: usize = 0;
 
-/// A portal carries sound only while its live opening is taller than this (metres).
-const NOISE_GAP: f32 = 0.1;
-
-/// What a combat tick did, for the game's presentation. `ActorWoke`, `PlayerKilled`,
-/// `CrackOpened`, `BombsDetonated` and `ProjectileGone` have no game reader yet: core tests
-/// consume them and they are spare hooks for audio or effects. The game reads the rest
-/// (`ActorKilled` drives the hero quips).
+/// What a combat tick did, for the game's presentation. The game's audio maps events to sounds
+/// (`audio::cues`; a boss's `ActorWoke` and `PhaseChanged` get its roar), `ActorKilled` also
+/// drives the kill stats and, for the player's own kills, the hero quips, and the game's combat
+/// tick routes `DeathAction` through the level's mechanics. `BombsDetonated` and
+/// `ProjectileGone` have no game reader: core tests consume them, and they are spare hooks.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CombatEvent {
     /// A non-ignored hit on actor `actor`; `amount` is the total damage dealt this attack.
@@ -53,7 +52,12 @@ pub enum CombatEvent {
         actor: usize,
         amount: i32,
     },
-    ActorKilled(usize),
+    /// Actor `actor` died. `by` is who dealt the killing damage; a barrel's blast belongs to
+    /// whoever killed the barrel.
+    ActorKilled {
+        actor: usize,
+        by: Shooter,
+    },
     /// The actor left `Sleep` and is still alive.
     ActorWoke(usize),
     /// The actor spawned a bolt this tick.
@@ -74,6 +78,11 @@ pub enum CombatEvent {
     LightBroken(usize),
     /// The player entered a secret sector for the first time.
     SecretFound,
+    /// The player's floor burned them; usually followed by a `PlayerHurt` (none when the hurt is
+    /// ignored, e.g. an invulnerable demo run).
+    HazardBurn {
+        kind: HazardKind,
+    },
     /// A shot or projectile hit the world at `point` (in `sector`).
     Impact {
         point: Vec3,
@@ -97,6 +106,14 @@ pub enum CombatEvent {
         wall: WallId,
         dirty: Vec<SectorId>,
     },
+    /// Boss `actor` crossed a health threshold into `phase` (`EnemyDef::phase_for`).
+    PhaseChanged {
+        actor: usize,
+        phase: u8,
+    },
+    /// An actor's `on_death` on the tick it reached `Dead`; the game fires the channel or ends
+    /// the level.
+    DeathAction(SwitchAction),
 }
 
 impl CombatEvent {
@@ -134,6 +151,8 @@ pub struct Combat {
     pub destruct: Destruct,
     /// Multiplier on damage the player takes; the difficulty sets it. 1.0 at spawn.
     pub damage_scale: f32,
+    /// The player's hazard-floor clock; reset with the level.
+    pub hazard: HazardClock,
     next_id: u32,
 }
 
@@ -186,6 +205,7 @@ impl Combat {
             rng: Rng::new(seed),
             destruct: Destruct::new(map),
             damage_scale: 1.0,
+            hazard: HazardClock::default(),
             next_id: 0,
         }
     }
@@ -205,12 +225,18 @@ impl Combat {
         id
     }
 
-    /// Applies `n` damage to actor `i` and reports what happened. An actor with a
-    /// `death_splash` (a barrel) that dies queues its own blast, owned by itself, on its
-    /// `death_fuse`; `Health` reports the kill only once, so it is queued only once.
-    fn damage_actor(&mut self, defs: &Defs, i: usize, n: i32) -> Vec<CombatEvent> {
+    /// Applies `n` damage from `by` to actor `i` and reports what happened. An actor with a
+    /// `death_splash` (a barrel) that dies queues its own blast, owned by its killer `by`, on its
+    /// `death_fuse`; `Health` reports the kill only once, so it is queued only once. An actor
+    /// hurt by another one may turn on it (`retargets`). A boss ignores its own damage (its
+    /// rocket splash) and may change phase on a hit (`PhaseChanged`).
+    fn damage_actor(&mut self, defs: &Defs, i: usize, n: i32, by: Shooter) -> Vec<CombatEvent> {
+        let def = defs.enemy(self.actors[i].kind);
+        // A boss shrugs off its own rocket splash.
+        if def.boss && by == Shooter::Actor(i) {
+            return Vec::new();
+        }
         let a = &mut self.actors[i];
-        let def = defs.enemy(a.kind);
         let before = a.state;
         // Measured before the kill shrinks the body to a corpse.
         let middle = a.body.pos + Vec3::Z * 0.5 * a.body.height;
@@ -227,10 +253,25 @@ impl Combat {
                     actor: i,
                     amount: n,
                 });
-                out.push(CombatEvent::ActorKilled(i));
+                out.push(CombatEvent::ActorKilled { actor: i, by });
             }
         }
         out.extend(woke(i, before, a));
+        if outcome == DamageOutcome::Hurt {
+            let phase = def.phase_for(a.health.hp as f32 / a.health.max as f32);
+            if phase != a.phase {
+                a.phase = phase;
+                a.muzzle_offset = Vec3::from(def.phased(phase).muzzle);
+                out.push(CombatEvent::PhaseChanged { actor: i, phase });
+            }
+        }
+        if outcome != DamageOutcome::Ignored
+            && let Shooter::Actor(k) = by
+            && k != i
+            && retargets(&self.actors[i], &self.actors[k])
+        {
+            self.actors[i].target = Target::Actor(k);
+        }
         if outcome == DamageOutcome::Killed
             && let Some(splash) = def.death_splash
         {
@@ -238,7 +279,7 @@ impl Combat {
                 center: middle,
                 sector: self.actors[i].body.sector,
                 splash,
-                owner: Shooter::Actor(i),
+                owner: by,
             };
             self.queue_blast(def.death_fuse, blast);
         }
@@ -258,7 +299,7 @@ impl Combat {
             for n in map.passages(s) {
                 let there = &map.sectors[n];
                 let gap = here.ceil_z.min(there.ceil_z) - here.floor_z.max(there.floor_z);
-                if !heard[n] && gap > NOISE_GAP {
+                if !heard[n] && gap > OPEN_GAP {
                     heard[n] = true;
                     queue.push_back(n);
                 }
@@ -305,25 +346,51 @@ impl Combat {
         if self.destruct.enter_sector(map, player.body.sector) {
             out.push(CombatEvent::SecretFound);
         }
+        let touching = crate::hazard::contact(map, player.body);
+        if let Some(h) = self.hazard.tick(touching, dt)
+            && player.vitals.health.alive()
+        {
+            out.push(CombatEvent::HazardBurn { kind: h.kind });
+            let at = player.body.pos;
+            hurt_player(player, h.damage, self.damage_scale, at, &mut out);
+        }
         for a in &mut self.actors {
             a.prev_pos = a.body.pos;
         }
 
-        let perception = Perception {
+        let player_view = Perception {
             eye: player.eye,
             chest: player.body.pos + Vec3::Z * 0.6 * player.body.height,
             sector: player.body.sector,
             alive: player.vitals.health.alive(),
         };
+        // Bodies as they stood at the start of the tick, so no actor sees another mid-update; a
+        // player-only fight reads exactly what it read before (same rng draws).
+        let snapshot: Vec<(Body, bool)> = self.actors.iter().map(|a| (a.body, a.alive())).collect();
         for i in 0..self.actors.len() {
             let a = &mut self.actors[i];
             if a.state == AiState::Dead {
                 continue;
             }
-            let def = defs.enemy(a.kind);
+            if let Target::Actor(j) = a.target
+                && !snapshot[j].1
+            {
+                a.target = Target::Player;
+            }
+            let perception = match a.target {
+                Target::Player => player_view,
+                Target::Actor(j) => Perception::of_body(&snapshot[j].0),
+            };
+            let def = defs.enemy(a.kind).phased(a.phase);
+            let def = &*def;
             let before = a.state;
             let (input, fire) = think(a, def, map, &perception, &mut self.rng, dt);
             out.extend(woke(i, before, a));
+            if a.state == AiState::Dead
+                && let Some(action) = a.on_death.take()
+            {
+                out.push(CombatEvent::DeathAction(action));
+            }
             if !a.alive() {
                 continue;
             }
@@ -339,6 +406,7 @@ impl Combat {
             }
             if let Some(dir) = fire {
                 out.push(CombatEvent::ActorFired { actor: i });
+                let target = self.actors[i].target;
                 match def.attack {
                     EnemyAttack::Bolts { proj, .. } => self.spawn_bolt(map, i, dir, proj),
                     EnemyAttack::Hitscan { .. } => {
@@ -359,17 +427,27 @@ impl Combat {
                         for w in v.glass {
                             self.break_glass(map, w, &mut out);
                         }
+                        for (j, n) in v.actor_damage {
+                            out.extend(self.damage_actor(defs, j, n, Shooter::Actor(i)));
+                        }
                         if v.player_damage > 0 {
                             let from = effective_muzzle(map, &self.actors[i]).0;
                             hurt_player(player, v.player_damage, self.damage_scale, from, &mut out);
                         }
                     }
-                    EnemyAttack::Melee { damage, .. } => {
-                        let a = &self.actors[i];
-                        if swipe_reaches(a, def, player.body) {
-                            hurt_player(player, damage, self.damage_scale, a.eye(), &mut out);
+                    EnemyAttack::Melee { damage, .. } => match target {
+                        Target::Player => {
+                            let a = &self.actors[i];
+                            if swipe_reaches(a, def, player.body) {
+                                hurt_player(player, damage, self.damage_scale, a.eye(), &mut out);
+                            }
                         }
-                    }
+                        Target::Actor(j) => {
+                            if swipe_reaches(&self.actors[i], def, &self.actors[j].body) {
+                                out.extend(self.damage_actor(defs, j, damage, Shooter::Actor(i)));
+                            }
+                        }
+                    },
                     EnemyAttack::None => {}
                 }
             }
@@ -410,7 +488,9 @@ impl Combat {
             radius: pd.radius,
             damage: pd.damage,
             owner: Shooter::Actor(i),
-            targets: Targets::Player,
+            // Enemy bolts hit whoever is in the way; the owner is excluded by
+            // `Projectile::ignores`.
+            targets: Targets::All,
             life: pd.life,
             gravity: pd.gravity,
             bounce: pd.bounce,
@@ -494,7 +574,7 @@ impl Combat {
                     hurt_player(player, p.damage, self.damage_scale, p.prev, &mut out);
                 }
                 ProjectileStep::HitBody(i) => {
-                    out.extend(self.damage_actor(defs, i - 1, p.damage));
+                    out.extend(self.damage_actor(defs, i - 1, p.damage, p.owner));
                 }
             }
             if let Some(splash) = p.splash {
@@ -516,6 +596,14 @@ impl Combat {
         });
         self.projectiles = projectiles;
         out
+    }
+
+    /// Health fraction of the first awake, living boss: drives the HUD boss bar.
+    pub fn boss_health(&self) -> Option<f32> {
+        self.actors
+            .iter()
+            .find(|a| a.boss && a.alive() && a.state != AiState::Sleep)
+            .map(|a| a.health.hp as f32 / a.health.max as f32)
     }
 
     /// Actor indices and copies of the bodies of every living actor, for `Mechanics::tick`.
@@ -583,11 +671,17 @@ fn bounce_off_body(map: &Map, p: &mut Projectile, body: &Body) {
 #[cfg(test)]
 mod blast_tests;
 #[cfg(test)]
+mod boss_tests;
+#[cfg(test)]
 mod crack_tests;
 #[cfg(test)]
 mod drone_tests;
 #[cfg(test)]
 mod glass_tests;
+#[cfg(test)]
+mod hazard_tests;
+#[cfg(test)]
+mod infight_tests;
 #[cfg(test)]
 mod light_tests;
 #[cfg(test)]

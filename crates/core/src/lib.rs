@@ -3,6 +3,7 @@
 
 pub mod actors;
 pub mod audio;
+pub mod automap;
 pub mod carry;
 pub mod collide;
 pub mod combat;
@@ -13,6 +14,7 @@ pub mod explosion;
 pub mod extrude;
 pub mod fixtures;
 pub mod geom;
+pub mod hazard;
 pub mod health;
 pub mod interact;
 pub mod inventory;
@@ -22,6 +24,7 @@ pub mod models;
 pub mod movement;
 pub mod pickups;
 pub mod projectile;
+pub mod props;
 pub mod rng;
 pub mod stats;
 pub mod trace;
