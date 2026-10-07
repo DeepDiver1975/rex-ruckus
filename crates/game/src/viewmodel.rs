@@ -216,12 +216,12 @@ const PIPE_HAND: &[Part] = &[
     part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, -0.05, 0.07),
 ];
 const BOOT: &[Part] = &[
-    part(Shape::Cuboid(0.07, 0.05, 0.15), 0.0, -0.03, -0.03),
-    part(Shape::Cuboid(0.06, 0.09, 0.06), 0.0, 0.03, 0.03),
+    part(Shape::Cuboid(0.042, 0.03, 0.09), 0.0, -0.035, -0.04),
+    part(Shape::Cuboid(0.036, 0.054, 0.036), 0.0, 0.0, 0.0),
 ];
 const LEG: &[Part] = &[
-    part(Shape::Cuboid(0.07, 0.05, 0.12), 0.0, -0.07, 0.0),
-    part(Shape::Barrel(0.035, 0.22), 0.0, -0.05, 0.14),
+    part(Shape::Cuboid(0.042, 0.03, 0.072), 0.0, -0.07, 0.0),
+    part(Shape::Barrel(0.021, 0.132), 0.0, -0.055, 0.08),
 ];
 
 /// Muzzle flash position relative to the rig, from the model definitions; `None` for weapons
