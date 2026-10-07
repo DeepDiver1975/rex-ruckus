@@ -4,9 +4,9 @@
 use crate::collide::{Body, clip_move};
 use crate::map::{Map, SectorId};
 use glam::Vec2;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PropKind {
     Toilet,
     Vending,
@@ -46,7 +46,8 @@ fn default_stock() -> u32 {
     3
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawProp {
     pub kind: PropKind,
     pub pos: (f32, f32),

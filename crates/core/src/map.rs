@@ -17,6 +17,7 @@ pub type WallId = usize;
 pub type MaterialId = usize;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawLevel {
     pub name: String,
     pub materials: Vec<String>,
@@ -50,7 +51,36 @@ pub struct RawLevel {
 /// it to `Map::materials` when the level has glass and does not list it already.
 pub const GLASS_MATERIAL: &str = "glass";
 
+/// Every material name the game has a texture for (`rr_game::textures`). `rr-tools validate`
+/// rejects other names, which would render as the magenta "missing" checker.
+pub const KNOWN_MATERIALS: &[&str] = &[
+    "brick",
+    "concrete",
+    "cracked",
+    "slime",
+    "electric",
+    GLASS_MATERIAL,
+    "sky",
+    "metal",
+    "tile",
+    "wood",
+    "door",
+    "asphalt",
+    "gravel",
+    "carpet",
+    "velvet",
+    "ceiling_tile",
+    "hull",
+    "grate",
+    "flesh",
+    "neon",
+    "marquee",
+    "dancefloor",
+    "glowstrip",
+];
+
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSector {
     pub loops: Vec<Vec<usize>>,
     pub floor_z: f32,
@@ -70,13 +100,15 @@ pub struct RawSector {
     pub hazard: Option<Hazard>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlayerStart {
     pub pos: (f32, f32),
     pub angle_deg: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawLight {
     pub pos: (f32, f32, f32),
     pub color: (f32, f32, f32),
@@ -86,10 +118,14 @@ pub struct RawLight {
     /// A shot or blast can break the fixture, putting the light out for good.
     #[serde(default)]
     pub breakable: bool,
+    /// Casts shadows. Turn it off for fill lights: every shadowed point light renders six
+    /// shadow maps a frame.
+    #[serde(default = "yes")]
+    pub shadows: bool,
 }
 
 /// Keycard colours. Locked doors and keyed switches name one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Key {
     Red,
     Blue,
@@ -125,7 +161,8 @@ impl KeySet {
 /// Trigger channel (Build's lotag/hitag pairing): a switch fires it and every mover listening toggles.
 pub type Channel = u16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MoverKind {
     /// The ceiling travels from the floor (closed, the start pose) up to the authored `ceil_z`.
     Door,
@@ -137,7 +174,8 @@ pub enum MoverKind {
     Crack,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MoverDef {
     pub kind: MoverKind,
     /// Metres per second.
@@ -161,13 +199,14 @@ fn default_mover_speed() -> f32 {
     2.5
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SwitchAction {
     Channel(Channel),
     Exit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSwitch {
     /// Vertex indices (from, to) of the wall it is mounted on; it faces the sector owning that edge.
     pub wall: (usize, usize),
@@ -176,7 +215,7 @@ pub struct RawSwitch {
     pub key: Option<Key>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ItemKind {
     Key(Key),
     PistolAmmo,
@@ -230,7 +269,8 @@ fn always() -> Difficulty {
     Difficulty::Easy
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawActor {
     pub kind: ActorKind,
     pub pos: (f32, f32),
@@ -248,6 +288,7 @@ pub struct RawActor {
 
 /// A sector that runs `action` when the player walks into it (once, unless `once: false`).
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawTrigger {
     pub sector: SectorId,
     pub action: SwitchAction,
@@ -257,7 +298,8 @@ pub struct RawTrigger {
 
 /// Screen shake while channel `channel` fires: `strength` in (0, 1], held for `duration`
 /// seconds and faded out over the last 30 %.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawQuake {
     pub channel: Channel,
     pub duration: f32,
@@ -277,7 +319,8 @@ pub struct ActorSpawn {
     pub on_death: Option<SwitchAction>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawItem {
     pub kind: ItemKind,
     pub pos: (f32, f32),
@@ -700,6 +743,20 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn light_shadows_default_on_and_can_be_turned_off() {
+        let map = Map::from_ron(r#"(name: "t", materials: ["m"],
+            vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
+            sectors: [(loops: [[0, 1, 2, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)],
+            player_start: (pos: (2.0, 2.0), angle_deg: 0.0),
+            lights: [
+                (pos: (1.0, 1.0, 2.0), color: (1.0, 1.0, 1.0), intensity: 1000.0, range: 5.0),
+                (pos: (3.0, 3.0, 2.0), color: (1.0, 1.0, 1.0), intensity: 1000.0, range: 5.0, shadows: false),
+            ])"#).unwrap();
+        assert!(map.lights[0].shadows);
+        assert!(!map.lights[1].shadows);
+    }
+
     use super::*;
     use crate::fixtures::{pillar_room, two_rooms};
 

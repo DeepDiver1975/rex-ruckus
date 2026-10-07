@@ -1,18 +1,19 @@
 //! Damaging floors: slime and live electric grates hurt the player standing on them.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::collide::Body;
 use crate::map::Map;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HazardKind {
     Slime,
     Electric,
 }
 
 /// A sector's damaging floor: `damage` (before difficulty and armour) every `interval` seconds.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Hazard {
     pub damage: i32,
     pub interval: f32,

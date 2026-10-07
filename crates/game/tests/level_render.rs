@@ -194,8 +194,26 @@ mod world {
             intensity: 100_000.0,
             range: 10.0,
             breakable: true,
+            shadows: true,
         });
         map
+    }
+
+    #[test]
+    fn light_shadows_flag_reaches_the_point_light() {
+        let mut map = lit_map();
+        map.lights.push(RawLight {
+            shadows: false,
+            ..map.lights[0]
+        });
+        let mut app = world_app(map);
+        let mut q = app.world_mut().query::<(&PointLight, &LevelLight)>();
+        let mut flags: Vec<(usize, bool)> = q
+            .iter(app.world())
+            .map(|(p, l)| (l.0, p.shadow_maps_enabled))
+            .collect();
+        flags.sort();
+        assert_eq!(flags, vec![(0, true), (1, false)]);
     }
 
     #[test]

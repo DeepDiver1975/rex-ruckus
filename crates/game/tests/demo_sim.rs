@@ -26,6 +26,61 @@ fn hall() -> Map {
     .expect("hall is valid")
 }
 
+fn l_shape() -> Map {
+    Map::from_ron(
+        r#"(
+        name: "ell",
+        materials: ["wall"],
+        vertices: [(0.0, 0.0), (20.0, 0.0), (20.0, 4.0), (16.0, 4.0), (0.0, 4.0), (20.0, 20.0), (16.0, 20.0)],
+        sectors: [
+            (loops: [[0, 1, 2, 3, 4]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0),
+            (loops: [[3, 2, 5, 6]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0),
+        ],
+        player_start: (pos: (2.0, 2.0), angle_deg: 0.0),
+    )"#,
+    )
+    .expect("l_shape is valid")
+}
+
+#[test]
+fn goto_waypoints_walk_around_a_corner_and_exit() {
+    let script = DemoScript::from_ron(
+        "(segments: [(secs: 8.0, goto: Some((18.0, 2.0))), (secs: 8.0, goto: Some((18.0, 18.0)))])",
+    )
+    .unwrap();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            50,
+        )));
+    insert_level(&mut app, l_shape(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        DemoPlugin {
+            script,
+            record: None,
+        },
+    ));
+
+    let mut exit = None;
+    for _ in 0..400 {
+        app.update();
+        if let Some(e) = app.should_exit() {
+            exit = Some(e);
+            break;
+        }
+    }
+    assert_eq!(exit, Some(AppExit::Success), "the demo ends the app");
+    let world = app.world_mut();
+    let body = world.query::<&PlayerBody>().single(world).unwrap();
+    let d = body.0.pos.truncate().distance(Vec2::new(18.0, 18.0));
+    assert!(d < 0.6, "reached the far waypoint: {:?}", body.0.pos);
+}
+
 #[test]
 fn script_walks_turns_and_exits() {
     let script = DemoScript::from_ron(

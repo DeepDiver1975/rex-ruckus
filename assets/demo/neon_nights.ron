@@ -1,0 +1,101 @@
+// Route through neon_nights.ron (episode level 2), replayed by `rex-ruckus --demo` and checked
+// headless by crates/game/tests/episode_demos.rs. Headings are core degrees (0 = east, 90 = north,
+// CCW); `goto` points are core (x, y).
+(
+    invulnerable: true,
+    segments: [
+        (secs: 0.3),
+        // Street: past the taxi and the kiosk to the neon alcove and the chaingun.
+        (secs: 3.0, goto: Some((12.0, 18.0))),
+        (secs: 4.0, goto: Some((26.0, 16.0))),
+        (secs: 3.0, goto: Some((36.0, 15.6))),
+        (secs: 2.0, goto: Some((41.5, 15.75))),
+        (secs: 0.3, select: Some(Chaingun)),
+        // Under the canopy to the club door.
+        (secs: 2.0, goto: Some((38.8, 16.2))),
+        (secs: 2.0, goto: Some((38.8, 20.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // The club: through the vestibule and across the dance floor (channel 1) to the back door.
+        (secs: 2.0, goto: Some((43.0, 20.0))),
+        (secs: 2.0, goto: Some((47.0, 19.5))),
+        (secs: 4.0, goto: Some((67.0, 19.5))),
+        (secs: 2.0, goto: Some((73.8, 20.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // The lounge, round the pool table, up the staff hall to the manager's door.
+        (secs: 2.0, goto: Some((77.5, 20.0))),
+        (secs: 2.0, goto: Some((80.0, 23.0))),
+        (secs: 2.0, goto: Some((82.0, 27.0))),
+        (secs: 2.0, goto: Some((82.9, 34.5))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // Round the desk to the Blue key.
+        (secs: 2.0, goto: Some((86.0, 38.5))),
+        (secs: 2.0, goto: Some((91.5, 38.5))),
+        (secs: 2.0, goto: Some((91.5, 35.0))),
+        // Back out and along the corridor to the blue door.
+        (secs: 2.0, goto: Some((91.5, 38.5))),
+        (secs: 2.0, goto: Some((86.0, 38.5))),
+        (secs: 2.0, goto: Some((85.2, 34.5))),
+        (secs: 2.0, goto: Some((82.0, 34.5))),
+        (secs: 2.0, goto: Some((82.0, 44.0))),
+        (secs: 2.0, goto: Some((76.8, 44.0))),
+        (secs: 0.4, face_deg: Some(180.0)),
+        (secs: 1.2, use_key: true),
+        // The lobby: up the riser (channel 2) onto the desk for the jetpack.
+        (secs: 2.0, goto: Some((72.5, 44.0))),
+        (secs: 3.0, goto: Some((63.0, 50.5))),
+        (secs: 2.0, goto: Some((57.5, 50.0))),
+        (secs: 2.0, goto: Some((57.5, 47.6))),
+        // Off the riser to the lift in the north wall; up to tier 1.
+        (secs: 2.0, goto: Some((57.5, 50.0))),
+        (secs: 2.0, goto: Some((53.0, 52.0))),
+        (secs: 3.0, goto: Some((44.0, 58.5))),
+        (secs: 2.0, goto: Some((44.0, 61.2))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.0, use_key: true),
+        (secs: 1.5),
+        // Tier 1 to the stairs, up to tier 2.
+        (secs: 2.0, goto: Some((44.0, 65.0))),
+        (secs: 2.0, goto: Some((47.6, 65.0))),
+        (secs: 3.0, goto: Some((47.6, 80.0))),
+        (secs: 2.0, goto: Some((53.5, 80.0))),
+        // Tier 2 to the lift, up to tier 3.
+        (secs: 2.0, goto: Some((60.0, 80.5))),
+        (secs: 3.0, goto: Some((60.0, 72.0))),
+        (secs: 2.0, goto: Some((61.5, 64.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.0, use_key: true),
+        (secs: 1.5),
+        // Tier 3: the stairs up to the shaft door.
+        (secs: 2.0, goto: Some((64.8, 64.0))),
+        (secs: 2.0, goto: Some((69.0, 66.5))),
+        (secs: 2.0, goto: Some((74.0, 66.5))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // The catwalk to the upper lift; ride it to the top ledge.
+        (secs: 2.0, goto: Some((76.8, 66.5))),
+        (secs: 2.0, goto: Some((76.8, 76.0))),
+        (secs: 2.0, goto: Some((80.0, 76.0))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.0, use_key: true),
+        (secs: 4.5),
+        // The Yellow key, then the yellow door.
+        (secs: 2.0, goto: Some((80.0, 80.0))),
+        (secs: 2.0, goto: Some((84.0, 84.0))),
+        (secs: 2.0, goto: Some((80.5, 83.6))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.2, use_key: true),
+        // The terrace: over the mat (channel 3), round the pool and the hot tub to the suite.
+        (secs: 2.0, goto: Some((80.5, 88.0))),
+        (secs: 2.0, goto: Some((88.5, 93.0))),
+        (secs: 2.0, goto: Some((93.5, 94.5))),
+        (secs: 2.0, goto: Some((93.5, 97.5))),
+        (secs: 2.0, goto: Some((98.0, 98.5))),
+        (secs: 2.0, goto: Some((98.6, 100.0))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.0, use_key: true),
+        (secs: 2.0),
+    ],
+)

@@ -114,6 +114,94 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
                 shade([110, 115, 125], if x % 16 == 0 { -30 } else { n })
             }
         }
+        // Street: dark noisy tarmac with a faint pale fleck.
+        "asphalt" => shade(
+            [48, 48, 52],
+            n * 2 + if noise(x, y, 31) > 250 { 60 } else { 0 },
+        ),
+        // Roof gravel: warm grey speckle.
+        "gravel" => shade([110, 100, 90], noise(x, y, 5) as i32 / 6 - 20),
+        // Theater carpet: red with a gold diamond lattice.
+        "carpet" => {
+            let d = ((x as i32 - 16).abs() + (y as i32 % 16 - 8).abs()) % 16;
+            if d == 0 {
+                [200, 160, 60, 255]
+            } else {
+                shade([140, 20, 30], n)
+            }
+        }
+        // Stage velvet: deep red vertical folds.
+        "velvet" => shade([120, 10, 25], ((x % 8) as i32 - 4).abs() * 6 - 12 + n / 2),
+        // Office ceiling: off-white tiles on a grey grid.
+        "ceiling_tile" => {
+            if x % 16 == 0 || y % 16 == 0 {
+                [140, 140, 140, 255]
+            } else {
+                shade([215, 212, 200], n)
+            }
+        }
+        // Ship hull: blue-grey plates, seams every 16 px, rivets at plate corners.
+        "hull" => {
+            if x % 16 == 0 || y % 16 == 0 {
+                [40, 45, 55, 255]
+            } else if x % 16 == 2 && y % 16 == 2 {
+                [170, 175, 185, 255]
+            } else {
+                shade([85, 95, 110], n * 2)
+            }
+        }
+        // Floor grating: metal bars around dark holes.
+        "grate" => {
+            if x % 4 == 0 || y % 4 == 0 {
+                shade([120, 120, 125], n)
+            } else {
+                [15, 15, 18, 255]
+            }
+        }
+        // Alien organic wall: purple with dark wandering veins.
+        "flesh" => {
+            let vein = (x as i32 + (noise(y / 2, 0, 9) % 5) as i32) % 11 == 0;
+            if vein {
+                [50, 10, 40, 255]
+            } else {
+                shade([130, 50, 110], n * 2)
+            }
+        }
+        // Neon tubes: pink and cyan bands on black.
+        "neon" => match y % 16 {
+            3..=4 => [255, 60, 200, 255],
+            11..=12 => [40, 230, 255, 255],
+            _ => shade([15, 10, 20], n / 2),
+        },
+        // Marquee: warm bulbs on a dark panel.
+        "marquee" => {
+            if x % 8 == 4 && y % 8 == 4 {
+                [255, 230, 140, 255]
+            } else {
+                shade([40, 25, 10], n)
+            }
+        }
+        // Dance floor: lit 8 px tiles in four colours.
+        "dancefloor" => {
+            if x % 8 == 0 || y % 8 == 0 {
+                [10, 10, 10, 255]
+            } else {
+                [
+                    [220, 40, 160, 255],
+                    [40, 200, 255, 255],
+                    [250, 220, 40, 255],
+                    [90, 255, 90, 255],
+                ][((x / 8 + 2 * (y / 8)) % 4) as usize]
+            }
+        }
+        // Glow strip: a bright cyan line along a dark band.
+        "glowstrip" => {
+            if (14..18).contains(&y) {
+                [120, 255, 240, 255]
+            } else {
+                shade([30, 35, 45], n)
+            }
+        }
         _ => {
             if (x / 8 + y / 8) % 2 == 0 {
                 [255, 0, 255, 255]
@@ -162,6 +250,47 @@ mod tests {
             let a = pixels(name);
             assert_eq!(a.len(), (SIZE * SIZE * 4) as usize, "{name}");
             assert_eq!(a, pixels(name), "{name} must be deterministic");
+        }
+    }
+
+    const THEMED: [&str; 12] = [
+        "asphalt",
+        "gravel",
+        "carpet",
+        "velvet",
+        "ceiling_tile",
+        "hull",
+        "grate",
+        "flesh",
+        "neon",
+        "marquee",
+        "dancefloor",
+        "glowstrip",
+    ];
+
+    #[test]
+    fn themed_textures_are_distinct_and_deterministic() {
+        let missing = pixels("does-not-exist");
+        for (i, a) in THEMED.iter().enumerate() {
+            let p = pixels(a);
+            assert_eq!(p.len(), (SIZE * SIZE * 4) as usize, "{a}");
+            assert_eq!(p, pixels(a), "{a} deterministic");
+            assert_ne!(p, missing, "{a} has its own arm");
+            for b in &THEMED[i + 1..] {
+                assert_ne!(p, pixels(b), "{a} vs {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_known_material_has_its_own_texture() {
+        let missing = pixels("does-not-exist");
+        for name in rr_core::map::KNOWN_MATERIALS {
+            assert_ne!(
+                pixels(name),
+                missing,
+                "{name} falls back to the missing checker"
+            );
         }
     }
 
