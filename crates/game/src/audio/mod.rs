@@ -195,7 +195,12 @@ impl Plugin for AudioFxPlugin {
                         .run_if(resource_changed::<AudioVolumes>)
                         .before(FxReaders),
                     attach_listener,
-                    (play_cues, loop_gain, stop_movers_off_play)
+                    (
+                        play_cues,
+                        loop_gain,
+                        stop_movers_off_play,
+                        pause_loops.run_if(resource_changed::<PlayState>),
+                    )
                         .chain()
                         .in_set(FxReaders),
                     quips::play_quips
@@ -282,14 +287,27 @@ fn player_cues(
 
 /// `tick_movers` only runs while playing, so a door or lift moving at death or exit never sends
 /// its stop event; its hum would drone over the end screen. Like the jetpack, it ends with play.
+/// A pause is not the end: [`pause_loops`] holds the hums instead.
 fn stop_movers_off_play(
     mut commands: Commands,
     state: Res<PlayState>,
     loops: Query<Entity, With<MoverLoop>>,
 ) {
-    if *state != PlayState::Playing {
+    if !matches!(*state, PlayState::Playing | PlayState::Paused) {
         for e in &loops {
             commands.entity(e).try_despawn();
+        }
+    }
+}
+
+/// Paused play holds the mover loops instead of ending them; they pick up where they were.
+fn pause_loops(state: Res<PlayState>, sinks: Query<&SpatialAudioSink, With<MoverLoop>>) {
+    let paused = *state == PlayState::Paused;
+    for s in &sinks {
+        if paused {
+            s.pause();
+        } else {
+            s.play();
         }
     }
 }

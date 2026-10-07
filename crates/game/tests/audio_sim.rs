@@ -510,3 +510,20 @@ fn a_need_key_quip_leaves_the_key_message_readable() {
     let text = subtitle(&app);
     assert!(lines(QuipOn::NeedKey).contains(&text), "{text:?}");
 }
+
+#[test]
+fn mover_loops_survive_a_pause() {
+    let mut app = app();
+    fx(&mut app).mech.push(MechEvent::MoverStarted {
+        sector: 1,
+        kind: MoverKind::Door,
+    });
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1);
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1, "paused, not stopped");
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Playing;
+    app.update();
+    assert_eq!(count::<MoverLoop>(&mut app), 1);
+}
