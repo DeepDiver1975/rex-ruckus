@@ -507,8 +507,10 @@ fn aim(a: &Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng) -> Vec3 {
     crate::weapons::spread_dirs(ideal, 1, def.aim_error_deg, rng)[0]
 }
 
-/// Chase movement: straight at a visible (or same-sector) player, otherwise toward the next
-/// sector on the route, strafing while the player is in sight.
+/// Chase movement: straight at the player when in the same sector, or in sight with the line
+/// to it passable (`steer::path_open`), otherwise toward the next sector on the route, strafing
+/// while the player is in sight. A player in sight but out of reach is faced and strafed at in
+/// place, so the attack logic keeps firing instead of the actor grinding on the opening.
 fn chase(
     a: &mut Actor,
     def: &EnemyDef,
@@ -521,7 +523,13 @@ fn chase(
     let here = a.body.pos.truncate();
     let player = p.eye.truncate();
     a.repath -= dt;
-    let goal = if sees || a.body.sector == p.sector {
+    let pass = match a.locomotion {
+        Locomotion::Fly { .. } => Pass::Fly { height: def.height },
+        _ => Pass::Walk(def.tuning()),
+    };
+    let same = a.body.sector == p.sector;
+    let direct = same || (sees && steer::path_open(map, a.body.sector, here, player, pass));
+    let goal = if direct {
         a.hop = None;
         Some(player)
     } else {
@@ -529,10 +537,6 @@ fn chase(
             .hop
             .is_none_or(|h| portal_waypoint(map, a.body.sector, h).is_none());
         if a.repath <= 0.0 || stale {
-            let pass = match a.locomotion {
-                Locomotion::Fly { .. } => Pass::Fly { height: def.height },
-                _ => Pass::Walk(def.tuning()),
-            };
             a.hop = next_hop(map, a.body.sector, p.sector, pass);
         }
         a.hop.and_then(|h| portal_waypoint(map, a.body.sector, h))
@@ -541,6 +545,14 @@ fn chase(
         a.corner = None;
         if a.repath <= 0.0 {
             a.repath = REPATH;
+        }
+        if sees {
+            // Unreachable but in sight: face it and strafe in place; the attack logic keeps firing.
+            let dir = (player - here).normalize_or_zero();
+            if dir != Vec2::ZERO {
+                a.angle = heading(dir);
+            }
+            return hold_and_strafe(a, def, rng, dt, dir);
         }
         return MoveInput::default(); // unreachable: wait
     };
@@ -570,33 +582,45 @@ fn chase(
         a.repath = REPATH;
     }
     let target = a.corner.unwrap_or(goal);
-    let to = goal - here;
     let dir = (target - here).normalize_or_zero();
     if dir != Vec2::ZERO {
         a.angle = heading(dir);
     }
-    let mut wish = if sees && to.length() <= CLOSE_ENOUGH {
+    // Close enough is judged on the player, not on a portal waypoint on the way there.
+    let mut wish = if sees && (player - here).length() <= CLOSE_ENOUGH {
         Vec2::ZERO
     } else {
         dir
     };
-    if sees && def.strafe && dir != Vec2::ZERO {
-        let left = a.strafe.abs() - dt;
-        if a.strafe == 0.0 || left <= 0.0 {
-            let sign = if a.strafe == 0.0 {
-                if rng.chance(0.5) { 1.0 } else { -1.0 }
-            } else {
-                -a.strafe.signum()
-            };
-            let (lo, hi) = STRAFE_FLIP;
-            a.strafe = sign * (lo + rng.unit() * (hi - lo));
-        } else {
-            a.strafe = a.strafe.signum() * left;
-        }
-        wish += dir.perp() * STRAFE * a.strafe.signum();
+    if sees {
+        wish += hold_and_strafe(a, def, rng, dt, dir).wish;
     }
     MoveInput {
         wish: wish.clamp_length_max(1.0),
+        ..MoveInput::default()
+    }
+}
+
+/// The sideways strafe of an actor with `def.strafe` facing along `dir` (no forward motion):
+/// it flips side every `STRAFE_FLIP` seconds. Zero for non-strafers or a zero `dir`.
+fn hold_and_strafe(a: &mut Actor, def: &EnemyDef, rng: &mut Rng, dt: f32, dir: Vec2) -> MoveInput {
+    if !def.strafe || dir == Vec2::ZERO {
+        return MoveInput::default();
+    }
+    let left = a.strafe.abs() - dt;
+    if a.strafe == 0.0 || left <= 0.0 {
+        let sign = if a.strafe == 0.0 {
+            if rng.chance(0.5) { 1.0 } else { -1.0 }
+        } else {
+            -a.strafe.signum()
+        };
+        let (lo, hi) = STRAFE_FLIP;
+        a.strafe = sign * (lo + rng.unit() * (hi - lo));
+    } else {
+        a.strafe = a.strafe.signum() * left;
+    }
+    MoveInput {
+        wish: dir.perp() * STRAFE * a.strafe.signum(),
         ..MoveInput::default()
     }
 }
@@ -1211,5 +1235,36 @@ mod tests {
             a.state,
             a.corner
         );
+    }
+
+    #[test]
+    fn boss_holds_its_ground_at_a_tunnel_it_cannot_enter() {
+        // The boss sees down a 2.8 m tunnel but cannot enter it (see `hall_and_tunnel_at`).
+        let map = crate::fixtures::hall_and_tunnel_at(2.8);
+        let d = defs();
+        let def = d.enemy(ActorKind::Boss).clone();
+        let p = player_at(&map, 16.0, 5.0);
+        let mut a = actor_at(&map, &def, 4.0, 5.0, 0.0, false);
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(1);
+        let mut max_x = a.body.pos.x;
+        for _ in 0..600 {
+            run(&mut a, &def, &map, &p, &mut rng, 1);
+            max_x = max_x.max(a.body.pos.x);
+        }
+        // It never presses into the mouth (x = 12 minus its 1.3 m radius).
+        assert!(max_x < 12.0 - 1.3 - 0.5, "pressed to x = {max_x}");
+    }
+
+    #[test]
+    fn a_reachable_seen_player_is_still_charged() {
+        let map = crate::fixtures::hall_and_tunnel();
+        let def = grunt(); // 1.8 m tall fits the 2 m tunnel
+        let p = player_at(&map, 16.0, 5.0);
+        let mut a = actor_at(&map, &def, 4.0, 5.0, 0.0, false);
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(1);
+        run(&mut a, &def, &map, &p, &mut rng, 300);
+        assert_eq!(a.body.sector, 1, "the grunt walked into the tunnel");
     }
 }

@@ -114,6 +114,33 @@ pub fn glass_rooms() -> Map {
     .expect("glass_rooms fixture is valid")
 }
 
+/// A 12×10 m hall (sector 0, floor 0, ceiling 6) with a 2 m high tunnel (sector 1, x∈[12,20],
+/// y∈[4,6], floor 0, ceiling 2) off its east wall: too low for the 3 m boss, fine for a grunt.
+/// Materials: 0 wall, 1 floor, 2 ceiling. Start (16,5) facing west, in the tunnel.
+pub fn hall_and_tunnel() -> Map {
+    hall_and_tunnel_at(2.0)
+}
+
+/// `hall_and_tunnel` with the tunnel ceiling at `tunnel_ceil`. At 2.8 m the boss (3 m body, eye
+/// at 2.7 m) sees straight down the tunnel yet cannot enter it; under the 2 m ceiling it loses
+/// sight of a player deep inside long before it reaches the mouth.
+pub fn hall_and_tunnel_at(tunnel_ceil: f32) -> Map {
+    let src = format!(
+        r#"(
+        name: "tunnel",
+        materials: ["wall", "floor", "ceiling"],
+        vertices: [(0.0, 0.0), (12.0, 0.0), (12.0, 4.0), (12.0, 6.0), (12.0, 10.0), (0.0, 10.0),
+                   (20.0, 4.0), (20.0, 6.0)],
+        sectors: [
+            (loops: [[0, 1, 2, 3, 4, 5]], floor_z: 0.0, ceil_z: 6.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[2, 6, 7, 3]], floor_z: 0.0, ceil_z: {tunnel_ceil:?}, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+        ],
+        player_start: (pos: (16.0, 5.0), angle_deg: 180.0),
+    )"#
+    );
+    Map::from_ron(&src).expect("hall_and_tunnel fixture is valid")
+}
+
 /// The shipped weapon and enemy defs.
 pub fn defs() -> crate::defs::Defs {
     crate::defs::Defs::builtin()

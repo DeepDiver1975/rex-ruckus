@@ -157,3 +157,31 @@ fn boss_is_hurt_by_a_barrel_it_set_off_but_not_by_its_own_rockets() {
     assert!(c.damage_actor(&d, 0, 50, Shooter::Actor(0)).is_empty());
     assert_eq!(c.actors[0].health.hp, now);
 }
+
+#[test]
+fn boss_fires_into_a_tunnel_it_cannot_enter() {
+    // The boss sees down a 2.8 m tunnel but cannot enter it (see `hall_and_tunnel_at`).
+    let mut map = crate::fixtures::hall_and_tunnel_at(2.8);
+    map.actors.push(ActorSpawn {
+        kind: ActorKind::Boss,
+        pos: Vec2::new(4.0, 5.0),
+        angle: 0.0,
+        asleep: false,
+        skill: Difficulty::Easy,
+        on_death: None,
+    });
+    let d = defs();
+    let mut c = Combat::spawn(&map, &d, 1);
+    c.actors[0].state = AiState::Chase;
+    let mut p = Player::at(&map, 16.0, 5.0);
+    p.vitals.health.max = 100_000;
+    p.vitals.health.hp = 100_000;
+    let (mut shots, mut max_x) = (0, 0.0_f32);
+    for _ in 0..600 {
+        let ev = p.tick(&mut c, &mut map, &d);
+        shots += count(&ev, |e| *e == CombatEvent::ActorFired { actor: 0 });
+        max_x = max_x.max(c.actors[0].body.pos.x);
+    }
+    assert!(shots >= 2, "the boss fired {shots} times");
+    assert!(max_x < 12.0 - 1.3 - 0.5, "pressed to x = {max_x}");
+}
