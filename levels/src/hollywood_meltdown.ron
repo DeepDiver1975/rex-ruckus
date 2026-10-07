@@ -3,13 +3,17 @@
 // stairwell: down the first flight to the landing (shotgun, a breakable lamp) → down the second
 // flight (2 Enforcers) → the foot → door south into the street. Alternative: hop the fire escape
 // south-east of the roof (ledges z 6 and 3, shells, a Drone) and drop onto the street.
-// Street (burning car, newsstand, barrels, Grunts, Slashers, Drones): the grate mid-street fires
-// channel 1, opening the two shop fronts on the north side (awake Grunts) → the theater canopy →
-// either lobby door → lobby (vending machine, restroom with a toilet, medkit) → stairs up to the
-// manager's mezzanine office (red key, a Slasher) → drop back into the lobby → red door in the
-// east wall → auditorium: up the entry steps to the rear aisle, down the seating rows (Grunts; a
-// balcony wing above on the north side) → front aisle → stage steps → stage (a Slasher) → door
-// in the stage's east wall → backstage → exit switch on the east wall.
+// Street (a burning car and a crashed van, planters, a bus stop, a lamp post, the newsstand on the
+// north sidewalk; barrels, Grunts, Slashers, Drones): the grate mid-street fires channel 1,
+// opening the two shop fronts on the north side (awake Grunts) → the theater canopy → either
+// lobby door → the entrance strip fires channel 2: two cloakrooms in the lobby's south wall open
+// (an awake Enforcer and Grunt) → lobby (concession counter, pillars, vending machine, restroom
+// with a toilet, medkit) → stairs up to the manager's office on the mezzanine (red key, a
+// Slasher; window-height walls) → back down the stairs → red door in the east wall → auditorium:
+// up the entry steps to the rear aisle, down the centre aisle between the seat rows (Grunts
+// behind seat backs; the balcony 2 m above, reached by the lift by the rear aisle) → front aisle
+// → stage steps → stage (a Slasher) → door in the stage's east wall → backstage → exit switch on
+// the east wall.
 // Secrets: (1) a crouch vent in the roof's north wall at x 26-30 into the roof hut (armour);
 // (2) the scorched alley wall at x 90 behind the barrel cracks open on a blast: stash (atom,
 // rockets); (3) a crouch gap in the balcony's north wall into the projection booth (medkit, atom).
@@ -46,17 +50,32 @@
 
         // ---- Street (open sky) ----
         (id: "street", poly: [(0.0, 30.0), (22.0, 30.0), (22.0, 33.0), (46.0, 33.0), (46.0, 30.0), (59.0, 30.0), (59.0, 35.0),
-                              (67.0, 35.0), (67.0, 30.0), (80.0, 30.0), (80.0, 52.0), (24.0, 52.0), (24.0, 60.0), (0.0, 60.0)],
+                              (67.0, 35.0), (67.0, 30.0), (80.0, 30.0), (80.0, 49.5), (33.0, 49.5), (33.0, 52.0), (24.0, 52.0),
+                              (24.0, 60.0), (0.0, 60.0)],
          holes: [[(30.0, 40.0), (36.0, 40.0), (36.0, 44.0), (30.0, 44.0)],
-                 [(44.0, 38.0), (48.5, 37.2), (49.2, 39.6), (44.6, 40.6)]],
+                 [(44.0, 38.0), (48.5, 37.2), (49.2, 39.6), (44.6, 40.6)],
+                 [(60.0, 45.0), (65.5, 45.8), (65.2, 48.2), (59.7, 47.4)],
+                 [(8.0, 40.0), (11.0, 40.0), (11.0, 42.5), (8.0, 42.5)],
+                 [(52.0, 42.0), (55.0, 42.0), (55.0, 44.5), (52.0, 44.5)],
+                 [(14.0, 35.5), (20.0, 35.5), (20.0, 35.9), (14.0, 35.9)],
+                 [(60.8, 41.8), (61.2, 41.8), (61.2, 42.2), (60.8, 42.2)]],
          ceil_z: 30.0, floor: "asphalt", ceil: "sky"),
+        // The north sidewalk, a 0.2 m curb up from the road.
+        (id: "sidewalk_n", rect: (33.0, 49.5, 80.0, 52.0), floor_z: 0.2, ceil_z: 30.0, floor: "concrete", ceil: "sky", face: "concrete"),
+        // Street cover: a crashed van, two planters, the bus-stop wall, a lamp post.
+        (id: "van_wreck", poly: [(60.0, 45.0), (65.5, 45.8), (65.2, 48.2), (59.7, 47.4)],
+         floor_z: 1.6, ceil_z: 30.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "planter_w", rect: (8.0, 40.0, 11.0, 42.5), floor_z: 1.0, ceil_z: 30.0, floor: "gravel", ceil: "sky", face: "concrete"),
+        (id: "planter_e", rect: (52.0, 42.0, 55.0, 44.5), floor_z: 1.0, ceil_z: 30.0, floor: "gravel", ceil: "sky", face: "concrete"),
+        (id: "bus_stop", rect: (14.0, 35.5, 20.0, 35.9), floor_z: 2.6, ceil_z: 30.0, floor: "metal", ceil: "sky", face: "glowstrip"),
+        (id: "lamp_post", rect: (60.8, 41.8, 61.2, 42.2), floor_z: 6.0, ceil_z: 30.0, floor: "metal", ceil: "sky", face: "metal"),
         // The manhole grate mid-street: trigger for channel 1 (the shop fronts).
         (id: "grate_pad", rect: (30.0, 40.0, 36.0, 44.0), ceil_z: 30.0, floor: "grate", ceil: "sky"),
         (id: "car_wreck", poly: [(44.0, 38.0), (48.5, 37.2), (49.2, 39.6), (44.6, 40.6)],
-         floor_z: 1.3, ceil_z: 30.0, floor: "hull", ceil: "sky", wall: "hull"),
+         floor_z: 1.3, ceil_z: 30.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
         // The theater canopy: a glowing underside, marquee boards between the doors.
         (id: "canopy", rect: (22.0, 30.0, 46.0, 33.0), ceil_z: 4.5, floor: "tile", ceil: "neon", wall: "marquee"),
-        (id: "newsstand", rect: (52.0, 52.0, 56.0, 54.5), ceil_z: 2.5, floor: "wood", ceil: "metal", wall: "metal"),
+        (id: "newsstand", rect: (52.0, 52.0, 56.0, 54.5), floor_z: 0.2, ceil_z: 2.5, floor: "wood", ceil: "metal", wall: "metal"),
         // Shop fronts on channel 1, each with an awake Grunt.
         (id: "shop_w_door", rect: (43.5, 52.0, 45.5, 52.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
          face: "door", mover: (kind: Door, channel: Some(1))),
@@ -84,9 +103,27 @@
          face: "marquee"),
         (id: "lobby", poly: [(20.0, 0.0), (60.0, 0.0), (60.0, 20.0), (48.0, 20.0), (40.0, 20.0), (40.0, 23.5),
                              (48.0, 23.5), (48.0, 26.0), (20.0, 26.0)],
+         holes: [[(28.0, 12.0), (38.0, 12.0), (38.0, 13.2), (28.0, 13.2)],
+                 [(24.0, 16.0), (25.0, 16.0), (25.0, 17.0), (24.0, 17.0)],
+                 [(33.0, 4.0), (34.0, 4.0), (34.0, 5.0), (33.0, 5.0)],
+                 [(46.0, 8.0), (47.0, 8.0), (47.0, 9.0), (46.0, 9.0)],
+                 [(54.0, 8.0), (55.0, 8.0), (55.0, 9.0), (54.0, 9.0)]],
          ceil_z: 7.0, floor: "carpet", wall: "wood"),
-        // Mezzanine office over the lobby's north-east corner (red key).
-        (id: "office", rect: (48.0, 20.0, 60.0, 29.5), floor_z: 4.0, ceil_z: 7.0, floor: "carpet", wall: "wood"),
+        // The concession counter (chest high: cover, and a hop up).
+        (id: "concession", rect: (28.0, 12.0, 38.0, 13.2), floor_z: 1.1, ceil_z: 7.0, floor: "neon", wall: "wood", face: "wood"),
+        // Two cloakrooms in the south wall on channel 2 (the entrance strip's trigger), awake.
+        (id: "cloak_w_door", rect: (36.5, -0.5, 38.5, 0.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "cloak_w", rect: (35.0, -3.5, 40.0, -0.5), ceil_z: 3.2, floor: "carpet", wall: "velvet"),
+        (id: "cloak_e_door", rect: (50.5, -0.5, 52.5, 0.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "cloak_e", rect: (49.0, -3.5, 54.0, -0.5), ceil_z: 3.2, floor: "carpet", wall: "velvet"),
+        // The manager's office on a mezzanine over the lobby's north-east corner (red key): a
+        // window-height wall towards the lobby, a doorway at the top of the stairs.
+        (id: "office", rect: (48.4, 20.4, 60.0, 29.5), floor_z: 4.0, ceil_z: 7.0, floor: "carpet", wall: "wood"),
+        (id: "office_rail_s", rect: (48.0, 20.0, 60.0, 20.4), floor_z: 5.3, ceil_z: 7.0, floor: "wood", wall: "wood", face: "wood"),
+        (id: "office_rail_w", rect: (48.0, 23.5, 48.4, 29.5), floor_z: 5.3, ceil_z: 7.0, floor: "wood", wall: "wood", face: "wood"),
+        (id: "office_door", rect: (48.0, 20.4, 48.4, 23.5), floor_z: 4.0, ceil_z: 6.4, floor: "wood", ceil: "wood", wall: "wood"),
         (id: "restroom_way", rect: (19.5, 4.0, 20.0, 6.0), ceil_z: 3.0, floor: "tile", ceil: "tile", wall: "tile"),
         (id: "restroom", rect: (10.0, 0.0, 19.5, 10.0), ceil_z: 3.0, floor: "tile", ceil: "tile", wall: "tile"),
         (id: "red_door", rect: (60.0, 12.0, 60.5, 16.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
@@ -97,12 +134,48 @@
                                 (60.5, 16.0), (65.0, 16.0), (65.0, 12.0), (60.5, 12.0)],
          floor_z: 3.0, ceil_z: 10.0, floor: "carpet", ceil: "ceiling_tile", wall: "velvet"),
         (id: "balcony_lift", rect: (60.5, 17.0, 63.0, 22.0), floor_z: 3.0, ceil_z: 10.0, floor: "metal", wall: "velvet",
-         face: "metal", mover: (kind: Lift(to: 4.0), speed: 3.0)),
+         face: "metal", mover: (kind: Lift(to: 5.0), speed: 3.0)),
         (id: "balcony", poly: [(60.5, 22.0), (68.0, 22.0), (68.0, 26.0), (88.0, 26.0), (88.0, 29.5), (60.5, 29.5)],
-         floor_z: 4.0, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+         floor_z: 5.0, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
         // Secret 3: a crouch gap in the balcony's north wall, into the projection booth.
-        (id: "booth_gap", rect: (62.0, 29.5, 64.0, 30.0), floor_z: 4.0, ceil_z: 5.2, floor: "metal", ceil: "metal", wall: "metal"),
-        (id: "booth", rect: (61.0, 30.0, 66.0, 34.0), floor_z: 4.0, ceil_z: 6.5, floor: "wood", ceil: "wood", wall: "metal", secret: true),
+        (id: "booth_gap", rect: (62.0, 29.5, 64.0, 30.0), floor_z: 5.0, ceil_z: 6.2, floor: "metal", ceil: "metal", wall: "metal"),
+        (id: "booth", rect: (61.0, 30.0, 66.0, 34.0), floor_z: 5.0, ceil_z: 7.5, floor: "wood", ceil: "wood", wall: "metal", secret: true),
+        // Seating: 8 rows stepping 0.4 m down east from the rear aisle (z 3) to the front aisle
+        // (z 0.2), a centre aisle at y 11-15; rows 1-6 carry 0.9 m seat backs, cover both ways.
+        (id: "row0", rect: (68.0, 0.0, 70.5, 26.0),
+         floor_z: 3.0, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "row1", rect: (70.5, 0.0, 73.0, 26.0),
+         holes: [[(70.8, 1.5), (71.7, 1.5), (71.7, 11.0), (70.8, 11.0)], [(70.8, 15.0), (71.7, 15.0), (71.7, 24.5), (70.8, 24.5)]],
+         floor_z: 2.6, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "seats1s", rect: (70.8, 1.5, 71.7, 11.0), floor_z: 3.5, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "seats1n", rect: (70.8, 15.0, 71.7, 24.5), floor_z: 3.5, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "row2", rect: (73.0, 0.0, 75.5, 26.0),
+         holes: [[(73.3, 1.5), (74.2, 1.5), (74.2, 11.0), (73.3, 11.0)], [(73.3, 15.0), (74.2, 15.0), (74.2, 24.5), (73.3, 24.5)]],
+         floor_z: 2.2, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "seats2s", rect: (73.3, 1.5, 74.2, 11.0), floor_z: 3.1, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "seats2n", rect: (73.3, 15.0, 74.2, 24.5), floor_z: 3.1, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "row3", rect: (75.5, 0.0, 78.0, 26.0),
+         holes: [[(75.8, 1.5), (76.7, 1.5), (76.7, 11.0), (75.8, 11.0)], [(75.8, 15.0), (76.7, 15.0), (76.7, 24.5), (75.8, 24.5)]],
+         floor_z: 1.8, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "seats3s", rect: (75.8, 1.5, 76.7, 11.0), floor_z: 2.7, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "seats3n", rect: (75.8, 15.0, 76.7, 24.5), floor_z: 2.7, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "row4", rect: (78.0, 0.0, 80.5, 26.0),
+         holes: [[(78.3, 1.5), (79.2, 1.5), (79.2, 11.0), (78.3, 11.0)], [(78.3, 15.0), (79.2, 15.0), (79.2, 24.5), (78.3, 24.5)]],
+         floor_z: 1.4, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "seats4s", rect: (78.3, 1.5, 79.2, 11.0), floor_z: 2.3, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "seats4n", rect: (78.3, 15.0, 79.2, 24.5), floor_z: 2.3, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "row5", rect: (80.5, 0.0, 83.0, 26.0),
+         holes: [[(80.8, 1.5), (81.7, 1.5), (81.7, 11.0), (80.8, 11.0)], [(80.8, 15.0), (81.7, 15.0), (81.7, 24.5), (80.8, 24.5)]],
+         floor_z: 1.0, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "seats5s", rect: (80.8, 1.5, 81.7, 11.0), floor_z: 1.9, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "seats5n", rect: (80.8, 15.0, 81.7, 24.5), floor_z: 1.9, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "row6", rect: (83.0, 0.0, 85.5, 26.0),
+         holes: [[(83.3, 1.5), (84.2, 1.5), (84.2, 11.0), (83.3, 11.0)], [(83.3, 15.0), (84.2, 15.0), (84.2, 24.5), (83.3, 24.5)]],
+         floor_z: 0.6, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
+        (id: "seats6s", rect: (83.3, 1.5, 84.2, 11.0), floor_z: 1.5, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "seats6n", rect: (83.3, 15.0, 84.2, 24.5), floor_z: 1.5, ceil_z: 10.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "row7", rect: (85.5, 0.0, 88.0, 26.0),
+         floor_z: 0.2, ceil_z: 10.0, floor: "carpet", wall: "velvet", face: "velvet"),
         (id: "aud_front", poly: [(88.0, 0.0), (92.0, 0.0), (92.0, 11.0), (90.0, 11.0), (90.0, 19.0), (92.0, 19.0),
                                  (92.0, 29.5), (88.0, 29.5)],
          floor_z: 0.2, ceil_z: 10.0, floor: "carpet", wall: "velvet"),
@@ -124,14 +197,11 @@
         // Up from the red door to the rear aisle.
         (id: "aud_entry", rect: (60.5, 12.0, 65.0, 16.0), dir: E, steps: 6, from_z: 0.5, to_z: 3.0, ceil_z: 10.0,
          floor: "carpet", wall: "velvet"),
-        // The seating rows step down east to the front aisle.
-        (id: "seating", rect: (68.0, 0.0, 88.0, 26.0), dir: W, steps: 8, from_z: 0.2, to_z: 3.0, ceil_z: 10.0,
-         floor: "velvet", wall: "velvet"),
         (id: "stage_steps", rect: (90.0, 11.0, 92.0, 19.0), dir: E, steps: 2, from_z: 0.6, to_z: 1.0, ceil_z: 10.0,
          floor: "wood", wall: "velvet"),
     ],
     switches: [(wall: ((110.0, 4.0), (110.0, 8.0)), sector: "backstage", action: Exit)],
-    triggers: [(sector: "grate_pad", action: Channel(1))],
+    triggers: [(sector: "grate_pad", action: Channel(1)), (sector: "lobby_band", action: Channel(2))],
     lights: [
         // Rooftop and stairwell.
         (pos: (15.0, 75.0, 22.0), color: (1.0, 0.85, 0.7), intensity: 4000000.0, range: 45.0),
@@ -154,7 +224,7 @@
         (pos: (76.0, 14.0, 9.5), color: (1.0, 0.8, 0.6), intensity: 500000.0, range: 24.0),
         (pos: (66.0, 26.0, 9.0), color: (1.0, 0.7, 0.6), intensity: 80000.0, range: 12.0, shadows: false),
         (pos: (95.0, 15.0, 8.5), color: (1.0, 0.55, 0.45), intensity: 400000.0, range: 18.0),
-        (pos: (63.5, 32.0, 6.0), color: (0.6, 0.7, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (63.5, 32.0, 7.0), color: (0.6, 0.7, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
         (pos: (105.0, 10.0, 4.6), color: (0.9, 0.9, 1.0), intensity: 120000.0, range: 12.0),
     ],
     items: [
@@ -162,7 +232,7 @@
         (kind: PistolAmmo, pos: (8.0, 68.0)),
         (kind: HealthSmall, pos: (25.0, 88.0)),
         (kind: Armour, pos: (33.5, 87.0)),
-        // Stairwell landing.
+        // Stairwell: the shotgun on the landing, ammo at the foot.
         (kind: Shotgun, pos: (40.5, 69.0)),
         (kind: PistolAmmo, pos: (31.5, 56.0)),
         // Fire escape.
@@ -202,9 +272,10 @@
         // Street.
         (kind: Drone, pos: (40.0, 47.0), angle_deg: 90.0),
         (kind: Drone, pos: (66.0, 42.0), angle_deg: 180.0, skill: Normal),
-        (kind: Grunt, pos: (12.0, 40.0), angle_deg: 0.0),
+        (kind: Grunt, pos: (12.0, 39.0), angle_deg: 0.0),
         (kind: Grunt, pos: (20.0, 47.0), angle_deg: 45.0),
         (kind: Grunt, pos: (56.0, 37.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (38.5, 37.0), angle_deg: 90.0),
         (kind: Grunt, pos: (70.0, 46.0), angle_deg: 180.0, skill: Normal),
         (kind: Grunt, pos: (50.0, 47.0), angle_deg: 180.0, skill: Normal),
         (kind: Slasher, pos: (64.0, 37.0), angle_deg: 180.0),
@@ -223,29 +294,36 @@
         (kind: Barrel, pos: (76.0, 33.0)),
         (kind: Barrel, pos: (5.0, 33.0)),
         (kind: Barrel, pos: (88.3, 49.0)),
-        // Lobby and restroom.
+        // Lobby: the cloakroom ambush (channel 2) is awake.
         (kind: Enforcer, pos: (30.0, 10.0), angle_deg: 90.0),
         (kind: Enforcer, pos: (45.0, 6.0), angle_deg: 90.0),
-        (kind: Enforcer, pos: (56.0, 12.0), angle_deg: 180.0, skill: Normal),
-        (kind: Enforcer, pos: (24.0, 20.0), angle_deg: 0.0, skill: Hard),
+        (kind: Enforcer, pos: (57.0, 12.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (37.5, -2.0), angle_deg: 90.0, asleep: false),
         (kind: Grunt, pos: (35.0, 17.0), angle_deg: 90.0),
-        (kind: Grunt, pos: (52.0, 4.0), angle_deg: 180.0, skill: Normal),
-        (kind: Grunt, pos: (26.0, 5.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (51.0, 4.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (51.5, -2.0), angle_deg: 90.0, asleep: false, skill: Normal),
+        (kind: Enforcer, pos: (24.0, 21.0), angle_deg: 0.0, skill: Hard),
+        (kind: Grunt, pos: (26.0, 5.0), angle_deg: 90.0, skill: Hard),
         (kind: Grunt, pos: (14.0, 7.0), angle_deg: 0.0, skill: Hard),
         // Office.
         (kind: Slasher, pos: (55.0, 26.0), angle_deg: 270.0),
-        // Auditorium: the seats, the balcony, the stage.
-        (kind: Grunt, pos: (72.0, 5.0), angle_deg: 180.0),
-        (kind: Grunt, pos: (74.0, 20.0), angle_deg: 180.0),
-        (kind: Grunt, pos: (77.0, 12.0), angle_deg: 180.0, skill: Normal),
-        (kind: Grunt, pos: (80.0, 4.0), angle_deg: 180.0, skill: Normal),
-        (kind: Grunt, pos: (82.0, 21.0), angle_deg: 180.0),
-        (kind: Grunt, pos: (85.0, 9.0), angle_deg: 180.0, skill: Hard),
-        (kind: Grunt, pos: (79.0, 17.0), angle_deg: 180.0, skill: Hard),
+        // Auditorium: Grunts in the rows (in front of the seat backs), Enforcers on the balcony
+        // and the front aisle, a Slasher on the stage.
+        (kind: Grunt, pos: (69.5, 5.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (72.35, 20.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (74.85, 8.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (77.35, 18.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (79.85, 4.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (82.35, 22.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (84.85, 7.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (87.0, 19.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (66.0, 27.0), angle_deg: 270.0),
         (kind: Enforcer, pos: (80.0, 28.0), angle_deg: 270.0, skill: Normal),
-        (kind: Enforcer, pos: (66.0, 26.0), angle_deg: 270.0),
-        (kind: Enforcer, pos: (86.0, 23.0), angle_deg: 180.0, skill: Hard),
+        (kind: Enforcer, pos: (89.5, 24.0), angle_deg: 180.0),
         (kind: Slasher, pos: (96.0, 15.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (72.35, 8.0), angle_deg: 180.0, skill: Hard),
+        (kind: Grunt, pos: (82.35, 8.0), angle_deg: 180.0, skill: Hard),
+        (kind: Enforcer, pos: (86.0, 27.5), angle_deg: 270.0, skill: Hard),
         // Backstage.
         (kind: Enforcer, pos: (104.0, 3.0), angle_deg: 90.0),
         (kind: Enforcer, pos: (106.0, 16.0), angle_deg: 270.0, skill: Normal),

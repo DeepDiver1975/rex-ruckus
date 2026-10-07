@@ -29,16 +29,19 @@
         (secs: 3.0, goto: Some((38.0, 21.75))),
         (secs: 3.0, goto: Some((49.0, 21.75))),
         (secs: 3.0, goto: Some((57.5, 27.5))),
-        // Off the mezzanine's edge and across to the red door.
-        (secs: 3.0, goto: Some((57.0, 18.0))),
-        (secs: 2.0, goto: Some((58.5, 14.0))),
+        // Back out through the office doorway and down the stairs to the red door.
+        (secs: 3.0, goto: Some((49.5, 21.9))),
+        (secs: 2.0, goto: Some((39.5, 21.75))),
+        (secs: 4.0, goto: Some((58.5, 14.0))),
         (secs: 0.4, face_deg: Some(0.0)),
         (secs: 1.2, use_key: true),
-        // Auditorium: the entry steps, down the seating rows, up onto the stage.
+        // Auditorium: the entry steps, down the centre aisle, up onto the stage clear of the
+        // Slasher's spot.
         (secs: 2.0, goto: Some((62.0, 14.0))),
-        (secs: 2.0, goto: Some((67.0, 14.0))),
-        (secs: 4.0, goto: Some((89.0, 15.0))),
-        (secs: 2.0, goto: Some((94.0, 15.0))),
+        (secs: 2.0, goto: Some((67.0, 13.0))),
+        (secs: 4.0, goto: Some((89.0, 13.0))),
+        (secs: 2.0, goto: Some((91.0, 13.5))),
+        (secs: 2.0, goto: Some((93.5, 11.5))),
         (secs: 2.0, goto: Some((98.8, 10.0))),
         (secs: 0.4, face_deg: Some(0.0)),
         (secs: 1.2, use_key: true),
