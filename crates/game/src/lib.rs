@@ -32,9 +32,10 @@ use level::{LevelRenderPlugin, load_map};
 pub struct GamePlugin {
     /// Level file name inside `assets/levels/`; ignored when `episode` is set.
     pub level: String,
-    /// Play this episode from its first level (the level and the carried loadout then follow the
-    /// episode); `None` for a direct-level or demo run.
-    pub episode: Option<episode::EpisodeDef>,
+    /// The episodes the menu offers; the first playable one is shown behind the title screen (the
+    /// level and the carried loadout then follow the chosen episode). `None` for a direct-level
+    /// or demo run.
+    pub episode: Option<episode::EpisodeList>,
     /// Replay this demo script instead of reading the keyboard and mouse.
     pub demo: Option<demo::DemoPlugin>,
     /// Start muted, play music (see `audio::AudioOptions`).
@@ -48,8 +49,8 @@ pub struct GamePlugin {
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         let first = match &self.episode {
-            Some(def) => {
-                let episode = episode::Episode::new(def.clone());
+            Some(list) => {
+                let episode = episode::Episode::with_choices(list.episodes.clone());
                 let first = episode.map(0);
                 app.insert_resource(episode);
                 first

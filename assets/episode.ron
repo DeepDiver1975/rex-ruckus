@@ -1,5 +1,14 @@
-// The episode's levels in play order.
+// The episodes in menu order, each with its levels in play order. An episode with no levels is
+// listed as "coming soon" and cannot be picked.
 (
-    name: "Meltdown",
-    levels: ["hollywood_meltdown.ron", "neon_nights.ron", "mothership_down.ron"],
+    episodes: [
+        (
+            name: "Meltdown",
+            levels: ["hollywood_meltdown.ron", "neon_nights.ron", "mothership_down.ron"],
+        ),
+        (
+            name: "Aftershock",
+            levels: [],
+        ),
+    ],
 )

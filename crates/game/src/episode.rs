@@ -15,32 +15,57 @@ use rr_core::map::Map;
 use rr_core::stats::LevelStats;
 use serde::Deserialize;
 
-/// `assets/episode.ron`: the levels in play order.
+/// One episode of `assets/episode.ron`: its name and the levels in play order.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EpisodeDef {
     pub name: String,
-    /// File names inside `assets/levels/`.
+    /// File names inside `assets/levels/`. Empty: announced but not playable yet ("coming soon").
     pub levels: Vec<String>,
 }
 
 impl EpisodeDef {
-    pub fn from_ron(src: &str) -> Result<Self, ron::error::SpannedError> {
-        ron::from_str(src)
+    /// Whether the episode has levels to play.
+    pub fn playable(&self) -> bool {
+        !self.levels.is_empty()
+    }
+}
+
+/// `assets/episode.ron`: the episodes in menu order.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EpisodeList {
+    pub episodes: Vec<EpisodeDef>,
+}
+
+impl EpisodeList {
+    /// Parses the file; at least one episode must be playable.
+    pub fn from_ron(src: &str) -> Result<Self, String> {
+        let list: EpisodeList = ron::from_str(src).map_err(|e| e.to_string())?;
+        if !list.episodes.iter().any(EpisodeDef::playable) {
+            return Err("no episode has levels".into());
+        }
+        Ok(list)
     }
 }
 
 /// Reads `assets/episode.ron`, panicking with the path on failure.
-pub fn load_episode() -> EpisodeDef {
+pub fn load_episodes() -> EpisodeList {
     let path = assets_dir().join("episode.ron");
     let src = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    EpisodeDef::from_ron(&src).unwrap_or_else(|e| panic!("invalid {}: {e}", path.display()))
+    EpisodeList::from_ron(&src).unwrap_or_else(|e| panic!("invalid {}: {e}", path.display()))
 }
 
 /// Progress through the episode. Absent for direct-level runs.
 #[derive(Resource, Debug)]
 pub struct Episode {
+    /// The episode being played (or, on the title screen, the one last chosen).
     pub def: EpisodeDef,
+    /// Every episode the menu offers, in order; `def` is a copy of `choices[chosen]`.
+    pub choices: Vec<EpisodeDef>,
+    /// Index of `def` in `choices`.
+    pub chosen: usize,
     /// Index into the level list of the level being played.
     pub index: usize,
     /// Loadout the player entered the current level with; `None` = the starting loadout.
@@ -52,13 +77,40 @@ pub struct Episode {
 }
 
 impl Episode {
+    /// A single-episode run (the menu offers just this one).
     pub fn new(def: EpisodeDef) -> Self {
+        Self::with_choices(vec![def])
+    }
+
+    /// The menu's episodes; the first playable one is chosen (the first one when none is, as in
+    /// tests that set `maps`). Panics on an empty list.
+    pub fn with_choices(choices: Vec<EpisodeDef>) -> Self {
+        assert!(!choices.is_empty(), "an episode list with no episodes");
+        let chosen = choices.iter().position(EpisodeDef::playable).unwrap_or(0);
         Episode {
-            def,
+            def: choices[chosen].clone(),
+            choices,
+            chosen,
             index: 0,
             entry: None,
             totals: LevelStats::default(),
             maps: None,
+        }
+    }
+
+    /// Chooses episode `i` of `choices` (unplayable or out-of-range choices are ignored) and
+    /// rewinds to its first level. Returns whether it was chosen.
+    pub fn choose(&mut self, i: usize) -> bool {
+        match self.choices.get(i) {
+            Some(def) if def.playable() => {
+                self.def = def.clone();
+                self.chosen = i;
+                self.index = 0;
+                self.entry = None;
+                self.totals = LevelStats::default();
+                true
+            }
+            _ => false,
         }
     }
 
@@ -145,4 +197,46 @@ fn record_stats(mut stats: ResMut<Stats>, combat: Res<LevelCombat>, mut fx: ResM
     stats.0.record(&combat.0, &fx.combat[seen..]);
     stats.0.tick();
     fx.stats_seen = fx.combat.len();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn def(name: &str, levels: &[&str]) -> EpisodeDef {
+        EpisodeDef {
+            name: name.into(),
+            levels: levels.iter().map(|l| l.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn list_parses_and_needs_a_playable_episode() {
+        let list = EpisodeList::from_ron(
+            r#"(episodes: [(name: "A", levels: ["a.ron"]), (name: "B", levels: [])])"#,
+        )
+        .unwrap();
+        assert_eq!(list.episodes.len(), 2);
+        assert!(list.episodes[0].playable() && !list.episodes[1].playable());
+        let err = EpisodeList::from_ron(r#"(episodes: [(name: "B", levels: [])])"#);
+        assert!(err.unwrap_err().contains("no episode has levels"));
+        assert!(EpisodeList::from_ron(r#"(name: "old", levels: ["a.ron"])"#).is_err());
+    }
+
+    #[test]
+    fn choosing_switches_episode_and_skips_unplayable() {
+        let mut ep = Episode::with_choices(vec![
+            def("Soon", &[]),
+            def("A", &["a.ron"]),
+            def("B", &["b1.ron", "b2.ron"]),
+        ]);
+        assert_eq!((ep.chosen, ep.def.name.as_str()), (1, "A"));
+        ep.index = 1;
+        assert!(ep.choose(2));
+        assert_eq!((ep.chosen, ep.def.name.as_str(), ep.index), (2, "B", 0));
+        assert_eq!(ep.len(), 2);
+        assert!(!ep.choose(0));
+        assert!(!ep.choose(9));
+        assert_eq!(ep.chosen, 2);
+    }
 }

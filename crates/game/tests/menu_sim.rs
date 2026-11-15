@@ -60,7 +60,8 @@ fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
     insert_defs(&mut app, Defs::builtin());
     let mut episode = Episode::new(EpisodeDef {
         name: "t".into(),
-        levels: vec![],
+        // A name so the episode is pickable; the maps come from `maps`.
+        levels: vec!["t.ron".into()],
     });
     episode.maps = Some(maps);
     app.insert_resource(episode);
@@ -116,6 +117,8 @@ fn starts_on_the_main_menu() {
 fn new_game_on_hard_starts_playing_level_one() {
     let mut app = menu_app(vec![combat_room(), combat_room()]);
     press(&mut app, MenuAction::NewGame);
+    assert_eq!(screen(&app), Some(Screen::Episodes));
+    press(&mut app, MenuAction::PickEpisode(0));
     assert_eq!(screen(&app), Some(Screen::Difficulty));
     press(&mut app, MenuAction::PickDifficulty(Difficulty::Hard));
     assert_eq!(state(&app), PlayState::Playing);
@@ -130,12 +133,52 @@ fn new_game_on_hard_starts_playing_level_one() {
 }
 
 #[test]
-fn difficulty_back_returns_to_main() {
+fn difficulty_back_returns_to_episodes_then_main() {
     let mut app = menu_app(vec![combat_room()]);
     press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickEpisode(0));
+    press(&mut app, MenuAction::Back);
+    assert_eq!(screen(&app), Some(Screen::Episodes));
     press(&mut app, MenuAction::Back);
     assert_eq!(screen(&app), Some(Screen::Main));
     assert_eq!(state(&app), PlayState::Menu);
+}
+
+#[test]
+fn second_episode_is_played_and_coming_soon_is_not_pickable() {
+    let mut app = menu_app(vec![combat_room()]);
+    let def = |name: &str, levels: &[&str]| EpisodeDef {
+        name: name.into(),
+        levels: levels.iter().map(|l| l.to_string()).collect(),
+    };
+    {
+        let mut ep = app.world_mut().resource_mut::<Episode>();
+        let maps = ep.maps.take();
+        *ep = Episode::with_choices(vec![
+            def("One", &["a.ron"]),
+            def("Two", &["b.ron"]),
+            def("Soon", &[]),
+        ]);
+        ep.maps = maps;
+    }
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickEpisode(2));
+    assert_eq!(
+        screen(&app),
+        Some(Screen::Episodes),
+        "coming soon stays put"
+    );
+    press(&mut app, MenuAction::PickEpisode(1));
+    assert_eq!(screen(&app), Some(Screen::Difficulty));
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Normal));
+    assert_eq!(state(&app), PlayState::Playing);
+    let ep = app.world().resource::<Episode>();
+    assert_eq!((ep.chosen, ep.def.name.as_str(), ep.index), (1, "Two", 0));
+    // Two buttons (One, Two) and Back; the dimmed "coming soon" line is no button.
+    press(&mut app, MenuAction::QuitToMenu);
+    press(&mut app, MenuAction::NewGame);
+    app.update();
+    assert_eq!(app.world().resource::<MenuSelection>().0, 1);
 }
 
 #[test]
@@ -654,6 +697,7 @@ fn difficulty_screen_highlights_the_current_difficulty() {
     let mut app = menu_app(vec![combat_room()]);
     app.world_mut().resource_mut::<LevelDifficulty>().0 = Difficulty::Hard;
     press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickEpisode(0));
     app.update();
     assert_eq!(app.world().resource::<MenuSelection>().0, 2);
 }

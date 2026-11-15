@@ -1,7 +1,8 @@
-//! The main menu and the difficulty picker.
+//! The main menu, the episode picker and the difficulty picker.
 
 use super::MenuAction;
-use super::widgets::{AMBER, button, label, spawn_screen, spawn_screen_sized};
+use super::widgets::{AMBER, DIM, button, label, spawn_screen, spawn_screen_sized};
+use crate::episode::EpisodeDef;
 use crate::hud::UiFont;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -26,7 +27,30 @@ pub fn spawn_main(commands: &mut Commands, ui: &UiFont) {
     });
 }
 
-/// The skill picker shown after New Game.
+/// Episode button label: its number and name, e.g. "Episode 2: Aftershock".
+pub fn episode_label(i: usize, def: &EpisodeDef) -> String {
+    let soon = if def.playable() { "" } else { " (coming soon)" };
+    format!("Episode {}: {}{soon}", i + 1, def.name)
+}
+
+/// The episode picker shown after New Game: a button per playable episode, a dimmed line for
+/// one without levels yet.
+pub fn spawn_episodes(commands: &mut Commands, ui: &UiFont, choices: &[EpisodeDef]) {
+    let root = spawn_screen(commands, ui, "Choose your episode");
+    commands.entity(root).with_children(|p| {
+        for (i, def) in choices.iter().enumerate() {
+            let text = episode_label(i, def);
+            if def.playable() {
+                button(p, ui, &text, MenuAction::PickEpisode(i));
+            } else {
+                label(p, ui, &text, 26.0, DIM);
+            }
+        }
+        button(p, ui, "Back", MenuAction::Back);
+    });
+}
+
+/// The skill picker shown after the episode picker.
 pub fn spawn_difficulty(commands: &mut Commands, ui: &UiFont) {
     let root = spawn_screen(commands, ui, "Choose your poison");
     commands.entity(root).with_children(|p| {
@@ -40,6 +64,20 @@ pub fn spawn_difficulty(commands: &mut Commands, ui: &UiFont) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn episode_labels_number_and_flag_unplayable() {
+        let mut def = EpisodeDef {
+            name: "Aftershock".into(),
+            levels: vec![],
+        };
+        assert_eq!(
+            episode_label(1, &def),
+            "Episode 2: Aftershock (coming soon)"
+        );
+        def.levels.push("a.ron".into());
+        assert_eq!(episode_label(1, &def), "Episode 2: Aftershock");
+    }
 
     #[test]
     fn taglines_are_the_original_ones() {
