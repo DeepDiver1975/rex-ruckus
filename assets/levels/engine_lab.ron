@@ -18,9 +18,14 @@
 // later a scripted blast in the sealed lounge behind the wall blows its crack wall open → the
 // lounge (a secret: an arcade cabinet and a jukebox; pipe bombs). The payphone on the hall's west
 // wall tells how many secrets are left on the first call.
+// Hive (side trip north of the gag room): through the door in the gag room's north wall → the
+// Hive Queen's chamber (18 m square, three pillars for cover, four burrow points). She sleeps
+// facing the door and wakes when she sees the player come in; her death (channel 11) opens the
+// stash door in the north wall (an atom and rockets). A rocket launcher waits by the door; the
+// door is too narrow for her to follow.
 (
     name: "Engine Lab",
-    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door", "carpet"],
+    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door", "carpet", "flesh"],
     vertices: [
         (0.0, 0.0), (12.0, 0.0), (12.0, 3.0), (12.0, 5.0), (12.0, 8.0), (6.0, 8.0), // 0-5   hall
         (4.0, 8.0), (0.0, 8.0),                                                       // 6-7
@@ -48,6 +53,13 @@
         (8.1, -2.4), (9.9, -2.4), (9.9, -1.6), (8.1, -1.6),                           // 84-87 gate
         (0.0, 13.0), (0.0, 11.0), (-0.5, 11.0), (-0.5, 13.0),                         // 88-91 breach
         (-4.5, 9.5), (-0.5, 9.5), (-0.5, 14.5), (-4.5, 14.5),                         // 92-95 lounge
+        (6.0, 15.0), (4.0, 15.0), (6.0, 15.5), (4.0, 15.5),                           // 96-99 hive door
+        (-4.0, 15.5), (14.0, 15.5), (14.0, 33.5), (-4.0, 33.5),                       // 100-103 hive
+        (6.0, 33.5), (4.0, 33.5), (6.0, 34.0), (4.0, 34.0),                           // 104-107 stash door
+        (3.0, 34.0), (7.0, 34.0), (7.0, 37.0), (3.0, 37.0),                           // 108-111 stash
+        (0.0, 21.0), (0.0, 23.0), (2.0, 23.0), (2.0, 21.0),                           // 112-115 pillar
+        (8.0, 21.0), (8.0, 23.0), (10.0, 23.0), (10.0, 21.0),                         // 116-119 pillar
+        (4.0, 26.5), (4.0, 28.5), (6.0, 28.5), (6.0, 26.5),                           // 120-123 pillar
     ],
     sectors: [
         // 0 hall (start; jetpack, shotgun, armour)
@@ -55,7 +67,7 @@
         // 1 doorway to the gag room
         (loops: [[6, 5, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 2 gag room (toilet, vending machine, pool table; chaingun, medkit)
-        (loops: [[10, 9, 8, 11, 12, 13, 88, 89]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
+        (loops: [[10, 9, 8, 11, 12, 96, 97, 13, 88, 89]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
         // 3 doorway to the pit
         (loops: [[2, 14, 15, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 4 west ledge
@@ -114,6 +126,17 @@
         // 24 lounge behind the breach (secret: arcade cabinet, jukebox, pipe bombs)
         (loops: [[92, 93, 90, 91, 94, 95]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 7, ceil_mat: 3, wall_mat: 0,
          secret: true),
+        // 25 door from the gag room to the hive
+        (loops: [[97, 96, 98, 99]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         face_mat: Some(6), mover: Some((kind: Door))),
+        // 26 hive: the Hive Queen's chamber (three pillars; burrow points 0-3)
+        (loops: [[100, 99, 98, 101, 102, 104, 105, 103], [112, 113, 114, 115], [116, 117, 118, 119],
+                 [120, 121, 122, 123]], floor_z: 0.0, ceil_z: 7.0, floor_mat: 8, ceil_mat: 3, wall_mat: 0),
+        // 27 stash door: opens for good on channel 11 (the Queen's death)
+        (loops: [[105, 104, 106, 107]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         face_mat: Some(6), mover: Some((kind: Door, channel: Some(11), one_shot: true))),
+        // 28 stash (atom, rockets)
+        (loops: [[108, 107, 106, 109, 110, 111]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3),
     ],
     switches: [
         // Gate: beside the hall's south doorway, and in the corridor south of the gate.
@@ -150,6 +173,9 @@
         (kind: Medkit, pos: (9.0, -12.5)),
         // Lounge: only the breach gets there.
         (kind: PipeBombs, pos: (-1.5, 10.2)),
+        // Hive: a launcher by the door; the stash behind the Queen.
+        (kind: RocketLauncher, pos: (2.5, 16.5)),
+        (kind: Atom, pos: (4.0, 36.0)), (kind: Rockets, pos: (6.0, 36.0)),
     ],
     actors: [
         // On one line from the arena doorway: the Enforcer's volleys at the player go through
@@ -157,7 +183,11 @@
         (kind: Grunt, pos: (23.0, 13.0), angle_deg: 270.0),
         (kind: Enforcer, pos: (23.0, 19.0), angle_deg: 270.0),
         (kind: Boss, pos: (52.0, 3.0), angle_deg: 180.0, on_death: Some(Exit)),
+        // Asleep at the far end of the hive, facing the door.
+        (kind: HiveQueen, pos: (8.0, 31.0), angle_deg: 260.0, on_death: Some(Channel(11))),
     ],
+    // Hive corners, clear of the walls and pillars.
+    burrow_points: [(-1.0, 19.0), (11.0, 19.0), (11.0, 30.5), (-1.0, 30.5)],
     player_start: (pos: (2.0, 4.0), angle_deg: 0.0),
     music: Some("depot"),
     lights: [
@@ -171,5 +201,8 @@
         (pos: (9.0, -0.6, 2.6), color: (0.9, 0.9, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
         (pos: (12.5, -8.5, 3.5), color: (0.6, 1.0, 0.6), intensity: 50000.0, range: 12.0, shadows: false),
         (pos: (-2.5, 12.0, 2.7), color: (1.0, 0.5, 0.9), intensity: 20000.0, range: 7.0, shadows: false),
+        // Hive: a sickly green glow over the chamber, a fill at the stash.
+        (pos: (5.0, 24.5, 6.5), color: (0.6, 1.0, 0.45), intensity: 200000.0, range: 22.0),
+        (pos: (5.0, 35.5, 2.6), color: (1.0, 0.9, 0.7), intensity: 15000.0, range: 6.0, shadows: false),
     ],
 )
