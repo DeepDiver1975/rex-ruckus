@@ -136,6 +136,13 @@ pub fn level_info(raw: &RawLevel, map: &Map) -> String {
             .listeners
             .push(format!("quake {i}"));
     }
+    for (i, b) in map.blasts.iter().enumerate() {
+        channels
+            .entry(b.channel)
+            .or_default()
+            .listeners
+            .push(format!("blast {i}"));
+    }
     let list = |v: &[String]| {
         if v.is_empty() {
             "nothing".to_string()
