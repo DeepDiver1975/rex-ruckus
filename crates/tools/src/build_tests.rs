@@ -223,6 +223,25 @@ fn passthrough_values_round_trip() {
 }
 
 #[test]
+fn a_slider_builds_as_an_island_in_its_track() {
+    use rr_core::map::MoverKind;
+    let m = built(
+        r#"sectors: [
+            (id: "pit", rect: (0.0, 0.0, 10.0, 4.0), holes: [[(2.0, 1.0), (4.0, 1.0), (4.0, 3.0), (2.0, 3.0)]]),
+            (id: "car", rect: (2.0, 1.0, 4.0, 3.0), mover: (kind: Slide(by: (4.0, 0.0)), channel: 3)),
+        ],
+        switches: [(wall: ((0.0, 4.0), (0.0, 0.0)), sector: "pit", action: Channel(3))]"#,
+    );
+    let car = m.sectors[1].mover.unwrap();
+    assert_eq!(car.kind, MoverKind::Slide { by: (4.0, 0.0) });
+    let issues = rr_core::validate::validate(&m);
+    assert!(
+        !issues.iter().any(|i| i.message.contains("slider")),
+        "{issues:?}"
+    );
+}
+
+#[test]
 fn stairs_expand_into_even_steps_climbing_dir() {
     let m = built(
         r#"sectors: [(id: "low", rect: (0.0, 0.0, 4.0, 4.0)), (id: "high", rect: (8.0, 0.0, 12.0, 4.0), floor_z: 2.0, ceil_z: 5.0)],
