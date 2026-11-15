@@ -25,6 +25,9 @@ declare -A out=(
     [warlord]=models/enemies/boss.glb
     [hand_cannon]=models/weapons/hand_cannon.glb
     [chaingun]=models/weapons/chaingun.glb
+    [arcade]=models/props/arcade.glb
+    [jukebox]=models/props/jukebox.glb
+    [payphone]=models/props/payphone.glb
 )
 
 preview=()

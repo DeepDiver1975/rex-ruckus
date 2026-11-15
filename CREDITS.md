@@ -86,6 +86,9 @@ Scale, rotation, tint and attachment points are applied at runtime from `assets/
 | `assets/models/enemies/drone.glb` | Peeper (original) | Rex Ruckus contributors | `scripts/models/peeper.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/enemies/boss.glb` | Warlord (original) | Rex Ruckus contributors | `scripts/models/warlord.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/weapons/chaingun.glb` | Chaingun (original) | Rex Ruckus contributors | `scripts/models/chaingun.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
+| `assets/models/props/arcade.glb` | Arcade cabinet (original) | Rex Ruckus contributors | `scripts/models/arcade.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
+| `assets/models/props/jukebox.glb` | Jukebox (original) | Rex Ruckus contributors | `scripts/models/jukebox.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
+| `assets/models/props/payphone.glb` | Payphone (original) | Rex Ruckus contributors | `scripts/models/payphone.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/enemies/barrel.glb` | Exploding Barrel | Quaternius | https://poly.pizza/m/1orHe0kCc1 | CC0 | none |
 | `assets/models/weapons/pistol.glb` | Pistol | Quaternius | https://poly.pizza/m/J3i9KDQ3kt | CC0 | none |
 | `assets/models/weapons/shotgun.glb` | Shotgun Sawed Off | Quaternius | https://poly.pizza/m/29FXKu7G91 | CC0 | none |
