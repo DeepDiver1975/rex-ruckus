@@ -31,12 +31,20 @@ impl LevelStats {
         }
     }
 
-    /// Folds one tick's combat events into the tallies and refreshes the secrets found.
+    /// Folds one tick's combat events into the tallies and refreshes the secrets found. An
+    /// actor that joins play (a boss's minion) adds to the total.
     pub fn record(&mut self, combat: &Combat, events: &[CombatEvent]) {
         for ev in events {
-            if let CombatEvent::ActorKilled { actor, .. } = ev
-                && combat.actors.get(*actor).is_some_and(|a| counts(a.kind))
-            {
+            let (CombatEvent::ActorKilled { actor, .. } | CombatEvent::ActorSpawned(actor)) = ev
+            else {
+                continue;
+            };
+            if !combat.actors.get(*actor).is_some_and(|a| counts(a.kind)) {
+                continue;
+            }
+            if matches!(ev, CombatEvent::ActorSpawned(_)) {
+                self.kills_total += 1;
+            } else {
                 self.kills += 1;
             }
         }
@@ -123,6 +131,28 @@ mod tests {
         );
         // Every death counts, whoever the killer; barrels never do.
         assert_eq!(s.kills, 1);
+    }
+
+    #[test]
+    fn spawned_minions_add_to_the_total() {
+        let mut map = combat_room();
+        map.actors.push(spawn(ActorKind::Grunt, 2.0));
+        map.actors.push(spawn(ActorKind::Slasher, 4.0)); // stands in for a minion
+        let combat = Combat::spawn(&map, &defs(), 1);
+        let mut s = LevelStats {
+            kills_total: 1,
+            ..LevelStats::default()
+        };
+        s.record(&combat, &[CombatEvent::ActorSpawned(1)]);
+        assert_eq!(s.kills_total, 2);
+        s.record(
+            &combat,
+            &[CombatEvent::ActorKilled {
+                actor: 1,
+                by: Shooter::Player,
+            }],
+        );
+        assert_eq!((s.kills, s.kills_total), (1, 2));
     }
 
     #[test]

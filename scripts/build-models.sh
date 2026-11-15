@@ -23,6 +23,7 @@ declare -A out=(
     [gnasher]=models/enemies/slasher.glb
     [peeper]=models/enemies/drone.glb
     [warlord]=models/enemies/boss.glb
+    [hive_queen]=models/enemies/hive_queen.glb
     [hand_cannon]=models/weapons/hand_cannon.glb
     [chaingun]=models/weapons/chaingun.glb
     [arcade]=models/props/arcade.glb

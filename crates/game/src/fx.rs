@@ -101,8 +101,8 @@ impl Plugin for FxPlugin {
     }
 }
 
-/// One fireball and flash light per `Explosion`, plus the shake it causes. An [`FxReaders`]
-/// system.
+/// One fireball and flash light per `Explosion`, plus the shake it causes; a `GroundPound`
+/// shakes the screen the same way, without the fireball. An [`FxReaders`] system.
 fn spawn_explosions(
     mut commands: Commands,
     fx: Res<FxQueue>,
@@ -113,6 +113,12 @@ fn spawn_explosions(
     mut sphere: Local<Option<Handle<Mesh>>>,
 ) {
     for ev in &fx.combat {
+        if let CombatEvent::GroundPound { point, radius, .. } = ev {
+            for body in &player {
+                shake.add_blast(eye_of(&body.0).distance(*point), *radius);
+            }
+            continue;
+        }
         let CombatEvent::Explosion { point, radius } = ev else {
             continue;
         };

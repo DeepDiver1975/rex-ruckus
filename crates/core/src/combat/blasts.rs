@@ -137,7 +137,7 @@ impl Combat {
             if i == BODY_PLAYER {
                 !player.vitals.health.alive()
             } else {
-                !self.actors[i - 1].alive()
+                !self.actors[i - 1].targetable()
             }
         };
         for hit in solve(map, blast, &bodies, skip) {

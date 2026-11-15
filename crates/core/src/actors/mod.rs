@@ -5,7 +5,7 @@
 //! `def.tuning()` and spawns a bolt for the returned fire direction.
 
 use crate::collide::Body;
-use crate::defs::{EnemyAttack, EnemyDef, Locomotion};
+use crate::defs::{BurrowDef, EnemyAttack, EnemyDef, Locomotion, PoundDef};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{ActorKind, ActorSpawn, Map, SectorId, SwitchAction, WallId};
 use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
@@ -13,6 +13,7 @@ use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
 
+pub mod special;
 pub mod steer;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -37,6 +38,26 @@ pub enum AiState {
         t: f32,
     },
     Dead,
+    /// Digging down (`special`): `t` counts down, then `Under`. Still a target.
+    Burrow {
+        t: f32,
+        plan: BurrowDef,
+    },
+    /// Underground: no target and no collision (shots, blasts and bodies pass). `t` counts
+    /// down, then the actor comes up at another burrow point (`Emerge`).
+    Under {
+        t: f32,
+        plan: BurrowDef,
+    },
+    /// Coming up at a burrow point: `t` counts down, then `Chase`.
+    Emerge {
+        t: f32,
+    },
+    /// Rearing up for a ground pound: `t` counts down, then the slam.
+    Pound {
+        t: f32,
+        plan: PoundDef,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +95,14 @@ pub struct Actor {
     pub boss: bool,
     /// The spawn's action once the actor is dead; taken (fired once) on that tick.
     pub on_death: Option<SwitchAction>,
+    /// Seconds until the next burrow may start (counts only while chasing or attacking).
+    pub burrow_in: f32,
+    /// Seconds until the next ground pound may start (likewise).
+    pub pound_in: f32,
+    /// The burrow point (index into `Map::burrow_points`) the actor last came up at.
+    pub burrow_at: Option<usize>,
+    /// The actor whose burrow brought this one up, for minions.
+    pub summoner: Option<usize>,
 }
 
 /// Whom an actor hunts. Infighting points it at another actor (by index; actors are never
@@ -175,6 +204,10 @@ impl Actor {
             phase: 0,
             boss: def.boss,
             on_death: spawn.on_death,
+            burrow_in: def.burrow.map_or(0.0, |b| b.first),
+            pound_in: def.pound.map_or(0.0, |p| p.first),
+            burrow_at: None,
+            summoner: None,
         })
     }
 
@@ -194,6 +227,23 @@ impl Actor {
     /// Dying and dead actors are no longer targets.
     pub fn alive(&self) -> bool {
         !matches!(self.state, AiState::Dying { .. } | AiState::Dead)
+    }
+
+    /// Alive and above ground: what shots, blasts, pounds and other bodies can hit. A burrowed
+    /// actor (`Under`) is alive but none of these.
+    pub fn targetable(&self) -> bool {
+        self.alive() && !matches!(self.state, AiState::Under { .. })
+    }
+
+    /// In the middle of a special move (`special`): pain cannot interrupt it.
+    pub fn busy(&self) -> bool {
+        matches!(
+            self.state,
+            AiState::Burrow { .. }
+                | AiState::Under { .. }
+                | AiState::Emerge { .. }
+                | AiState::Pound { .. }
+        )
     }
 }
 
@@ -366,7 +416,13 @@ pub fn think(
             }
             (chase(a, def, map, p, sees, rng, dt), None)
         }
-        AiState::Dying { .. } | AiState::Dead => idle,
+        // `special::step` runs these; a frozen one (the player is dead) holds still.
+        AiState::Burrow { .. }
+        | AiState::Under { .. }
+        | AiState::Emerge { .. }
+        | AiState::Pound { .. }
+        | AiState::Dying { .. }
+        | AiState::Dead => idle,
     }
 }
 
@@ -666,10 +722,11 @@ pub fn next_hop(map: &Map, from: SectorId, to: SectorId, pass: Pass) -> Option<S
 }
 
 /// Applies `n` damage. A kill sends the actor to `Dying` from any state; a non-killing hit wakes
-/// a sleeping or alert actor into `Chase` and then, with `def.pain_chance`, into `Pain`. Dying
-/// and dead actors ignore hits, as does a hit of `n <= 0`.
+/// a sleeping or alert actor into `Chase` and then, with `def.pain_chance`, into `Pain` (not in
+/// the middle of a special move). Dying, dead and burrowed actors ignore hits, as does a hit of
+/// `n <= 0`.
 pub fn hurt(a: &mut Actor, def: &EnemyDef, n: i32, rng: &mut Rng) -> DamageOutcome {
-    if !a.alive() {
+    if !a.targetable() {
         return DamageOutcome::Ignored;
     }
     let outcome = a.health.damage(n);
@@ -685,7 +742,8 @@ pub fn hurt(a: &mut Actor, def: &EnemyDef, n: i32, rng: &mut Rng) -> DamageOutco
             if matches!(a.state, AiState::Sleep | AiState::Alert { .. }) {
                 a.state = AiState::Chase;
             }
-            let flinch = !matches!(a.state, AiState::Pain { .. }) && a.pain_ready_in <= 0.0;
+            let flinch =
+                !matches!(a.state, AiState::Pain { .. }) && !a.busy() && a.pain_ready_in <= 0.0;
             if flinch && rng.chance(def.pain_chance) {
                 a.state = AiState::Pain { t: def.pain_time };
             }

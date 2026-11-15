@@ -18,36 +18,52 @@ fn wall_mid(map: &Map, w: WallId) -> Vec3 {
     ((wall.a + wall.b) * 0.5).extend((sec.floor_z + sec.ceil_z) * 0.5)
 }
 
+/// A boss kind's own voice: (wake and phase change, fire in `phase`, death). `None` for every
+/// other kind, which uses the generic `Actor*` cues.
+fn boss_voice(kind: ActorKind, phase: u8) -> Option<(Cue, Cue, Cue)> {
+    match kind {
+        ActorKind::Boss => Some((
+            Cue::BossRoar,
+            if phase > 0 {
+                Cue::BossMinigun
+            } else {
+                Cue::BossRocket
+            },
+            Cue::BossDeath,
+        )),
+        ActorKind::HiveQueen => Some((Cue::QueenScreech, Cue::QueenSpit, Cue::QueenDeath)),
+        _ => None,
+    }
+}
+
 /// Cues for one combat event. `combat` supplies the actor behind an index.
 ///
 /// `ProjectileGone` and `BombsDetonated` give nothing: the `Impact` or `Explosion` event that
 /// accompanies them already carries the sound. Barrels are static bodies, so all their events
-/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. The boss
-/// has its own voice (roar on waking and on a phase change, rocket or minigun by phase, death);
-/// only its pain uses the generic arm. A non-boss `PhaseChanged` and every `DeathAction` are
-/// silent. An actor index out of range gives nothing.
+/// are silent, death included: the blast after the death fuse sounds as an `Explosion`. A boss
+/// has its own voice (`boss_voice`: a roar on waking and on a phase change, its shot by phase,
+/// death); only its pain uses the generic arm. A burrow sounds as it goes down and comes up, a
+/// ground pound at its centre, and a minion that joins play wakes with its kind's cry. A
+/// non-boss `PhaseChanged` and every `DeathAction` are silent. An actor index out of range
+/// gives nothing.
 pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) {
-    let boss = |i: usize| combat.actors.get(i).filter(|a| a.kind == ActorKind::Boss);
+    let voice = |i: usize| {
+        let a = combat.actors.get(i)?;
+        boss_voice(a.kind, a.phase).map(|v| (v, a.body.pos))
+    };
     match *ev {
         CombatEvent::ActorWoke(i) | CombatEvent::PhaseChanged { actor: i, .. }
-            if boss(i).is_some() =>
+            if voice(i).is_some() =>
         {
-            out.push((Cue::BossRoar, boss(i).map(|a| a.body.pos)));
+            out.extend(voice(i).map(|((roar, _, _), p)| (roar, Some(p))));
             return;
         }
-        CombatEvent::ActorFired { actor } if boss(actor).is_some() => {
-            if let Some(a) = boss(actor) {
-                let cue = if a.phase > 0 {
-                    Cue::BossMinigun
-                } else {
-                    Cue::BossRocket
-                };
-                out.push((cue, Some(a.body.pos)));
-            }
+        CombatEvent::ActorFired { actor } if voice(actor).is_some() => {
+            out.extend(voice(actor).map(|((_, fire, _), p)| (fire, Some(p))));
             return;
         }
-        CombatEvent::ActorKilled { actor, .. } if boss(actor).is_some() => {
-            out.push((Cue::BossDeath, boss(actor).map(|a| a.body.pos)));
+        CombatEvent::ActorKilled { actor, .. } if voice(actor).is_some() => {
+            out.extend(voice(actor).map(|((_, _, death), p)| (death, Some(p))));
             return;
         }
         _ => {}
@@ -92,6 +108,13 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
                 out.push((Cue::GlassBreak, Some(wall_mid(map, wall))));
             }
         }
+        CombatEvent::Burrowed { actor: i } | CombatEvent::Surfaced { actor: i } => {
+            if let Some((_, p)) = actor(i) {
+                out.push((Cue::Burrow, Some(p)));
+            }
+        }
+        CombatEvent::GroundPound { point, .. } => out.push((Cue::GroundPound, Some(point))),
+        CombatEvent::ActorSpawned(i) => living(i, Cue::ActorWake),
         CombatEvent::ProjectileGone(_) | CombatEvent::BombsDetonated => {}
         // The boss arms above took its phase changes; the rest are silent.
         CombatEvent::PhaseChanged { .. } | CombatEvent::DeathAction(_) => {}
@@ -205,6 +228,7 @@ mod tests {
         map.actors.push(spawn(ActorKind::Grunt, 2.0));
         map.actors.push(spawn(ActorKind::Barrel, 6.0));
         map.actors.push(spawn(ActorKind::Boss, 7.5));
+        map.actors.push(spawn(ActorKind::HiveQueen, 2.5));
         let combat = Combat::spawn(&map, &defs(), 1);
         (map, combat)
     }
@@ -249,6 +273,14 @@ mod tests {
             },
             CombatEvent::PhaseChanged { actor: 0, phase: 1 },
             CombatEvent::DeathAction(crate::map::SwitchAction::Exit),
+            CombatEvent::Burrowed { actor: 0 },
+            CombatEvent::Surfaced { actor: 0 },
+            CombatEvent::ActorSpawned(0),
+            CombatEvent::GroundPound {
+                actor: 0,
+                point: p,
+                radius: 6.0,
+            },
         ];
         for e in &evs {
             match e {
@@ -268,7 +300,11 @@ mod tests {
                 | CombatEvent::BombsDetonated
                 | CombatEvent::GlassBroken { .. }
                 | CombatEvent::PhaseChanged { .. }
-                | CombatEvent::DeathAction(_) => {}
+                | CombatEvent::DeathAction(_)
+                | CombatEvent::Burrowed { .. }
+                | CombatEvent::Surfaced { .. }
+                | CombatEvent::ActorSpawned(_)
+                | CombatEvent::GroundPound { .. } => {}
             }
         }
         evs
@@ -304,6 +340,10 @@ mod tests {
             vec![(Cue::GlassBreak, Some(wall_mid(&map, 0)))],
             vec![],
             vec![],
+            vec![(Cue::Burrow, Some(gp))],
+            vec![(Cue::Burrow, Some(gp))],
+            vec![(Cue::ActorWake(g), Some(gp))],
+            vec![(Cue::GroundPound, Some(p))],
         ];
         let evs = all_combat_events();
         assert_eq!(evs.len(), expected.len());
@@ -367,6 +407,45 @@ mod tests {
                 }
             ),
             vec![Cue::ActorPain(ActorKind::Boss)]
+        );
+    }
+
+    #[test]
+    fn the_queen_has_her_own_voice() {
+        let (map, mut c) = setup();
+        assert_eq!(c.actors[3].kind, ActorKind::HiveQueen);
+        let cue = |c: &Combat, e: CombatEvent| {
+            run_combat(&e, c, &map)
+                .into_iter()
+                .map(|(q, _)| q)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(cue(&c, CombatEvent::ActorWoke(3)), vec![Cue::QueenScreech]);
+        for phase in [0, 1, 2] {
+            c.actors[3].phase = phase;
+            assert_eq!(
+                cue(&c, CombatEvent::ActorFired { actor: 3 }),
+                vec![Cue::QueenSpit],
+                "phase {phase}"
+            );
+        }
+        assert_eq!(
+            cue(&c, CombatEvent::PhaseChanged { actor: 3, phase: 2 }),
+            vec![Cue::QueenScreech]
+        );
+        let kill = CombatEvent::ActorKilled {
+            actor: 3,
+            by: Shooter::Player,
+        };
+        assert_eq!(cue(&c, kill), vec![Cue::QueenDeath]);
+        let hurt = CombatEvent::ActorHurt {
+            actor: 3,
+            amount: 5,
+        };
+        assert_eq!(cue(&c, hurt), vec![Cue::ActorPain(ActorKind::HiveQueen)]);
+        assert_eq!(
+            cue(&c, CombatEvent::Surfaced { actor: 3 }),
+            vec![Cue::Burrow]
         );
     }
 

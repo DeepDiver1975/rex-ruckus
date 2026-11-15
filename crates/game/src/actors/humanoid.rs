@@ -1,11 +1,12 @@
 //! The walking enemies on glTF models: the Grunt (pistol soldier), the Enforcer (armoured
-//! trooper), the Slasher (melee alien) and the boss Warlord. Animation and looks are shared with
+//! trooper), the Slasher (melee alien) and the bosses, the Warlord and the Hive Queen. Animation and looks are shared with
 //! every enemy (see [`super::anim`]); this module places them and hands the Grunt its pistol.
 
 use super::{ActorModel, ActorVisual, KeepWorldScale, place_walker};
 use crate::combat::LevelCombat;
 use crate::models::{ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
 use bevy::prelude::*;
+use rr_core::actors::AiState;
 
 /// Marks the root of a Grunt's visual; the index is into `LevelCombat.actors`.
 #[derive(Component)]
@@ -23,6 +24,10 @@ pub struct SlasherVisual(pub usize);
 #[derive(Component)]
 pub struct BossVisual(pub usize);
 
+/// Marks the root of the Hive Queen's visual; the index is into `LevelCombat.actors`.
+#[derive(Component)]
+pub struct QueenVisual(pub usize);
+
 /// The attach scene (e.g. the Grunt's pistol) has been parented to its bone.
 #[derive(Component)]
 pub(super) struct Attached;
@@ -32,18 +37,25 @@ type Walker = Or<(
     With<EnforcerVisual>,
     With<SlasherVisual>,
     With<BossVisual>,
+    With<QueenVisual>,
 )>;
 
-/// Places every walking enemy between its last two ticks, facing its heading.
+/// Places every walking enemy between its last two ticks, facing its heading, and hides one
+/// that is underground (a burrowed boss).
 pub(super) fn place_walkers(
     fixed: Res<Time<Fixed>>,
     combat: Res<LevelCombat>,
-    mut roots: Query<(&ActorVisual, &mut Transform), Walker>,
+    mut roots: Query<(&ActorVisual, &mut Transform, &mut Visibility), Walker>,
 ) {
     let alpha = fixed.overstep_fraction();
-    for (g, mut t) in &mut roots {
+    for (g, mut t, mut vis) in &mut roots {
         if let Some(actor) = combat.0.actors.get(g.0) {
             place_walker(&mut t, actor, alpha);
+            vis.set_if_neq(if matches!(actor.state, AiState::Under { .. }) {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            });
         }
     }
 }

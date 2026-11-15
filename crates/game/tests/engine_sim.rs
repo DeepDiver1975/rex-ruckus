@@ -583,3 +583,50 @@ fn a_payphone_call_counts_the_secrets_left_once() {
         "Just a dial tone."
     );
 }
+
+/// The hive in engine_lab: the Hive Queen sleeps until the player comes in, and her death
+/// (channel 11) opens the stash door in the north wall for good.
+#[test]
+fn the_hive_queen_wakes_on_entry_and_her_death_opens_the_stash() {
+    const STASH_DOOR: usize = 27;
+    let mut app = app(load_map("engine_lab.ron"));
+    tough(&mut app);
+    let queen = {
+        let c = &app.world().resource::<LevelCombat>().0;
+        c.actors
+            .iter()
+            .position(|a| a.kind == ActorKind::HiveQueen)
+            .unwrap()
+    };
+    let opening = |app: &App| {
+        let s = &app.world().resource::<CurrentMap>().0.sectors[STASH_DOOR];
+        s.ceil_z - s.floor_z
+    };
+    let asleep = |app: &App| {
+        app.world().resource::<LevelCombat>().0.actors[queen].state
+            == rr_core::actors::AiState::Sleep
+    };
+    ticks(&mut app, 30);
+    assert!(asleep(&app), "asleep while the player is in the hall");
+    assert!(opening(&app) < 0.1, "the stash is shut");
+    // Just inside the hive door, facing her.
+    teleport(&mut app, 5.0, 17.0, 90.0);
+    ticks(&mut app, 30);
+    assert!(!asleep(&app), "she saw the player come in");
+    app.world_mut().resource_mut::<LevelCombat>().0.actors[queen]
+        .health
+        .hp = 1;
+    shoot_until(&mut app, queen, |e| {
+        *e == CombatEvent::ActorKilled {
+            actor: queen,
+            by: Shooter::Player,
+        }
+    });
+    ticks(&mut app, 300);
+    assert!(
+        opening(&app) > 2.5,
+        "the stash door opened: {}",
+        opening(&app)
+    );
+    assert_eq!(state(&app), PlayState::Playing, "the level goes on");
+}

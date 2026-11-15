@@ -473,4 +473,34 @@
         (wave: Sine, freq: 440.0, attack: 0.02, sustain: 1.1, decay: 0.1, lpf: 3000.0, gain: 0.5),
         (wave: Noise, freq: 1000.0, sustain: 0.005, decay: 0.03, punch: 1.0, hpf: 1500.0, gain: 0.4),
     ]),
+    // Hive Queen screech: a wet, wavering insect shriek over a low chitter.
+    (name: "queen_screech", seed: 58, layers: [
+        (wave: Saw, freq: 620.0, slide: 380.0, vibrato_depth: 60.0, vibrato_hz: 17.0, attack: 0.04, sustain: 0.45, decay: 0.4, crush_bits: 5, lpf: 4200.0, hpf: 300.0, gain: 0.7),
+        (wave: Square, freq: 310.0, slide: -120.0, duty: 0.2, vibrato_depth: 30.0, vibrato_hz: 23.0, attack: 0.05, sustain: 0.4, decay: 0.35, lpf: 2000.0, gain: 0.4),
+        (wave: Noise, freq: 300.0, attack: 0.02, sustain: 0.5, decay: 0.4, lpf: 2500.0, hpf: 600.0, gain: 0.35),
+    ]),
+    // Hive Queen spit: a throaty hawk and a bubbling acid gob leaving the mandibles.
+    (name: "queen_spit", seed: 59, layers: [
+        (wave: Noise, freq: 400.0, attack: 0.01, sustain: 0.05, decay: 0.15, lpf: 2600.0, hpf: 500.0, gain: 0.8),
+        (wave: Sine, freq: 260.0, slide: -500.0, vibrato_depth: 40.0, vibrato_hz: 31.0, sustain: 0.04, decay: 0.16, punch: 0.6, gain: 0.7),
+        (wave: Noise, freq: 1000.0, decay: 0.05, hpf: 2500.0, gain: 0.3, delay: 0.06),
+    ]),
+    // Hive Queen death: a long, sinking shriek and a heavy wet collapse.
+    (name: "queen_death", seed: 60, layers: [
+        (wave: Saw, freq: 700.0, slide: -520.0, vibrato_depth: 50.0, vibrato_hz: 13.0, attack: 0.03, sustain: 0.7, decay: 0.7, crush_bits: 5, lpf: 3500.0, hpf: 200.0, gain: 0.6),
+        (wave: Brown, freq: 500.0, sustain: 0.8, decay: 1.0, lpf: 350.0, gain: 0.7, delay: 0.3),
+        (wave: Sine, freq: 50.0, slide: -20.0, sustain: 0.2, decay: 0.9, punch: 1.0, gain: 1.0, delay: 1.0),
+    ]),
+    // Burrow: gritty earth churning and a dull thud, for digging down and breaking out.
+    (name: "burrow", seed: 61, layers: [
+        (wave: Brown, freq: 900.0, attack: 0.05, sustain: 0.6, decay: 0.4, lpf: 700.0, gain: 0.9),
+        (wave: Noise, freq: 120.0, attack: 0.05, sustain: 0.5, decay: 0.4, lpf: 1800.0, hpf: 150.0, crush_bits: 6, gain: 0.5),
+        (wave: Sine, freq: 70.0, slide: -30.0, sustain: 0.02, decay: 0.3, punch: 1.0, gain: 0.8),
+    ]),
+    // Ground pound: a deep slam with a cracking shock and a rumbling tail.
+    (name: "ground_pound", seed: 62, layers: [
+        (wave: Sine, freq: 55.0, slide: -25.0, sustain: 0.05, decay: 0.7, punch: 1.0, gain: 1.0),
+        (wave: Noise, freq: 1000.0, sustain: 0.01, decay: 0.08, punch: 1.0, lpf: 4000.0, hpf: 400.0, gain: 0.6),
+        (wave: Brown, freq: 600.0, attack: 0.02, sustain: 0.4, decay: 0.8, lpf: 300.0, gain: 0.8),
+    ]),
 ]

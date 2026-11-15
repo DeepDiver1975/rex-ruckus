@@ -305,6 +305,20 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
         .unwrap();
     }
 
+    // Burrow points: a small brown diamond with a cross, numbered.
+    for (i, b) in map.burrow_points.iter().enumerate() {
+        let c = px(*b);
+        writeln!(
+            o,
+            r##"<path class="burrow" d="M{:.1},{:.1} l6,6 l-6,6 l-6,-6 z" fill="#8b5a2b" stroke="#000" stroke-width="1"><title>burrow point {i}</title></path><text x="{:.1}" y="{:.1}" fill="#8b5a2b" text-anchor="middle">b{i}</text>"##,
+            c.x,
+            c.y - 6.0,
+            c.x,
+            c.y + 18.0
+        )
+        .unwrap();
+    }
+
     for t in &map.triggers {
         let sec = &map.sectors[t.sector];
         let outer = &sec.loops[0];
@@ -325,7 +339,7 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
 
     for a in &map.actors {
         let p = px(a.pos);
-        if a.kind == ActorKind::Boss {
+        if matches!(a.kind, ActorKind::Boss | ActorKind::HiveQueen) {
             writeln!(
                 o,
                 r##"<circle class="boss" cx="{:.1}" cy="{:.1}" r="12" fill="none" stroke="#ff00ff" stroke-width="3"/>"##,
@@ -445,6 +459,21 @@ mod tests {
         // The plain map has none of them.
         let plain = render_svg(&two_rooms(0.0, 3.0));
         assert!(!plain.contains("class=\"glass\"") && !plain.contains("class=\"secret\""));
+    }
+
+    #[test]
+    fn marks_burrow_points() {
+        let map = rr_core::fixtures::engine_room(
+            "actors: [(kind: HiveQueen, pos: (3.0, 2.0))], burrow_points: [(2.0, 2.0), (16.5, 2.5)],",
+        );
+        let svg = render_svg(&map);
+        assert_eq!(svg.matches("class=\"burrow\"").count(), 2, "{svg}");
+        assert!(
+            svg.contains(">b1<") && svg.contains("class=\"boss\""),
+            "{svg}"
+        );
+        let plain = render_svg(&two_rooms(0.0, 3.0));
+        assert!(!plain.contains("class=\"burrow\""));
     }
 
     #[test]

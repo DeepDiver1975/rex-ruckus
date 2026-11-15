@@ -85,6 +85,7 @@ Scale, rotation, tint and attachment points are applied at runtime from `assets/
 | `assets/models/enemies/slasher.glb` | Gnasher (original) | Rex Ruckus contributors | `scripts/models/gnasher.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/enemies/drone.glb` | Peeper (original) | Rex Ruckus contributors | `scripts/models/peeper.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/enemies/boss.glb` | Warlord (original) | Rex Ruckus contributors | `scripts/models/warlord.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
+| `assets/models/enemies/hive_queen.glb` | Hive Queen (original) | Rex Ruckus contributors | `scripts/models/hive_queen.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/weapons/chaingun.glb` | Chaingun (original) | Rex Ruckus contributors | `scripts/models/chaingun.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/props/arcade.glb` | Arcade cabinet (original) | Rex Ruckus contributors | `scripts/models/arcade.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |
 | `assets/models/props/jukebox.glb` | Jukebox (original) | Rex Ruckus contributors | `scripts/models/jukebox.py` | GPL-3.0-or-later | built by `scripts/build-models.sh` |

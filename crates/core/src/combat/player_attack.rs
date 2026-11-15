@@ -78,7 +78,7 @@ impl Combat {
                 sector,
                 max: range,
             };
-            let hit = trace(map, &ray, &bodies, |i| !self.actors[i].alive(), 0.0);
+            let hit = trace(map, &ray, &bodies, |i| !self.actors[i].targetable(), 0.0);
             // An intact fixture nearer than whatever the pellet hits takes it instead.
             let reach = hit.map_or(range, |h| h.dist);
             if let Some((light, _)) = self.destruct.fixture_hit(map, ray.origin, ray.dir, reach) {

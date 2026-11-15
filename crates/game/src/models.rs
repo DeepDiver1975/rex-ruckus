@@ -46,16 +46,22 @@ pub enum ClipRole {
     Attack,
     Pain,
     Death,
+    /// Digging down (a burrowing boss); held while underground.
+    Burrow,
+    /// Coming up after a burrow.
+    Emerge,
 }
 
 impl ClipRole {
-    pub const ALL: [ClipRole; 6] = [
+    pub const ALL: [ClipRole; 8] = [
         ClipRole::Idle,
         ClipRole::Walk,
         ClipRole::Run,
         ClipRole::Attack,
         ClipRole::Pain,
         ClipRole::Death,
+        ClipRole::Burrow,
+        ClipRole::Emerge,
     ];
 
     /// The glTF clip name for this role, if the model has one.
@@ -67,6 +73,8 @@ impl ClipRole {
             ClipRole::Attack => &clips.attack,
             ClipRole::Pain => &clips.pain,
             ClipRole::Death => &clips.death,
+            ClipRole::Burrow => &clips.burrow,
+            ClipRole::Emerge => &clips.emerge,
         }
         .as_deref()
     }

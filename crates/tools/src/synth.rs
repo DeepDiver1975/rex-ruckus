@@ -603,6 +603,11 @@ mod tests {
         "jukebox_stinger",
         "payphone_tip",
         "dial_tone",
+        "queen_screech",
+        "queen_spit",
+        "queen_death",
+        "burrow",
+        "ground_pound",
     ];
 
     #[test]

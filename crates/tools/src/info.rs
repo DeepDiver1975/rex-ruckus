@@ -193,6 +193,16 @@ pub fn level_info(raw: &RawLevel, map: &Map) -> String {
         if props.is_empty() { "" } else { ": " }
     )
     .unwrap();
+    // Only when there are any, so the summary of a level without them reads as before.
+    if !map.burrow_points.is_empty() {
+        let pts = map
+            .burrow_points
+            .iter()
+            .map(|p| format!("({:.1}, {:.1})", p.x, p.y))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(o, "burrow  {}: {pts}", map.burrow_points.len()).unwrap();
+    }
     o
 }
 
@@ -228,5 +238,15 @@ mod tests {
             s.contains("props   3: Toilet, Vending (stock 2), PoolTable"),
             "{s}"
         );
+        assert!(!s.contains("burrow"), "{s}");
+    }
+
+    #[test]
+    fn info_lists_burrow_points() {
+        let src = engine_room_ron("burrow_points: [(2.0, 2.0), (16.5, 2.5)],");
+        let raw: RawLevel = ron::from_str(&src).unwrap();
+        let map = Map::from_raw(raw.clone()).unwrap();
+        let s = level_info(&raw, &map);
+        assert!(s.contains("burrow  2: (2.0, 2.0), (16.5, 2.5)"), "{s}");
     }
 }

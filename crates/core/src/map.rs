@@ -47,6 +47,10 @@ pub struct RawLevel {
     pub blasts: Vec<RawBlast>,
     #[serde(default)]
     pub props: Vec<RawProp>,
+    /// Where a burrowing boss (the Hive Queen) may come up, as (x, y) floor points. She needs
+    /// at least two to burrow at all.
+    #[serde(default)]
+    pub burrow_points: Vec<(f32, f32)>,
 }
 
 /// Material name the glass pane of a `Wall::glass` portal renders with. `Map::from_raw` appends
@@ -251,17 +255,21 @@ pub enum ActorKind {
     Barrel,
     /// The episode's big mech: phased attacks, never infights.
     Boss,
+    /// The Hive Queen: an alien boss that spits acid, burrows between `Map::burrow_points`
+    /// (bringing Slashers up with her) and pounds the ground when enraged.
+    HiveQueen,
 }
 
 impl ActorKind {
     /// Every kind; each needs exactly one enemy def.
-    pub const ALL: [ActorKind; 6] = [
+    pub const ALL: [ActorKind; 7] = [
         ActorKind::Grunt,
         ActorKind::Enforcer,
         ActorKind::Slasher,
         ActorKind::Drone,
         ActorKind::Barrel,
         ActorKind::Boss,
+        ActorKind::HiveQueen,
     ];
 }
 
@@ -439,6 +447,8 @@ pub struct Map {
     pub quakes: Vec<RawQuake>,
     pub blasts: Vec<RawBlast>,
     pub props: Vec<Prop>,
+    /// Where a burrowing boss may come up (`RawLevel::burrow_points`).
+    pub burrow_points: Vec<Vec2>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -665,6 +675,11 @@ impl Map {
             quakes: Vec::new(),
             blasts: raw.blasts,
             props: Vec::new(),
+            burrow_points: raw
+                .burrow_points
+                .iter()
+                .map(|&(x, y)| Vec2::new(x, y))
+                .collect(),
         };
         for (index, t) in raw.triggers.iter().enumerate() {
             if t.sector >= map.sectors.len() {

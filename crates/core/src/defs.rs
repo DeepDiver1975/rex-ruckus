@@ -1,5 +1,6 @@
 //! Data-driven weapon and enemy definitions.
 
+use crate::difficulty::Difficulty;
 use crate::map::ActorKind;
 use crate::movement::Tuning;
 use serde::{Deserialize, Serialize};
@@ -199,7 +200,8 @@ fn one() -> f32 {
 
 /// A boss phase: from `below` (fraction of max health) down, the boss attacks with `attack`,
 /// moves `speed_mult` times faster, waits `refire` between attacks and shoots from `muzzle`
-/// (the base muzzle when `None`).
+/// (the base muzzle when `None`). `burrow` and `pound` are the phase's special moves; like the
+/// attack they replace the base def's (a phase without them has none).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Phase {
     pub below: f32,
@@ -209,6 +211,69 @@ pub struct Phase {
     pub refire: f32,
     #[serde(default)]
     pub muzzle: Option<(f32, f32, f32)>,
+    #[serde(default)]
+    pub burrow: Option<BurrowDef>,
+    #[serde(default)]
+    pub pound: Option<PoundDef>,
+}
+
+/// Burrowing: every `every` seconds (drawn in `[lo, hi]`; the first `first` seconds after the
+/// move becomes available) a chasing actor digs down for `dig` seconds, stays underground for
+/// `under` (untargetable, no collision), comes up at another of the level's burrow points and
+/// rises for `rise` seconds, bringing up to `spawn` of its `minions` with it. Needs at least two
+/// burrow points in the level.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BurrowDef {
+    pub every: (f32, f32),
+    pub first: f32,
+    pub dig: f32,
+    pub under: f32,
+    pub rise: f32,
+    #[serde(default)]
+    pub spawn: u32,
+}
+
+/// Ground pound: every `every` seconds (the first `first` seconds after the move becomes
+/// available), with the target within `radius`, a chasing actor rears up for `windup` seconds
+/// and slams the floor: bodies on the ground within `radius` take `damage`, falling off
+/// linearly with the distance; airborne ones (jumping, jetpacking, flying) take none.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PoundDef {
+    pub every: f32,
+    pub first: f32,
+    pub windup: f32,
+    pub radius: f32,
+    pub damage: i32,
+}
+
+/// A number per skill level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerSkill {
+    pub easy: u32,
+    pub normal: u32,
+    pub hard: u32,
+}
+
+impl PerSkill {
+    pub fn get(&self, d: Difficulty) -> u32 {
+        match d {
+            Difficulty::Easy => self.easy,
+            Difficulty::Normal => self.normal,
+            Difficulty::Hard => self.hard,
+        }
+    }
+}
+
+/// What a burrowing boss brings up with it: awake actors of `kind`, at most `cap` of them alive
+/// at once (per skill).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MinionDef {
+    pub kind: ActorKind,
+    pub cap: PerSkill,
 }
 
 /// How an enemy gets around.
@@ -260,6 +325,14 @@ pub struct EnemyDef {
     /// Boss phases, highest threshold first.
     #[serde(default)]
     pub phases: Vec<Phase>,
+    /// Special moves of phase 0 (phases bring their own).
+    #[serde(default)]
+    pub burrow: Option<BurrowDef>,
+    #[serde(default)]
+    pub pound: Option<PoundDef>,
+    /// The minions a burrow brings up.
+    #[serde(default)]
+    pub minions: Option<MinionDef>,
 }
 
 impl EnemyDef {
@@ -297,7 +370,14 @@ impl EnemyDef {
         if let Some(m) = p.muzzle {
             d.muzzle = m;
         }
+        d.burrow = p.burrow;
+        d.pound = p.pound;
         std::borrow::Cow::Owned(d)
+    }
+
+    /// Whether the actor burrows in any of its phases.
+    pub fn burrows(&self) -> bool {
+        self.burrow.is_some() || self.phases.iter().any(|p| p.burrow.is_some())
     }
 }
 
@@ -384,6 +464,32 @@ fn check_enemy_attack(what: &str, a: &EnemyAttack) -> Result<(), DefsError> {
             }
         }
         EnemyAttack::None => {}
+    }
+    Ok(())
+}
+
+/// Checks the special moves of the base def or a phase.
+fn check_moves(
+    what: &str,
+    burrow: Option<BurrowDef>,
+    pound: Option<PoundDef>,
+) -> Result<(), DefsError> {
+    if let Some(b) = burrow {
+        let (lo, hi) = b.every;
+        if !(pos(lo) && pos(hi) && lo <= hi) {
+            return Err(invalid(what, "burrow interval must be positive, low first"));
+        }
+        if !nonneg(b.first) || !pos(b.dig) || !pos(b.under) || !pos(b.rise) {
+            return Err(invalid(what, "burrow times must be positive"));
+        }
+    }
+    if let Some(p) = pound {
+        if !pos(p.every) || !nonneg(p.first) || !nonneg(p.windup) {
+            return Err(invalid(what, "pound times must be positive"));
+        }
+        if !pos(p.radius) || p.damage <= 0 {
+            return Err(invalid(what, "pound radius and damage must be positive"));
+        }
     }
     Ok(())
 }
@@ -636,6 +742,28 @@ impl Defs {
                     return Err(invalid(what, "muzzle must be finite"));
                 }
                 check_enemy_attack(&what, &p.attack)?;
+                check_moves(&what, p.burrow, p.pound)?;
+            }
+            check_moves(&what, e.burrow, e.pound)?;
+            let spawns = e
+                .phases
+                .iter()
+                .filter_map(|p| p.burrow)
+                .chain(e.burrow)
+                .any(|b| b.spawn > 0);
+            if spawns && e.minions.is_none() {
+                return Err(invalid(what, "a burrow that spawns needs minions"));
+            }
+            if let Some(m) = e.minions {
+                let minion = self.enemies.iter().find(|o| o.kind == m.kind);
+                if m.kind == e.kind
+                    || minion.is_some_and(|o| o.boss || o.locomotion == Locomotion::Static)
+                {
+                    return Err(invalid(
+                        what,
+                        "minions must be another kind, neither a boss nor static",
+                    ));
+                }
             }
             if let Some(s) = e.death_splash
                 && (!pos(s.radius) || s.damage <= 0 || !nonneg(s.self_scale))
@@ -795,7 +923,8 @@ mod tests {
                 | ActorKind::Slasher
                 | ActorKind::Drone
                 | ActorKind::Barrel
-                | ActorKind::Boss => {}
+                | ActorKind::Boss
+                | ActorKind::HiveQueen => {}
             }
             let mut d = Defs::builtin();
             d.enemies.retain(|e| e.kind != k);
@@ -810,6 +939,49 @@ mod tests {
         rejects(W, &E.replacen("below: 0.5", "below: 0.0", 1));
         rejects(W, &E.replacen("boss: true", "boss: false", 1)); // phases without a boss
         rejects(W, &E.replacen("speed_mult: 1.5", "speed_mult: 0.0", 1));
+    }
+
+    #[test]
+    fn special_moves_and_minions_are_validated() {
+        rejects(
+            W,
+            &E.replacen("every: (8.0, 10.0)", "every: (10.0, 8.0)", 1),
+        );
+        rejects(W, &E.replacen("dig: 1.2", "dig: 0.0", 1));
+        rejects(
+            W,
+            &E.replacen("radius: 6.0, damage: 35", "radius: 0.0, damage: 35", 1),
+        );
+        rejects(
+            W,
+            &E.replacen("radius: 6.0, damage: 35", "radius: 6.0, damage: 0", 1),
+        );
+        // A burrow that brings minions up needs some to bring.
+        let no_minions = "minions: Some((kind: Slasher, cap: (easy: 4, normal: 6, hard: 8))),";
+        assert!(E.contains(no_minions));
+        rejects(W, &E.replacen(no_minions, "", 1));
+        // Minions are never bosses or barrels.
+        rejects(
+            W,
+            &E.replacen(
+                "minions: Some((kind: Slasher",
+                "minions: Some((kind: Boss",
+                1,
+            ),
+        );
+        rejects(
+            W,
+            &E.replacen(
+                "minions: Some((kind: Slasher",
+                "minions: Some((kind: Barrel",
+                1,
+            ),
+        );
+        // Unknown fields in a move are typos.
+        assert!(matches!(
+            Defs::from_ron(W, &E.replacen("spawn: 2", "spawns: 2", 1)),
+            Err(DefsError::Parse(_))
+        ));
     }
 
     #[test]

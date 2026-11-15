@@ -257,6 +257,22 @@ fn blasts_pass_through_and_open_their_breach() {
 }
 
 #[test]
+fn burrow_points_pass_through() {
+    let m = built(
+        r#"sectors: [(id: "a", rect: (0.0, 0.0, 8.0, 8.0))],
+        burrow_points: [(2.0, 2.0), (6.0, 6.0)]"#,
+    );
+    let pts: Vec<(f32, f32)> = m.burrow_points.iter().map(|p| (p.x, p.y)).collect();
+    assert_eq!(pts, [(2.0, 2.0), (6.0, 6.0)]);
+    // A level without them builds without the field.
+    let out = build_source(&level(
+        r#"sectors: [(id: "a", rect: (0.0, 0.0, 4.0, 4.0))]"#,
+    ))
+    .unwrap();
+    assert!(!out.contains("burrow_points"), "{out}");
+}
+
+#[test]
 fn a_slider_builds_as_an_island_in_its_track() {
     use rr_core::map::MoverKind;
     let m = built(

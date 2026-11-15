@@ -8,14 +8,16 @@
 //! [`Combat::write_back`]. Because player attacks run first, an actor killed by the player this
 //! tick never fires.
 //!
-//! Split into [`player_attack`] (the player's weapon events) and [`blasts`] (the explosion
-//! queue).
+//! Split into [`player_attack`] (the player's weapon events), [`blasts`] (the explosion
+//! queue) and [`specials`] (what the bosses' special moves do).
 
 mod blasts;
 mod player_attack;
+mod specials;
 
 pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast, Via};
 
+use crate::actors::special::{self, Special};
 use crate::actors::{
     Actor, AiState, Perception, Target, effective_muzzle, flyer_hover, hurt, retargets,
     swipe_reaches, think, tuning, volley, wake,
@@ -23,6 +25,7 @@ use crate::actors::{
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
 use crate::destruct::{Destruct, hits_pane};
+use crate::difficulty::Difficulty;
 use crate::explosion::Blast;
 use crate::hazard::{HazardClock, HazardKind};
 use crate::health::DamageOutcome;
@@ -114,6 +117,24 @@ pub enum CombatEvent {
     /// An actor's `on_death` on the tick it reached `Dead`; the game fires the channel or ends
     /// the level.
     DeathAction(SwitchAction),
+    /// Actor `actor` started digging down (a burrow, `actors::special`).
+    Burrowed {
+        actor: usize,
+    },
+    /// Burrowed actor `actor` came up again (where it now stands).
+    Surfaced {
+        actor: usize,
+    },
+    /// A new actor joined play at the end of `Combat::actors` (a burrow's minion); it is
+    /// awake. The game gives it a visual.
+    ActorSpawned(usize),
+    /// Actor `actor` slammed the floor at `point`: bodies on the ground within `radius` took
+    /// damage. The game shakes the screen.
+    GroundPound {
+        actor: usize,
+        point: Vec3,
+        radius: f32,
+    },
 }
 
 impl CombatEvent {
@@ -153,6 +174,8 @@ pub struct Combat {
     pub damage_scale: f32,
     /// The player's hazard-floor clock; reset with the level.
     pub hazard: HazardClock,
+    /// The skill played; it sets the cap on live minions. `Normal` at spawn.
+    pub skill: Difficulty,
     next_id: u32,
 }
 
@@ -206,6 +229,7 @@ impl Combat {
             destruct: Destruct::new(map),
             damage_scale: 1.0,
             hazard: HazardClock::default(),
+            skill: Difficulty::Normal,
             next_id: 0,
         }
     }
@@ -273,8 +297,12 @@ impl Combat {
         if outcome == DamageOutcome::Hurt {
             let phase = def.phase_for(a.health.hp as f32 / a.health.max as f32);
             if phase != a.phase {
+                let phased = def.phased(phase);
                 a.phase = phase;
-                a.muzzle_offset = Vec3::from(def.phased(phase).muzzle);
+                a.muzzle_offset = Vec3::from(phased.muzzle);
+                // A phase's special moves come into reach after their `first` delay.
+                a.burrow_in = phased.burrow.map_or(0.0, |b| b.first);
+                a.pound_in = phased.pound.map_or(0.0, |p| p.first);
                 out.push(CombatEvent::PhaseChanged { actor: i, phase });
             }
         }
@@ -336,8 +364,10 @@ impl Combat {
 
     /// One fixed tick, in this (load-bearing) order:
     /// 1. remember every actor's `prev_pos`;
-    /// 2. AI: every actor thinks (dying ones count down); living ones move with the enemy
-    ///    tuning and spawn their bolts;
+    /// 2. AI: every actor runs its special moves (`actors::special`: burrows and pounds, whose
+    ///    minions and shockwaves resolve here) or else thinks (dying ones count down); living
+    ///    ones move with the enemy tuning and spawn their bolts. Minions join at the end of
+    ///    `actors` and first act next tick;
     /// 3. living actors and the player are pushed apart where they overlap;
     /// 4. projectiles fly; a hit on the player damages it; splash projectiles queue blasts;
     /// 5. scripted blasts the level's channels set off join the queue (on their `delay`), and
@@ -380,7 +410,11 @@ impl Combat {
         };
         // Bodies as they stood at the start of the tick, so no actor sees another mid-update; a
         // player-only fight reads exactly what it read before (same rng draws).
-        let snapshot: Vec<(Body, bool)> = self.actors.iter().map(|a| (a.body, a.alive())).collect();
+        let snapshot: Vec<(Body, bool)> = self
+            .actors
+            .iter()
+            .map(|a| (a.body, a.targetable()))
+            .collect();
         for i in 0..self.actors.len() {
             let a = &mut self.actors[i];
             if a.state == AiState::Dead {
@@ -398,7 +432,14 @@ impl Combat {
             let def = defs.enemy(a.kind).phased(a.phase);
             let def = &*def;
             let before = a.state;
-            let (input, fire) = think(a, def, map, &perception, &mut self.rng, dt);
+            let (input, fire, special_move) =
+                match special::step(a, def, map, &perception, &mut self.rng, dt) {
+                    Special::Think => {
+                        let (input, fire) = think(a, def, map, &perception, &mut self.rng, dt);
+                        (input, fire, None)
+                    }
+                    Special::Busy(m) => (Default::default(), None, m),
+                };
             out.extend(woke(i, before, a));
             if a.state == AiState::Dead
                 && let Some(action) = a.on_death.take()
@@ -418,6 +459,9 @@ impl Combat {
                 let t = tuning(a, def);
                 step_player(map, &mut a.body, &input, &t, dt);
             }
+            if let Some(m) = special_move {
+                self.special_move(map, defs, i, m, player, &mut out);
+            }
             if let Some(dir) = fire {
                 out.push(CombatEvent::ActorFired { actor: i });
                 let target = self.actors[i].target;
@@ -426,7 +470,7 @@ impl Combat {
                     EnemyAttack::Hitscan { .. } => {
                         let mut bodies = vec![*player.body];
                         bodies.extend(self.actors.iter().map(|a| a.body));
-                        let alive: Vec<bool> = self.actors.iter().map(Actor::alive).collect();
+                        let alive: Vec<bool> = self.actors.iter().map(Actor::targetable).collect();
                         let v = volley(
                             map,
                             &self.actors[i],
@@ -519,7 +563,7 @@ impl Combat {
     /// their height ranges overlap too. `clip_move` keeps both out of walls.
     fn separate(&mut self, map: &Map, player: &mut Body) {
         let step = Tuning::default().step_height;
-        for a in self.actors.iter_mut().filter(|a| a.alive()) {
+        for a in self.actors.iter_mut().filter(|a| a.targetable()) {
             let b = &mut a.body;
             let (pa, pp) = (b.pos.truncate(), player.pos.truncate());
             let dist = pa.distance(pp);
@@ -565,7 +609,7 @@ impl Combat {
             if p.resting {
                 follow_floor(map, p);
             }
-            let skip = |i: usize| i != BODY_PLAYER && !self.actors[i - 1].alive();
+            let skip = |i: usize| i != BODY_PLAYER && !self.actors[i - 1].targetable();
             match step_projectile(map, p, &bodies, skip, dt) {
                 ProjectileStep::Flying | ProjectileStep::Resting => return true,
                 ProjectileStep::HitBody(i) if p.bounce.is_some() => {
@@ -622,12 +666,12 @@ impl Combat {
     }
 
     /// Actor indices and copies of the bodies of every living actor, for `Mechanics::tick`.
-    /// Corpses are left out, so they never hold a door open or ride a lift.
+    /// Corpses and burrowed actors are left out, so they never hold a door open or ride a lift.
     pub fn living_bodies(&self) -> (Vec<usize>, Vec<Body>) {
         self.actors
             .iter()
             .enumerate()
-            .filter(|(_, a)| a.alive())
+            .filter(|(_, a)| a.targetable())
             .map(|(i, a)| (i, a.body))
             .unzip()
     }
@@ -699,6 +743,8 @@ mod hazard_tests;
 mod infight_tests;
 #[cfg(test)]
 mod light_tests;
+#[cfg(test)]
+mod queen_tests;
 #[cfg(test)]
 mod scripted_tests;
 #[cfg(test)]
