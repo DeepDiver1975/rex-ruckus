@@ -76,6 +76,12 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   the first tick); `once` defaults to true.
 - Props collide with bodies but not with shots or pathfinding, and must not stand in a mover
   sector (`validate` enforces it).
+- A slider (`mover: (kind: Slide(by: (x, y)), …)`) moves its whole sector by `by`. It must be an
+  island: one loop, every wall a portal into one track sector that holds it as a hole, with
+  ≥ 0.05 m clearance along the whole path. Bodies standing on it ride along; one beside or under
+  it makes it reverse. Items, props, switches and the player start may not sit on it (they would
+  not move); `validate` enforces all of this. It never changes the track's topology, so a
+  sliding gate does not block reachability in `validate`.
 - Enemy bolts and pellets hit any body in the way (friendly fire); a hurt enemy turns on an
   attacker of another kind. Bosses never do, and ignore their own splash.
 - `on_death` runs when the actor is `Dead`, not at the kill. `rr-tools validate` counts triggers
