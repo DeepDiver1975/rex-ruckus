@@ -14,6 +14,7 @@ pub const CRACKED: &str = "cracked";
 /// Material names of hazard floors (see `mechanics::mark_hazard_floors`).
 pub const SLIME: &str = "slime";
 pub const ELECTRIC: &str = "electric";
+pub const MAGMA: &str = "magma";
 
 /// Cheap deterministic integer hash → 0..=255 noise.
 fn noise(x: u32, y: u32, seed: u32) -> u8 {
@@ -202,6 +203,172 @@ fn texel(name: &str, x: u32, y: u32) -> [u8; 4] {
                 shade([30, 35, 45], n)
             }
         }
+        // Shipping container: corrugated steel ribs in faded rust-red paint, a dark frame rail
+        // top and bottom, rust streaks running down from the top and pale scuffs.
+        "container" => {
+            if !(2..30).contains(&y) {
+                return shade([55, 40, 35], n);
+            }
+            if noise(x, y, 22) > 252 {
+                return shade([170, 160, 150], n);
+            }
+            let rib = match x % 8 {
+                0 | 1 => 28,
+                2 | 7 => 12,
+                4 | 5 => -22,
+                _ => 0,
+            };
+            let streak = noise(x, 0, 21) > 200 && y < 4 + noise(x, 1, 21) as u32 / 10;
+            if streak {
+                shade([105, 50, 25], rib / 2 + n)
+            } else {
+                shade([150, 62, 38], rib + n)
+            }
+        }
+        // Water: dark blue-green with wavy ripple crests and the odd bright glint.
+        "water" => {
+            let wave = (y + [0, 1, 2, 2, 1, 0, 0, 0][(x / 4 % 8) as usize]) % 8;
+            let glint = noise(x, y, 61) > 253;
+            let crest = match wave {
+                _ if glint => 110,
+                0 => 45,
+                1 => 20,
+                _ => 0,
+            };
+            shade([20, 62, 72], n + crest)
+        }
+        // Magma: black crust plates split by glowing cracks, white-yellow at the core and
+        // orange at the edges.
+        MAGMA => {
+            // The cracks are the edges of a Voronoi tiling: pixels about as near to their
+            // second-nearest crust seed as to their nearest. Distances wrap, so it tiles.
+            let (mut d1, mut d2) = (f32::MAX, f32::MAX);
+            for i in 0..7 {
+                let (sx, sy) = (noise(i, 0, 53) as u32 % SIZE, noise(i, 1, 53) as u32 % SIZE);
+                let wrap = |a: u32, b: u32| {
+                    let d = a.abs_diff(b);
+                    d.min(SIZE - d) as f32
+                };
+                let d = wrap(x, sx).hypot(wrap(y, sy));
+                if d < d1 {
+                    (d1, d2) = (d, d1);
+                } else if d < d2 {
+                    d2 = d;
+                }
+            }
+            match d2 - d1 {
+                e if e < 1.0 => [255, 220, 90, 255],
+                e if e < 2.2 => [235, 110, 15, 255],
+                _ => shade([32, 20, 16], n),
+            }
+        }
+        // Hive: waxy plum honeycomb domes on dark veins, an amber pore in each cell.
+        "hive" => {
+            let row = y / 8;
+            let lx = (x + if row % 2 == 0 { 0 } else { 4 }) % 8;
+            let (dx, dy) = (lx as i32 - 4, (y % 8) as i32 - 4);
+            let d = dx.abs() + dy.abs();
+            if dx == -4 || d >= 6 {
+                shade([45, 14, 42], n / 2)
+            } else if d == 0 {
+                [220, 150, 50, 255]
+            } else {
+                shade([100, 42, 92], 24 - d * 6 + n)
+            }
+        }
+        // Monitor: an original test screen (four colour bars over a grey step ramp, a white
+        // ring in the middle) on dark scanlines, framed by a thin black bezel.
+        "screen" => {
+            if x == 0 || y == 0 {
+                return [10, 10, 12, 255];
+            }
+            let (dx, dy) = (x as i32 - 16, y as i32 - 16);
+            let r2 = dx * dx + dy * dy;
+            let c = if (49..=72).contains(&r2) {
+                [245, 245, 245]
+            } else if y < 22 {
+                [
+                    [40, 220, 230],
+                    [230, 60, 200],
+                    [250, 190, 40],
+                    [120, 240, 70],
+                ][(x / 8) as usize]
+            } else {
+                let g = 40 + (x / 4) as u8 * 26;
+                [g, g, g]
+            };
+            shade(c, if y % 2 == 1 { -60 } else { 0 })
+        }
+        // Monorail beam: a polished top flange, a dark bolted web, a lower flange and shadow
+        // lines between them.
+        "rail" => match y {
+            0..=1 | 30..=31 => [20, 20, 24, 255],
+            2..=5 => shade([195, 195, 200], if y == 2 { 30 } else { n }),
+            26..=29 => shade([145, 148, 155], n),
+            _ if x % 8 == 4 && (y == 10 || y == 21) => [210, 205, 170, 255],
+            _ if x % 8 == 5 && (y == 11 || y == 22) => [30, 30, 32, 255],
+            _ if y == 6 || y == 25 => [55, 58, 64, 255],
+            _ => shade([88, 93, 102], n),
+        },
+        // Shop front: dark panes in bright aluminium frames over a brushed kick panel, goods
+        // on two shelves behind the glass.
+        "storefront" => {
+            if x % 16 < 2 || y < 2 || (20..22).contains(&y) {
+                return shade(
+                    [205, 210, 215],
+                    if x % 16 == 1 || y == 1 || y == 21 {
+                        -40
+                    } else {
+                        0
+                    },
+                );
+            }
+            if y >= 22 {
+                return shade([150, 152, 158], (x % 3) as i32 * 6 - 6);
+            }
+            if y == 11 || y == 19 {
+                return [70, 75, 80, 255];
+            }
+            let slot = x / 4;
+            let shelf = if y < 11 { 0 } else { 1 };
+            let item = noise(slot, shelf, 71);
+            let top = if shelf == 0 {
+                5 + item as u32 % 4
+            } else {
+                13 + item as u32 % 4
+            };
+            if x % 4 != 0 && item > 70 && y >= top {
+                // Dimmed by the glass.
+                let c = [[200, 60, 50], [60, 120, 200], [230, 200, 60], [90, 180, 90]]
+                    [(item % 4) as usize];
+                return [c[0] / 2 + 20, c[1] / 2 + 20, c[2] / 2 + 20, 255];
+            }
+            shade([38, 58, 72], if (x + y) % 13 == 0 { 45 } else { n / 2 })
+        }
+        // Pipe run: a yellow and a grey pipe, rounded by shading, with bolted flanges every
+        // 16 px and the odd paint chip.
+        "pipe" => {
+            let ly = (y % 16) as i32;
+            if ly == 0 || ly == 15 {
+                return [18, 18, 20, 255];
+            }
+            let base = if y < 16 {
+                [205, 165, 35]
+            } else {
+                [125, 130, 138]
+            };
+            let round = 26 - (ly - 5).abs() * 7;
+            if x % 16 < 3 {
+                if x % 16 == 1 && (ly == 3 || ly == 12) {
+                    return [225, 225, 215, 255];
+                }
+                return shade(base, round - 45);
+            }
+            if noise(x, y, 81) > 247 {
+                return shade([90, 90, 95], n);
+            }
+            shade(base, round + n)
+        }
         _ => {
             if (x / 8 + y / 8) % 2 == 0 {
                 [255, 0, 255, 255]
@@ -302,6 +469,110 @@ mod tests {
         assert_ne!(s, missing);
         assert_ne!(e, missing);
         assert_eq!(s, pixels(SLIME), "deterministic");
+    }
+
+    /// The Episode 2 ("Aftershock") materials.
+    const AFTERSHOCK: [&str; 8] = [
+        "container",
+        "water",
+        MAGMA,
+        "hive",
+        "screen",
+        "rail",
+        "storefront",
+        "pipe",
+    ];
+
+    #[test]
+    fn aftershock_textures_are_deterministic_non_uniform_and_distinct() {
+        let missing = pixels("does-not-exist");
+        for (i, a) in AFTERSHOCK.iter().enumerate() {
+            let p = pixels(a);
+            assert_eq!(p.len(), (SIZE * SIZE * 4) as usize, "{a}");
+            assert_eq!(p, pixels(a), "{a} deterministic");
+            assert_ne!(p, missing, "{a} has its own arm");
+            assert!(p.chunks(4).all(|px| px[3] == 255), "{a} is opaque");
+            let colours: std::collections::BTreeSet<_> = p.chunks(4).collect();
+            assert!(colours.len() >= 8, "{a} has only {} colours", colours.len());
+            for b in AFTERSHOCK[i + 1..].iter().chain(&THEMED) {
+                assert_ne!(p, pixels(b), "{a} vs {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn magma_is_bright_cracks_over_dark_crust() {
+        let p = pixels(MAGMA);
+        let luma = |px: &[u8]| px[0] as u32 + px[1] as u32 + px[2] as u32;
+        let bright = p.chunks(4).filter(|px| luma(px) > 400).count();
+        let dark = p.chunks(4).filter(|px| luma(px) < 120).count();
+        assert!(bright > 60 && dark > 400, "bright {bright}, dark {dark}");
+    }
+
+    #[test]
+    fn hive_differs_from_flesh_and_has_amber_pores() {
+        let p = pixels("hive");
+        assert_ne!(p, pixels("flesh"));
+        let pores = p.chunks(4).filter(|px| px[..3] == [220, 150, 50]).count();
+        assert_eq!(pores, 16, "one pore per honeycomb cell");
+    }
+
+    /// Writes a swatch sheet of the Aftershock materials (and one PNG each) to
+    /// `$RR_SWATCH_DIR`, else `$TMPDIR/rr-swatches`: `cargo test -p rr-game --lib --
+    /// --ignored write_aftershock_swatches`. The sheet is a 4×2 grid in `AFTERSHOCK` order, each
+    /// tile the texture repeated 2×2 and scaled 4× (nearest), as the game samples it.
+    #[test]
+    #[ignore = "writes PNGs; run by hand for PR screenshots"]
+    fn write_aftershock_swatches() {
+        const REP: u32 = 2;
+        const ZOOM: u32 = 4;
+        const GAP: u32 = 8;
+        let tile = SIZE * REP * ZOOM;
+        let dir = std::env::var_os("RR_SWATCH_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("rr-swatches"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = |w: u32, h: u32, data: Vec<u8>, name: &str| {
+            let img = Image::new(
+                Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                data,
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::default(),
+            );
+            let path = dir.join(format!("{name}.png"));
+            img.try_into_dynamic().unwrap().save(&path).unwrap();
+            println!("{}", path.display());
+        };
+        let (cols, rows) = (4, 2);
+        let (w, h) = (cols * (tile + GAP) + GAP, rows * (tile + GAP) + GAP);
+        let mut sheet = [24u8, 24, 28, 255].repeat((w * h) as usize);
+        for (i, name) in AFTERSHOCK.iter().enumerate() {
+            let p = pixels(name);
+            let src = |x: u32, y: u32| {
+                let o = (((y / ZOOM % SIZE) * SIZE + x / ZOOM % SIZE) * 4) as usize;
+                &p[o..o + 4]
+            };
+            let one: Vec<u8> = (0..tile)
+                .flat_map(|y| (0..tile).flat_map(move |x| src(x, y).to_vec()))
+                .collect();
+            png(tile, tile, one, name);
+            let (ox, oy) = (
+                GAP + (i as u32 % cols) * (tile + GAP),
+                GAP + (i as u32 / cols) * (tile + GAP),
+            );
+            for y in 0..tile {
+                for x in 0..tile {
+                    let o = (((oy + y) * w + ox + x) * 4) as usize;
+                    sheet[o..o + 4].copy_from_slice(src(x, y));
+                }
+            }
+        }
+        png(w, h, sheet, "aftershock_swatches");
     }
 
     #[test]
