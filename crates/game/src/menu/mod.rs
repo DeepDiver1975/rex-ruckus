@@ -1,4 +1,4 @@
-//! Menus: main, difficulty, pause, options, controls and the stats screens, drawn with
+//! Menus: main, episode, difficulty, pause, options, controls and the stats screens, drawn with
 //! `bevy_ui` over the frozen level.
 //!
 //! Every way of choosing a button (mouse click, Enter) ends in [`MenuInput::activate`]; the one
@@ -34,6 +34,8 @@ use rr_core::difficulty::Difficulty;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Main,
+    /// The episode picker shown after New Game.
+    Episodes,
     Difficulty,
     Pause,
     Options,
@@ -48,7 +50,8 @@ impl Screen {
     /// The screen Esc/Back returns to; `None` for a top-level screen.
     pub fn back(self, state: PlayState) -> Option<Screen> {
         match self {
-            Screen::Difficulty => Some(Screen::Main),
+            Screen::Episodes => Some(Screen::Main),
+            Screen::Difficulty => Some(Screen::Episodes),
             Screen::Options if state == PlayState::Paused => Some(Screen::Pause),
             Screen::Options => Some(Screen::Main),
             Screen::Controls => Some(Screen::Options),
@@ -85,6 +88,8 @@ pub enum Setting {
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub enum MenuAction {
     NewGame,
+    /// Index into `Episode::choices`.
+    PickEpisode(usize),
     PickDifficulty(Difficulty),
     Resume,
     Options,
@@ -278,7 +283,15 @@ pub fn run_menu_action(world: &mut World) {
     }
     let screen = |world: &mut World, s: Option<Screen>| world.resource_mut::<MenuScreen>().0 = s;
     match action {
-        MenuAction::NewGame => screen(world, Some(Screen::Difficulty)),
+        MenuAction::NewGame => screen(world, Some(Screen::Episodes)),
+        MenuAction::PickEpisode(i) => {
+            let chosen = world
+                .get_resource_mut::<Episode>()
+                .is_some_and(|mut ep| ep.choose(i));
+            if chosen {
+                screen(world, Some(Screen::Difficulty));
+            }
+        }
         MenuAction::PickDifficulty(d) => {
             if world.contains_resource::<Episode>() {
                 // Loads level 0 and sets `Playing`.
@@ -390,6 +403,15 @@ fn rebuild_screen(
         commands.entity(root).despawn();
     }
     selection.0 = 0;
+    if screen.0 == Some(Screen::Episodes)
+        && let Some(ep) = &episode
+    {
+        // The last chosen episode, counting only the playable ones (the others are no buttons).
+        selection.0 = ep.choices[..ep.chosen]
+            .iter()
+            .filter(|d| d.playable())
+            .count();
+    }
     if screen.0 == Some(Screen::Difficulty) {
         // Easy, Normal, Hard in button order; `--difficulty` or the last game's pick is pre-selected.
         selection.0 = match difficulty.0 {
@@ -400,6 +422,10 @@ fn rebuild_screen(
     }
     match screen.0 {
         Some(Screen::Main) => main_menu::spawn_main(&mut commands, &ui),
+        Some(Screen::Episodes) => {
+            let choices = episode.as_ref().map_or(&[][..], |e| e.choices.as_slice());
+            main_menu::spawn_episodes(&mut commands, &ui, choices);
+        }
         Some(Screen::Difficulty) => main_menu::spawn_difficulty(&mut commands, &ui),
         Some(Screen::Pause) => pause::spawn_pause(
             &mut commands,
@@ -414,8 +440,11 @@ fn rebuild_screen(
             stats::spawn_stats(&mut commands, &ui, name, &stats.0);
         }
         Some(Screen::EpisodeEnd) => {
-            let totals = episode.map(|e| e.totals).unwrap_or_default();
-            stats::spawn_episode_end(&mut commands, &ui, difficulty.0, &totals);
+            let (name, totals) = episode
+                .as_ref()
+                .map(|e| (e.def.name.as_str(), e.totals))
+                .unwrap_or_default();
+            stats::spawn_episode_end(&mut commands, &ui, name, difficulty.0, &totals);
         }
         None => {}
     }
@@ -456,7 +485,11 @@ mod tests {
 
     #[test]
     fn back_targets() {
-        assert_eq!(Screen::Difficulty.back(PlayState::Menu), Some(Screen::Main));
+        assert_eq!(
+            Screen::Difficulty.back(PlayState::Menu),
+            Some(Screen::Episodes)
+        );
+        assert_eq!(Screen::Episodes.back(PlayState::Menu), Some(Screen::Main));
         assert_eq!(Screen::Options.back(PlayState::Menu), Some(Screen::Main));
         assert_eq!(Screen::Options.back(PlayState::Paused), Some(Screen::Pause));
         assert_eq!(

@@ -34,15 +34,20 @@ pub fn spawn_stats(commands: &mut Commands, ui: &UiFont, level: &str, stats: &Le
     });
 }
 
-/// "EPISODE COMPLETE": the difficulty, the episode totals and Rex's closing line.
+/// "EPISODE COMPLETE": the episode name, the difficulty, the episode totals and Rex's closing
+/// line.
 pub fn spawn_episode_end(
     commands: &mut Commands,
     ui: &UiFont,
+    episode: &str,
     difficulty: Difficulty,
     totals: &LevelStats,
 ) {
     let root = spawn_screen(commands, ui, "EPISODE COMPLETE");
     commands.entity(root).with_children(|p| {
+        if !episode.is_empty() {
+            label(p, ui, episode, 36.0, AMBER);
+        }
         label(p, ui, difficulty.label(), 36.0, AMBER);
         for line in stats_lines(totals) {
             label(p, ui, &line, BODY_PX, Color::WHITE);

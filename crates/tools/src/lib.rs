@@ -45,43 +45,73 @@ pub fn validate_file(path: &Path) -> (String, bool) {
     }
 }
 
-/// The episode file's shape (mirrors `rr_game::episode::EpisodeDef`; the tools do not link the game).
+/// The episode file's shape (mirrors `rr_game::episode::EpisodeList`; the tools do not link the
+/// game).
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EpisodeFile {
+    episodes: Vec<EpisodeEntry>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EpisodeEntry {
+    name: String,
     levels: Vec<String>,
 }
 
-/// Checks `assets/episode.ron`: it parses, lists at least one level, and every listed level
-/// exists under `assets/levels/` and validates.
+/// Checks `assets/episode.ron`: it parses, names each episode once, at least one episode has
+/// levels (one without is "coming soon"), and every listed level exists under `assets/levels/`
+/// and validates.
 pub fn validate_episode(assets: &Path) -> (String, bool) {
     let path = assets.join("episode.ron");
     let label = path.display().to_string();
     let parsed = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read: {e}"))
         .and_then(|src| ron::from_str::<EpisodeFile>(&src).map_err(|e| e.to_string()));
-    let episode = match parsed {
+    let file = match parsed {
         Ok(e) => e,
         Err(e) => return (format!("{label}: error: {e}\n"), false),
     };
-    if episode.levels.is_empty() {
-        return (format!("{label}: error: no levels listed\n"), false);
+    if !file.episodes.iter().any(|e| !e.levels.is_empty()) {
+        return (format!("{label}: error: no episode lists levels\n"), false);
     }
     let mut out = String::new();
     let mut ok = true;
-    for name in &episode.levels {
-        let level = assets.join("levels").join(name);
-        if !level.is_file() {
+    let mut names = std::collections::HashSet::new();
+    for episode in &file.episodes {
+        if episode.name.trim().is_empty() || !names.insert(episode.name.as_str()) {
             writeln!(
                 out,
-                "{label}: error: level {name} not found in assets/levels/"
+                "{label}: error: episode name {:?} is empty or used twice",
+                episode.name
             )
             .unwrap();
             ok = false;
-            continue;
         }
-        let (report, level_ok) = validate_file(&level);
-        out.push_str(&report);
-        ok &= level_ok;
+        if episode.levels.is_empty() {
+            writeln!(
+                out,
+                "{label}: note: episode {:?} has no levels (coming soon)",
+                episode.name
+            )
+            .unwrap();
+        }
+        for name in &episode.levels {
+            let level = assets.join("levels").join(name);
+            if !level.is_file() {
+                writeln!(
+                    out,
+                    "{label}: error: level {name} not found in assets/levels/"
+                )
+                .unwrap();
+                ok = false;
+                continue;
+            }
+            let (report, level_ok) = validate_file(&level);
+            out.push_str(&report);
+            ok &= level_ok;
+        }
     }
     writeln!(out, "{label}: {}", if ok { "ok" } else { "FAILED" }).unwrap();
     (out, ok)
@@ -165,7 +195,7 @@ mod tests {
     fn good_episode_passes() {
         let t = Tree::new(
             "good",
-            r#"(name: "x", levels: ["a.ron", "b.ron"])"#,
+            r#"(episodes: [(name: "x", levels: ["a.ron"]), (name: "y", levels: ["b.ron"]), (name: "z", levels: [])])"#,
             &["a.ron", "b.ron"],
         );
         let (report, ok) = validate_episode(&t.0);
@@ -176,7 +206,7 @@ mod tests {
     fn missing_level_fails() {
         let t = Tree::new(
             "missing",
-            r#"(name: "x", levels: ["a.ron", "b.ron"])"#,
+            r#"(episodes: [(name: "x", levels: ["a.ron", "b.ron"])])"#,
             &["a.ron"],
         );
         let (report, ok) = validate_episode(&t.0);
@@ -185,11 +215,28 @@ mod tests {
 
     #[test]
     fn empty_or_missing_episode_fails() {
-        let t = Tree::new("empty", r#"(name: "x", levels: [])"#, &[]);
+        let t = Tree::new("empty", r#"(episodes: [(name: "x", levels: [])])"#, &[]);
         let (report, ok) = validate_episode(&t.0);
-        assert!(!ok && report.contains("no levels"), "{report}");
+        assert!(
+            !ok && report.contains("no episode lists levels"),
+            "{report}"
+        );
+        let t = Tree::new("old", r#"(name: "x", levels: ["a.ron"])"#, &["a.ron"]);
+        let (report, ok) = validate_episode(&t.0);
+        assert!(!ok, "the single-episode format is gone: {report}");
         let (report, ok) = validate_episode(Path::new("/nonexistent/assets"));
         assert!(!ok && report.contains("cannot read"), "{report}");
+    }
+
+    #[test]
+    fn duplicate_episode_name_fails() {
+        let t = Tree::new(
+            "dup",
+            r#"(episodes: [(name: "x", levels: ["a.ron"]), (name: "x", levels: [])])"#,
+            &["a.ron"],
+        );
+        let (report, ok) = validate_episode(&t.0);
+        assert!(!ok && report.contains("used twice"), "{report}");
     }
 
     #[test]

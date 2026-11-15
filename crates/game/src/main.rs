@@ -7,7 +7,7 @@ use rr_core::difficulty::Difficulty;
 use rr_game::GamePlugin;
 use rr_game::audio::AudioOptions;
 use rr_game::demo::{DemoPlugin, load_script};
-use rr_game::episode::load_episode;
+use rr_game::episode::load_episodes;
 use std::path::PathBuf;
 
 const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]]";
@@ -89,7 +89,7 @@ fn main() {
         record: args.record,
     });
     // Without a level or a demo the game plays the episode.
-    let episode = (args.level.is_none() && demo.is_none()).then(load_episode);
+    let episode = (args.level.is_none() && demo.is_none()).then(load_episodes);
     // Direct-level dev runs and demos use defaults and never write the settings file.
     let settings = episode.is_some().then(rr_game::settings::Settings::path);
     let level = args.level.unwrap_or_else(|| "arsenal_depot.ron".into());
