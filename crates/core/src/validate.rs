@@ -11,7 +11,8 @@ use crate::difficulty::Difficulty;
 use crate::explosion::{Blast, sectors_in_reach};
 use crate::geom::closest_point_on_segment;
 use crate::map::{
-    Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
+    ActorKind, Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction,
+    Wall, WallId,
 };
 use crate::mechanics::{Mechanics, channel_required_keys};
 use crate::movement::{Pose, Tuning, can_cross};
@@ -73,6 +74,7 @@ pub fn validate(map: &Map) -> Vec<Issue> {
     check_sliders(map, &mut r);
     let reached = check_reachability(map, &mut r);
     check_actors(map, reached.as_deref(), &mut r);
+    check_burrow_points(map, reached.as_deref(), &mut r);
     check_props(map, &mut r);
     r.0
 }
@@ -724,14 +726,12 @@ const NEAR_START: f32 = 3.0;
 fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
     let defs = Defs::builtin();
     let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
-    if map
-        .actors
-        .iter()
-        .filter(|a| defs.enemy(a.kind).boss)
-        .count()
-        > 1
-    {
-        r.error("level has more than one boss; at most one boss per level".into());
+    for k in ActorKind::ALL.into_iter().filter(|&k| defs.enemy(k).boss) {
+        if map.actors.iter().filter(|a| a.kind == k).count() > 1 {
+            r.error(format!(
+                "level has more than one {k:?}; at most one boss of each kind per level"
+            ));
+        }
     }
     for (i, a) in map.actors.iter().enumerate() {
         let at = format!("({:?}, {:?})", a.pos.x, a.pos.y);
@@ -779,6 +779,64 @@ fn check_actors(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
     }
 }
 
+/// Burrow points (`Map::burrow_points`): each must lie in a sector reached from the start that
+/// is no mover and is tall enough, with the footprint of the widest burrower clear of blocking
+/// walls (sizes from `Defs::builtin()`: the burrowing kinds in the level, else every burrowing
+/// kind). A burrowing actor in a level with fewer than two points never burrows: a warning.
+fn check_burrow_points(map: &Map, reached: Option<&[bool]>, r: &mut Report) {
+    let defs = Defs::builtin();
+    let burrowers: Vec<(usize, ActorKind)> = map
+        .actors
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| defs.enemy(a.kind).burrows())
+        .map(|(i, a)| (i, a.kind))
+        .collect();
+    let sizing = defs.enemies.iter().filter(|e| {
+        e.burrows() && (burrowers.is_empty() || burrowers.iter().any(|b| b.1 == e.kind))
+    });
+    let (radius, height) = sizing.fold((0.0_f32, 0.0_f32), |(r, h), e| {
+        (r.max(e.radius), h.max(e.height))
+    });
+    for (i, &p) in map.burrow_points.iter().enumerate() {
+        let who = format!("burrow point {i} at ({:?}, {:?})", p.x, p.y);
+        if !p.is_finite() {
+            r.error(format!("{who}: position must be finite"));
+            continue;
+        }
+        let Some(s) = map.find_sector(p, None) else {
+            r.error(format!("{who} is outside every sector"));
+            continue;
+        };
+        let sec = &map.sectors[s];
+        if sec.mover.is_some() {
+            r.error(format!("{who} is in a mover sector ({s})"));
+        }
+        if sec.ceil_z - sec.floor_z < height {
+            r.error(format!(
+                "{who}: sector {s} is too low for a {height} m burrower"
+            ));
+        }
+        if reached.is_some_and(|re| !re[s]) {
+            r.error(format!("{who} cannot be reached from the start"));
+        }
+        let near_wall = map.walls.iter().any(|w| {
+            w.passage().is_none() && closest_point_on_segment(p, w.a, w.b).distance(p) < radius
+        });
+        if near_wall {
+            r.error(format!("{who} is within {radius} m of a blocking wall"));
+        }
+    }
+    if map.burrow_points.len() < 2 {
+        for (i, k) in burrowers {
+            r.warn(format!(
+                "actor {i} ({k:?}) burrows, but the level has {} burrow points (needs 2); it never burrows",
+                map.burrow_points.len()
+            ));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -786,7 +844,7 @@ mod tests {
     use crate::fixtures::{
         combat_room, door_rooms, engine_room, lift_shaft, pillar_room, slide_yard, two_rooms,
     };
-    use crate::map::{ActorKind, ActorSpawn};
+    use crate::map::ActorSpawn;
 
     fn errors(map: &Map) -> Vec<String> {
         validate(map)
@@ -1338,6 +1396,94 @@ mod tests {
         let one = "(kind: Boss, pos: (6.5, 2.0))";
         let map = door_rooms("(kind: Door)", &format!("actors: [{one}, {one}],"));
         assert!(has(&errors(&map), "at most one boss"));
+        // One of each boss kind is fine.
+        let mut map = hive("(10.0, 10.0), (25.0, 10.0)");
+        map.actors.push(ActorSpawn {
+            kind: ActorKind::Boss,
+            pos: Vec2::new(26.0, 15.0),
+            angle: 0.0,
+            asleep: true,
+            skill: Difficulty::Easy,
+            on_death: None,
+        });
+        assert!(!has(&errors(&map), "boss"), "{:?}", errors(&map));
+    }
+
+    /// Room A x,y∈[0,20] (start (1,1)) → door x∈[20,21], y∈[8,12] → room B x∈[21,31], y∈[0,20];
+    /// a sealed room C x∈[40,50], y∈[0,10]. A Hive Queen sleeps at (15, 15) in A.
+    fn hive(points: &str) -> Map {
+        raw(
+            "(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0), (20.0, 8.0), (20.0, 12.0),
+             (21.0, 8.0), (21.0, 12.0), (21.0, 0.0), (31.0, 0.0), (31.0, 20.0), (21.0, 20.0),
+             (40.0, 0.0), (50.0, 0.0), (50.0, 10.0), (40.0, 10.0)",
+            &format!(
+                "({SQ}, loops: [[0, 1, 4, 5, 2, 3]]), ({SQ}, loops: [[4, 6, 7, 5]], mover: Some((kind: Door))),
+                 ({SQ}, loops: [[8, 9, 10, 11, 7, 6]]), ({SQ}, loops: [[12, 13, 14, 15]])"
+            ),
+            &format!(
+                "actors: [(kind: HiveQueen, pos: (15.0, 15.0))], burrow_points: [{points}],"
+            ),
+        )
+    }
+
+    #[test]
+    fn burrow_points_in_open_reachable_floor_are_clean() {
+        let map = hive("(10.0, 10.0), (25.0, 10.0), (5.0, 15.0)");
+        assert!(!has(&errors(&map), "burrow"), "{:?}", errors(&map));
+        assert!(!has(&warnings(&map), "burrow"), "{:?}", warnings(&map));
+    }
+
+    #[test]
+    fn burrow_point_mistakes_are_errors() {
+        let map = hive("(10.0, 10.0), (20.5, 10.0), (0.5, 10.0), (45.0, 5.0), (100.0, 100.0)");
+        let e = errors(&map);
+        assert!(!has(&e, "burrow point 0"), "{e:?}");
+        assert!(
+            has(
+                &e,
+                "burrow point 1 at (20.5, 10.0) is in a mover sector (1)"
+            ),
+            "{e:?}"
+        );
+        assert!(
+            has(
+                &e,
+                "burrow point 2 at (0.5, 10.0) is within 1.4 m of a blocking wall"
+            ),
+            "{e:?}"
+        );
+        assert!(
+            has(
+                &e,
+                "burrow point 3 at (45.0, 5.0) cannot be reached from the start"
+            ),
+            "{e:?}"
+        );
+        assert!(
+            has(
+                &e,
+                "burrow point 4 at (100.0, 100.0) is outside every sector"
+            ),
+            "{e:?}"
+        );
+        // The footprint is the Queen's, so a point 1.5 m off a wall fits.
+        assert!(!has(&errors(&hive("(1.5, 10.0), (10.0, 10.0)")), "burrow"));
+    }
+
+    #[test]
+    fn a_queen_with_fewer_than_two_points_warns() {
+        for points in ["", "(10.0, 10.0)"] {
+            let w = warnings(&hive(points));
+            assert!(has(&w, "actor 0 (HiveQueen) burrows"), "{w:?}");
+        }
+        assert!(!has(
+            &warnings(&hive("(10.0, 10.0), (5.0, 5.0)")),
+            "burrows"
+        ));
+        // Points without a burrower are checked with the widest burrowing kind's footprint.
+        let mut map = hive("(0.5, 10.0), (10.0, 10.0)");
+        map.actors.clear();
+        assert!(has(&errors(&map), "within 1.4 m"));
     }
 
     #[test]
