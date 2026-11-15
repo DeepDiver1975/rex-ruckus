@@ -73,6 +73,10 @@ pub struct Clips {
     pub attack: Option<String>,
     pub pain: Option<String>,
     pub death: Option<String>,
+    /// Digging down (a burrowing boss); also held while it is underground.
+    pub burrow: Option<String>,
+    /// Coming up again after a burrow.
+    pub emerge: Option<String>,
 }
 
 /// Where the shot glow sits.
@@ -106,6 +110,10 @@ pub struct EnemyModel {
     pub tip: Tip,
     #[serde(default)]
     pub attach: Option<Attach>,
+    /// Colour of the bolts this enemy fires (linear-ish sRGB, 0..1); the default orange when
+    /// `None`.
+    #[serde(default)]
+    pub bolt_color: Option<(f32, f32, f32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -323,6 +331,11 @@ impl ModelDefs {
                 && !finite3(o)
             {
                 return Err(format!("{what}: tip offset has a non-finite number"));
+            }
+            if let Some(c) = e.bolt_color
+                && !(finite3(c) && [c.0, c.1, c.2].iter().all(|v| (0.0..=1.0).contains(v)))
+            {
+                return Err(format!("{what}: bolt colour must be within 0..=1"));
             }
         }
         for w in &self.weapons {

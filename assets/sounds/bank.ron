@@ -105,4 +105,10 @@
     BossRocket: (files: ["sounds/synth/boss_rocket.wav"], volume: 0.9, ref_dist: 6.0, max_dist: 60.0, max_voices: 3, pitch_jitter: 0.05),
     BossMinigun: (files: ["sounds/synth/boss_minigun.wav"], volume: 0.7, ref_dist: 6.0, max_dist: 60.0, max_voices: 6, pitch_jitter: 0.08),
     BossDeath: (files: ["sounds/synth/boss_death.wav"], volume: 1.0, ref_dist: 10.0, max_dist: 90.0, max_voices: 1),
+    ActorPain(HiveQueen): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.8, max_voices: 1, pitch_jitter: 0.1),
+    QueenScreech: (files: ["sounds/synth/queen_screech.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, max_voices: 1),
+    QueenSpit: (files: ["sounds/synth/queen_spit.wav"], volume: 0.8, ref_dist: 6.0, max_dist: 50.0, max_voices: 3, pitch_jitter: 0.08),
+    QueenDeath: (files: ["sounds/synth/queen_death.wav"], volume: 1.0, ref_dist: 10.0, max_dist: 90.0, max_voices: 1),
+    Burrow: (files: ["sounds/synth/burrow.wav"], volume: 0.9, ref_dist: 6.0, max_dist: 50.0, max_voices: 2),
+    GroundPound: (files: ["sounds/synth/ground_pound.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 70.0, max_voices: 1),
 }

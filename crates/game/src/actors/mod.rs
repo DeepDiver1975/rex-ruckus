@@ -4,8 +4,9 @@
 //! Purely presentational: every system here only reads the simulation ([`LevelCombat`],
 //! [`FxQueue`]) and writes transforms, materials, animation players and visual-only entities.
 //! Every actor gets an [`ActorVisual`] root plus the marker of its kind, with its model spawned
-//! under it ([`spawn_actors`]). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher, Boss)
-//! and attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks
+//! under it ([`spawn_actors`], and [`spawn_joined_actors`] for actors that join mid-level, a
+//! boss's minions). [`humanoid`] places the walkers (Grunt, Enforcer, Slasher, Boss, HiveQueen),
+//! hides a burrowed one and attaches the Grunt's pistol, [`drone`] and [`barrel`] handle their kinds, [`anim`] picks
 //! and plays clips, and [`projectiles`] holds the bolt, rocket, bomb and spark visuals.
 
 mod anim;
@@ -17,7 +18,7 @@ mod projectiles;
 pub use anim::{AnimCmd, anim_for, pick_role};
 pub use barrel::BarrelVisual;
 pub use drone::DroneVisual;
-pub use humanoid::{BossVisual, EnforcerVisual, GruntVisual, SlasherVisual};
+pub use humanoid::{BossVisual, EnforcerVisual, GruntVisual, QueenVisual, SlasherVisual};
 pub use projectiles::{
     BoltVisual, BombVisual, ProjKind, RocketVisual, SPARK_SECS, Spark, proj_kind,
 };
@@ -126,7 +127,13 @@ impl Plugin for ActorVisualsPlugin {
             .add_systems(
                 Update,
                 (
-                    (flash_tips, flash_hits, projectiles::spawn_sparks).in_set(FxReaders),
+                    (
+                        flash_tips,
+                        flash_hits,
+                        projectiles::spawn_sparks,
+                        spawn_joined_actors,
+                    )
+                        .in_set(FxReaders),
                     anim::animate_enemies
                         .in_set(FxReaders)
                         .run_if(resource_exists::<ModelLibrary>),
@@ -172,7 +179,11 @@ pub fn death_pitch(t_left: f32, death_time: f32) -> f32 {
 fn has_gun(kind: ActorKind) -> bool {
     matches!(
         kind,
-        ActorKind::Grunt | ActorKind::Enforcer | ActorKind::Drone | ActorKind::Boss
+        ActorKind::Grunt
+            | ActorKind::Enforcer
+            | ActorKind::Drone
+            | ActorKind::Boss
+            | ActorKind::HiveQueen
     )
 }
 
@@ -195,62 +206,93 @@ fn spawn_actors(
         }
     };
     for (i, actor) in combat.0.actors.iter().enumerate() {
-        let root = commands
-            .spawn((
-                ActorVisual(i),
-                TipGlow::default(),
-                HitFlash::default(),
-                TipSphere::default(),
-                Transform::from_translation(to_bevy(actor.body.pos))
-                    .with_rotation(Quat::from_rotation_y(core_angle_to_yaw(actor.angle))),
-                Visibility::default(),
-                LevelEntity,
-            ))
-            .id();
-        let mut e = commands.entity(root);
-        match actor.kind {
-            ActorKind::Grunt => e.insert(GruntVisual(i)),
-            ActorKind::Enforcer => e.insert(EnforcerVisual(i)),
-            ActorKind::Slasher => e.insert(SlasherVisual(i)),
-            ActorKind::Drone => e.insert(DroneVisual(i)),
-            ActorKind::Barrel => e.insert(BarrelVisual(i)),
-            ActorKind::Boss => e.insert(BossVisual(i)),
-        };
-        let Some(lib) = lib.as_deref() else {
+        spawn_actor_visual(&mut commands, &a, lib.as_deref(), i, actor);
+    }
+}
+
+/// Visuals for actors that joined play mid-level (`ActorSpawned`: a boss's minions), unless one
+/// already shows that index. An [`FxReaders`] system.
+fn spawn_joined_actors(
+    mut commands: Commands,
+    fx: Res<FxQueue>,
+    a: Res<ActorAssets>,
+    lib: Option<Res<ModelLibrary>>,
+    combat: Res<LevelCombat>,
+    shown: Query<&ActorVisual>,
+) {
+    for ev in &fx.combat {
+        let CombatEvent::ActorSpawned(i) = *ev else {
             continue;
         };
-        let enemy = lib.enemy(actor.kind);
-        let slot = ModelSlot {
-            enemy: Some(actor.kind),
-            no_shadows: false,
+        let Some(actor) = combat.0.actors.get(i) else {
+            continue;
         };
-        let model = spawn_model_with(
-            &mut commands,
-            root,
-            &enemy.model.scene,
-            &enemy.model.place,
-            slot,
-        );
-        commands.entity(root).insert((
-            ActorModel {
-                root: model,
-                kind: actor.kind,
-            },
-            ModelLook::default(),
-            anim::EnemyAnim::default(),
-        ));
-        let tip = &lib.defs.enemy(actor.kind).tip;
-        if has_gun(actor.kind)
-            && let Tip::Offset(o) = tip
-        {
-            let sphere = spawn_tip(
-                &mut commands,
-                &a,
-                root,
-                Transform::from_translation(Vec3::from(*o)),
-            );
-            commands.entity(root).insert(TipSphere(Some(sphere)));
+        if shown.iter().any(|v| v.0 == i) {
+            continue;
         }
+        spawn_actor_visual(&mut commands, &a, lib.as_deref(), i, actor);
+    }
+}
+
+/// The visual of actor `i`: a root with the marker of its kind and, with a [`ModelLibrary`], its
+/// glTF model and (for an offset tip) the tip glow.
+fn spawn_actor_visual(
+    commands: &mut Commands,
+    a: &ActorAssets,
+    lib: Option<&ModelLibrary>,
+    i: usize,
+    actor: &Actor,
+) {
+    let root = commands
+        .spawn((
+            ActorVisual(i),
+            TipGlow::default(),
+            HitFlash::default(),
+            TipSphere::default(),
+            Transform::from_translation(to_bevy(actor.body.pos))
+                .with_rotation(Quat::from_rotation_y(core_angle_to_yaw(actor.angle))),
+            Visibility::default(),
+            LevelEntity,
+        ))
+        .id();
+    let mut e = commands.entity(root);
+    match actor.kind {
+        ActorKind::Grunt => e.insert(GruntVisual(i)),
+        ActorKind::Enforcer => e.insert(EnforcerVisual(i)),
+        ActorKind::Slasher => e.insert(SlasherVisual(i)),
+        ActorKind::Drone => e.insert(DroneVisual(i)),
+        ActorKind::Barrel => e.insert(BarrelVisual(i)),
+        ActorKind::Boss => e.insert(BossVisual(i)),
+        ActorKind::HiveQueen => e.insert(QueenVisual(i)),
+    };
+    let Some(lib) = lib else {
+        return;
+    };
+    let enemy = lib.enemy(actor.kind);
+    let slot = ModelSlot {
+        enemy: Some(actor.kind),
+        no_shadows: false,
+    };
+    let model = spawn_model_with(commands, root, &enemy.model.scene, &enemy.model.place, slot);
+    commands.entity(root).insert((
+        ActorModel {
+            root: model,
+            kind: actor.kind,
+        },
+        ModelLook::default(),
+        anim::EnemyAnim::default(),
+    ));
+    let tip = &lib.defs.enemy(actor.kind).tip;
+    if has_gun(actor.kind)
+        && let Tip::Offset(o) = tip
+    {
+        let sphere = spawn_tip(
+            commands,
+            a,
+            root,
+            Transform::from_translation(Vec3::from(*o)),
+        );
+        commands.entity(root).insert(TipSphere(Some(sphere)));
     }
 }
 

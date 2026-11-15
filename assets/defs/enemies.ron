@@ -88,4 +88,44 @@
              speed_mult: 1.5, refire: 0.5, muzzle: Some((1.19, -0.66, 1.80))),
         ],
     ),
+    (
+        kind: HiveQueen,
+        health: 700, radius: 1.4, height: 3.0, speed: 1.6,
+        sight_range: 40.0, fov_deg: 160.0, reaction: 0.8,
+        attack_range: 26.0, attack_refire: 2.2, aim_error_deg: 3.0,
+        // Acid spit volleys: three splash bolts per burst.
+        attack: Bolts(
+            proj: (speed: 13.0, damage: 10, radius: 0.22, life: 4.0,
+                   splash: Some((radius: 2.2, damage: 22, self_scale: 0.0))),
+            burst: 3, burst_gap: 0.3,
+        ),
+        // The `Mouth` bone between the mandibles at the spit thrust (Attack frames 11-16,
+        // models.ron `tip`): centred, 1.47 up, 1.68 ahead.
+        muzzle: (1.68, 0.0, 1.47),
+        pain_chance: 0.1, pain_time: 0.3, pain_cooldown: 2.0, death_time: 1.6, strafe: false,
+        boss: true,
+        // Gnashers come up with her when she burrows; the cap counts the live ones.
+        minions: Some((kind: Slasher, cap: (easy: 4, normal: 6, hard: 8))),
+        phases: [
+            // Below 60 %: she burrows every 8-10 s (the Burrow clip is 1.2 s, Emerge 1.0 s) and
+            // comes up elsewhere with two Gnashers, spitting in between.
+            (below: 0.6,
+             attack: Bolts(
+                 proj: (speed: 13.0, damage: 10, radius: 0.22, life: 4.0,
+                        splash: Some((radius: 2.2, damage: 22, self_scale: 0.0))),
+                 burst: 3, burst_gap: 0.3,
+             ),
+             refire: 2.2,
+             burrow: Some((every: (8.0, 10.0), first: 2.0, dig: 1.2, under: 1.5, rise: 1.0, spawn: 2))),
+            // Below 30 %: enraged. Faster volleys and a stride, and a ground pound every 6 s.
+            (below: 0.3,
+             attack: Bolts(
+                 proj: (speed: 15.0, damage: 10, radius: 0.22, life: 4.0,
+                        splash: Some((radius: 2.2, damage: 22, self_scale: 0.0))),
+                 burst: 3, burst_gap: 0.22,
+             ),
+             speed_mult: 1.4, refire: 1.0,
+             pound: Some((every: 6.0, first: 1.5, windup: 0.6, radius: 6.0, damage: 35))),
+        ],
+    ),
 ]

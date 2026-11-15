@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use rr_core::collide::Body;
 use rr_core::combat::{Combat, CombatEvent, PlayerTarget, level_seed};
 use rr_core::defs::Defs;
+use rr_core::difficulty::Difficulty;
 use rr_core::inventory::Inventory as CoreInventory;
 use rr_core::map::Map;
 use rr_core::mechanics::MechEvent;
@@ -160,8 +161,10 @@ pub fn spawn_combat(
     players: Query<Entity, With<Player>>,
 ) {
     let (mut combat, rng) = level_combat(&map.0, &defs.0);
-    // `Combat::spawn` resets the scale, so set it on every spawn, restarts included.
-    combat.0.damage_scale = difficulty.map_or(1.0, |d| d.0.damage_scale());
+    // `Combat::spawn` resets the scale and the skill, so set them on every spawn, restarts
+    // included.
+    combat.0.damage_scale = difficulty.as_ref().map_or(1.0, |d| d.0.damage_scale());
+    combat.0.skill = difficulty.map_or(Difficulty::Normal, |d| d.0);
     commands.insert_resource(combat);
     commands.insert_resource(rng);
     // Past the first level the player arrives with what they carried out of the last one.

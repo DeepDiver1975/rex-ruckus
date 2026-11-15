@@ -144,6 +144,8 @@ fn check_scenes(assets: &Path, defs: &ModelDefs, errors: &mut Vec<String>) -> BT
                 ("attack", &c.attack),
                 ("pain", &c.pain),
                 ("death", &c.death),
+                ("burrow", &c.burrow),
+                ("emerge", &c.emerge),
             ];
             for (slot, clip) in named {
                 if let Some(name) = clip

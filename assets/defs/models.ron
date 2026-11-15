@@ -103,6 +103,27 @@
             // phase-one volleys; the minigun phase shoots from the `Muzzle` bone, see enemies.ron).
             tip: Node("Rockets"),
         ),
+        (
+            kind: HiveQueen,
+            // The Hive Queen, an original model built by scripts/models/hive_queen.py (real size).
+            scene: "models/enemies/hive_queen.glb",
+            place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
+            clips: (
+                idle: Some("Idle"),
+                walk: Some("Walk"),
+                run: Some("Run"),
+                attack: Some("Attack"),
+                pain: Some("Pain"),
+                death: Some("Death"),
+                // Burrow ends about 0.4 m under the floor; Emerge starts there and ends in Idle.
+                burrow: Some("Burrow"),
+                emerge: Some("Emerge"),
+            ),
+            // The `Mouth` bone between the mandibles, where the acid leaves (see enemies.ron).
+            tip: Node("Mouth"),
+            // Acid-green spit.
+            bolt_color: Some((0.45, 1.0, 0.2)),
+        ),
     ],
     weapons: [
         // Viewmodel guns, relative to the view rig (x right, y up, -z forward): about 0.2-0.45 m

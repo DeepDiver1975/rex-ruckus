@@ -4,11 +4,12 @@ use super::{ActorAssets, emissive, matte};
 use crate::combat::{FxQueue, LevelCombat};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
+use crate::models::ModelLibrary;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
 use rr_core::projectile::{Projectile, Shooter};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::f32::consts::PI;
 
 /// Lifetime of an impact spark.
@@ -102,6 +103,21 @@ impl ProjAssets {
     }
 }
 
+/// The colour of a bolt from `p`'s shooter: its model's `bolt_color` (the Hive Queen's acid
+/// green), else the default orange.
+fn bolt_color(p: &Projectile, combat: &LevelCombat, lib: Option<&ModelLibrary>) -> Color {
+    let custom = match p.owner {
+        Shooter::Actor(i) => combat
+            .0
+            .actors
+            .get(i)
+            .zip(lib)
+            .and_then(|(a, lib)| lib.defs.enemy(a.kind).bolt_color),
+        _ => None,
+    };
+    custom.map_or(BOLT_COLOR, |(r, g, b)| Color::srgb(r, g, b))
+}
+
 /// A bolt's transform between its last two ticks, the capsule's long axis along its flight.
 fn bolt_transform(p: &Projectile, alpha: f32) -> Transform {
     let dir = to_bevy(p.vel).normalize_or_zero();
@@ -121,12 +137,17 @@ fn rocket_transform(p: &Projectile, alpha: f32) -> Transform {
 /// Keeps one visual per live projectile, of the kind [`proj_kind`] picks: spawns missing
 /// ones, moves the rest and despawns those whose projectile is gone or changed kind (covers
 /// `ProjectileGone` without queue timing). Bombs also roll with their speed until resting.
+/// Bolts take their shooter's colour ([`bolt_color`]); a material per colour is kept.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn sync_projectiles(
     mut commands: Commands,
     fixed: Res<Time<Fixed>>,
     time: Res<Time>,
     combat: Res<LevelCombat>,
     a: Res<ActorAssets>,
+    lib: Option<Res<ModelLibrary>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut tinted: Local<HashMap<[u8; 3], Handle<StandardMaterial>>>,
     mut q: Query<(Entity, &ProjVisual, &mut Transform, Option<&mut BombSpin>)>,
 ) {
     let a = &a.proj;
@@ -163,12 +184,22 @@ pub(super) fn sync_projectiles(
         let tag = ProjVisual { id: p.id, kind };
         match kind {
             ProjKind::Bolt => {
+                let color = bolt_color(p, &combat, lib.as_deref());
+                let material = if color == BOLT_COLOR {
+                    a.bolt_mat.clone()
+                } else {
+                    let key = color.to_srgba().to_u8_array_no_alpha();
+                    tinted
+                        .entry(key)
+                        .or_insert_with(|| materials.add(emissive(color, 6.0)))
+                        .clone()
+                };
                 commands.spawn((
                     Mesh3d(a.bolt.clone()),
-                    MeshMaterial3d(a.bolt_mat.clone()),
+                    MeshMaterial3d(material),
                     bolt_transform(p, alpha),
                     PointLight {
-                        color: BOLT_COLOR,
+                        color,
                         intensity: 15_000.0,
                         range: 2.5,
                         shadow_maps_enabled: false,

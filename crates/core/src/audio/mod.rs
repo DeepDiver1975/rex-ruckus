@@ -140,14 +140,25 @@ pub enum Cue {
     BossMinigun,
     /// The boss dies.
     BossDeath,
+    /// The Hive Queen wakes or enters a new phase.
+    QueenScreech,
+    /// The Hive Queen spits acid.
+    QueenSpit,
+    /// The Hive Queen dies.
+    QueenDeath,
+    /// A burrowing actor digs down or comes up again.
+    Burrow,
+    /// An actor slams the floor (the shockwave).
+    GroundPound,
 }
 
 impl Cue {
     /// Every cue, with `WeaponId`, `ActorKind` and `PickupClass` expanded. Exactly the cues the
     /// mapping can emit or the game raises itself, with no duplicates. Left out because they
     /// never occur: every `Actor*` cue for `Barrel` (a static body; `combat_cues` drops those
-    /// events for it, death included), and for the `Boss` all but `ActorPain` (it has its own
-    /// `Boss*` cues). `Fire(Boot)` stays: the boot swing emits `Fire`.
+    /// events for it, death included), and for the bosses (`Boss`, `HiveQueen`) all but
+    /// `ActorPain` (each has its own voice, see `cues::boss_voice`). `Fire(Boot)` stays: the
+    /// boot swing emits `Fire`.
     pub fn all() -> Vec<Cue> {
         use Cue::*;
         let mut v: Vec<Cue> = WeaponId::ALL.into_iter().map(Fire).collect();
@@ -157,7 +168,7 @@ impl Cue {
         for k in ActorKind::ALL {
             match k {
                 ActorKind::Barrel => {}
-                ActorKind::Boss => v.push(ActorPain(k)),
+                ActorKind::Boss | ActorKind::HiveQueen => v.push(ActorPain(k)),
                 _ => v.extend([ActorWake(k), ActorFire(k), ActorPain(k), ActorDeath(k)]),
             }
         }
@@ -197,6 +208,11 @@ impl Cue {
             BossRocket,
             BossMinigun,
             BossDeath,
+            QueenScreech,
+            QueenSpit,
+            QueenDeath,
+            Burrow,
+            GroundPound,
         ]);
         v
     }

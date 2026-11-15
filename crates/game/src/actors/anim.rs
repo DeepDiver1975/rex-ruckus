@@ -65,6 +65,12 @@ pub fn anim_for(state: &AiState, speed_frac: f32, death_time: f32, clip_secs: f3
             hold_end: true,
             ..once(ClipRole::Death, 1.0)
         },
+        // The Burrow clip ends under the floor and stays there while the actor is underground
+        // (its model is hidden meanwhile); Emerge starts there.
+        AiState::Burrow { .. } | AiState::Under { .. } => once(ClipRole::Burrow, 1.0),
+        AiState::Emerge { .. } => once(ClipRole::Emerge, 1.0),
+        // The pound's wind-up rears up like the spit.
+        AiState::Pound { .. } => once(ClipRole::Attack, 1.0),
     }
 }
 
@@ -262,6 +268,51 @@ mod tests {
         assert_eq!(d(10.0, 0.8).speed, 3.0, "clamped fast");
         assert_eq!(d(0.1, 0.8).speed, 0.5, "clamped slow");
         assert_eq!(d(1.0, 0.0).speed, 3.0, "no death time: as fast as allowed");
+    }
+
+    #[test]
+    fn burrowing_plays_burrow_then_emerge_once() {
+        use rr_core::defs::{BurrowDef, PoundDef};
+        let plan = BurrowDef {
+            every: (8.0, 10.0),
+            first: 2.0,
+            dig: 1.2,
+            under: 1.5,
+            rise: 1.0,
+            spawn: 2,
+        };
+        for s in [
+            AiState::Burrow { t: 0.5, plan },
+            AiState::Under { t: 0.5, plan },
+        ] {
+            let c = anim_for(&s, 0.0, 0.8, 1.0);
+            assert_eq!(
+                (c.role, c.repeat, c.hold_end),
+                (Burrow, false, false),
+                "{s:?}"
+            );
+        }
+        let e = anim_for(&AiState::Emerge { t: 0.5 }, 0.0, 0.8, 1.0);
+        assert_eq!((e.role, e.repeat), (Emerge, false));
+        let pound = PoundDef {
+            every: 6.0,
+            first: 1.5,
+            windup: 0.6,
+            radius: 6.0,
+            damage: 35,
+        };
+        let p = anim_for(
+            &AiState::Pound {
+                t: 0.3,
+                plan: pound,
+            },
+            0.0,
+            0.8,
+            1.0,
+        );
+        assert_eq!((p.role, p.repeat), (Attack, false));
+        // A model without the clips idles instead.
+        assert_eq!(pick_role(Burrow, |r| r == Idle, Some(Walk)), Some(Idle));
     }
 
     #[test]
