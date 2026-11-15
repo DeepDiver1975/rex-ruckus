@@ -119,8 +119,8 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
         let cue = match (kind, start) {
             (MoverKind::Door, true) => Cue::DoorStart,
             (MoverKind::Door, false) => Cue::DoorStop,
-            (MoverKind::Lift { .. }, true) => Cue::LiftStart,
-            (MoverKind::Lift { .. }, false) => Cue::LiftStop,
+            (MoverKind::Lift { .. } | MoverKind::Slide { .. }, true) => Cue::LiftStart,
+            (MoverKind::Lift { .. } | MoverKind::Slide { .. }, false) => Cue::LiftStop,
             (MoverKind::Crack, _) => return,
         };
         if sector < map.sectors.len() {
@@ -574,6 +574,14 @@ mod tests {
             },
             MechEvent::MoverStarted {
                 sector: 1,
+                kind: MoverKind::Slide { by: (2.0, 0.0) },
+            },
+            MechEvent::MoverStopped {
+                sector: 1,
+                kind: MoverKind::Slide { by: (2.0, 0.0) },
+            },
+            MechEvent::MoverStarted {
+                sector: 1,
                 kind: MoverKind::Crack,
             },
             MechEvent::MoverStopped {
@@ -630,6 +638,9 @@ mod tests {
         let expected: Vec<Out> = vec![
             vec![(Cue::DoorStart, centre)],
             vec![(Cue::DoorStop, centre)],
+            vec![(Cue::LiftStart, centre)],
+            vec![(Cue::LiftStop, centre)],
+            // A slider sounds like a lift.
             vec![(Cue::LiftStart, centre)],
             vec![(Cue::LiftStop, centre)],
             vec![],

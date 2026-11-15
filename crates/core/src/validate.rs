@@ -288,6 +288,8 @@ fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
         (MoverKind::Door, false) => vec![],
         (MoverKind::Lift { to }, true) => vec![(sec.floor_z, sec.ceil_z), (to, sec.ceil_z)],
         (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
+        // Its heights never change.
+        (MoverKind::Slide { .. }, _) => vec![(sec.floor_z, sec.ceil_z)],
         // Only a blast opens it, and no level may depend on one.
         (MoverKind::Crack, _) => vec![],
     }

@@ -69,6 +69,7 @@ pub fn level_info(raw: &RawLevel, map: &Map) -> String {
                 MoverKind::Door => "door".into(),
                 MoverKind::Lift { to } => format!("lift->{to:.2}"),
                 MoverKind::Crack => "crack".into(),
+                MoverKind::Slide { by: (x, y) } => format!("slide->({x:.2},{y:.2})"),
             });
             if let Some(k) = m.lock {
                 flags.push(format!("lock:{}", k.name()));

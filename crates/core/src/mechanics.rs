@@ -1,14 +1,18 @@
-//! Moving sectors (doors and lifts), switches, the channel bus and keycard pickups.
+//! Moving sectors (doors, lifts and sliders), switches, the channel bus and keycard pickups.
 //! Like Build's `setanimation`/`doanimations`, each mover slides one plane of its sector (a door's
-//! ceiling, a lift's floor) between two heights, and carries whoever stands on it.
+//! ceiling, a lift's floor) between two heights, and carries whoever stands on it. A slider moves
+//! the whole sector sideways instead, like Build's sliding sectors.
 
-use crate::collide::{Body, touches_sector, z_range};
+use crate::collide::{Body, clip_move, touches_sector, z_range};
+use crate::geom::closest_point_on_segment;
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawQuake, SectorId, SwitchAction,
+    WallId,
 };
 use crate::props::{PropKind, PropOutcome};
 use crate::vitals::Vitals;
+use glam::Vec2;
 
 /// Feet within this distance of a lift floor ride along with it.
 const CARRY_EPS: f32 = 0.01;
@@ -18,6 +22,10 @@ pub const PICKUP_REACH: f32 = 0.6;
 const PICKUP_HEIGHT: f32 = 1.0;
 /// Fraction of a quake's duration over which it fades out.
 const QUAKE_FADE: f32 = 0.3;
+/// Step height a slider's riders move with (the player's).
+const RIDE_STEP: f32 = 0.55;
+/// How far a slider may cut into a body beside or under it before it backs off.
+const BLOCK_EPS: f32 = 1e-3;
 
 /// Strength multiplier of a quake `elapsed` seconds into `duration`: 1, then linear to 0 over
 /// the last `QUAKE_FADE` of it.
@@ -43,11 +51,15 @@ pub enum Motion {
 pub struct Mover {
     pub sector: SectorId,
     pub def: MoverDef,
-    /// Height of the moving plane at the start pose (door: closed; lift: authored floor).
+    /// Height of the moving plane at the start pose (door: closed; lift: authored floor). A
+    /// slider's `start`, `end` and `z` are distances along its path: 0, `|by|` and travelled.
     pub start: f32,
     pub end: f32,
     pub z: f32,
     pub motion: Motion,
+    /// A slider's walls and their track-side twins, with their authored endpoints (empty for
+    /// other kinds). Poses are set from these, so the slider never drifts.
+    pub home: Vec<(WallId, Vec2, Vec2)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,15 +174,21 @@ impl Mechanics {
     pub fn new(map: &mut Map) -> Mechanics {
         let mut movers = Vec::new();
         let mut mover_of = vec![None; map.sectors.len()];
-        for (s, sector) in map.sectors.iter_mut().enumerate() {
+        for (s, sector) in map.sectors.iter().enumerate() {
             let Some(def) = sector.mover else { continue };
             let (start, end) = match def.kind {
                 MoverKind::Door | MoverKind::Crack => (sector.floor_z, sector.ceil_z),
                 MoverKind::Lift { to } => (sector.floor_z, to),
+                MoverKind::Slide { by } => (0.0, Vec2::from(by).length()),
             };
-            if matches!(def.kind, MoverKind::Door | MoverKind::Crack) {
-                sector.ceil_z = start;
-            }
+            let home = match def.kind {
+                MoverKind::Slide { .. } => sector
+                    .walls()
+                    .flat_map(|w| std::iter::once(w).chain(map.walls[w].next_wall))
+                    .map(|w| (w, map.walls[w].a, map.walls[w].b))
+                    .collect(),
+                _ => Vec::new(),
+            };
             mover_of[s] = Some(movers.len());
             movers.push(Mover {
                 sector: s,
@@ -179,7 +197,13 @@ impl Mechanics {
                 end,
                 z: start,
                 motion: Motion::AtStart,
+                home,
             });
+        }
+        for mv in &movers {
+            if matches!(mv.def.kind, MoverKind::Door | MoverKind::Crack) {
+                map.sectors[mv.sector].ceil_z = mv.start;
+            }
         }
         Mechanics {
             movers,
@@ -491,6 +515,9 @@ fn squeeze(map: &Map, b: &Body) -> f32 {
 /// Moves the mover's plane to `z`, carrying bodies on a lift floor. If any body touching the
 /// sector would end up squeezed more than before, undoes everything and returns false.
 fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
+    if let MoverKind::Slide { by } = mv.def.kind {
+        return slide(map, mv, Vec2::from(by).normalize(), z, bodies);
+    }
     let s = mv.sector;
     let touching: Vec<usize> = (0..bodies.len())
         .filter(|&i| touches_sector(map, &bodies[i], s))
@@ -500,6 +527,7 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
     let (old_floor, old_ceil) = (map.sectors[s].floor_z, map.sectors[s].ceil_z);
     match mv.def.kind {
         MoverKind::Door | MoverKind::Crack => map.sectors[s].ceil_z = z,
+        MoverKind::Slide { .. } => unreachable!("handled by slide"),
         MoverKind::Lift { .. } => {
             map.sectors[s].floor_z = z;
             for &i in &touching {
@@ -529,11 +557,87 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
     !worse
 }
 
+/// Puts slider `mv` (and its twins in the track) `along` metres down its path `dir`.
+fn place_slider(map: &mut Map, mv: &Mover, dir: Vec2, along: f32) {
+    let off = dir * along;
+    for &(w, a, b) in &mv.home {
+        map.walls[w].a = a + off;
+        map.walls[w].b = b + off;
+    }
+}
+
+/// How far body `b` cuts into slider `s` (> 0 when they overlap), counting only a body that
+/// reaches below the slider's floor or above its ceiling: one standing on it or flying over it
+/// never blocks it.
+fn cut(map: &Map, s: SectorId, b: &Body) -> f32 {
+    let sec = &map.sectors[s];
+    if b.pos.z >= sec.floor_z - CARRY_EPS && b.pos.z + b.height <= sec.ceil_z + CARRY_EPS {
+        return f32::MIN;
+    }
+    let p = b.pos.truncate();
+    let d = sec
+        .walls()
+        .map(|w| closest_point_on_segment(p, map.walls[w].a, map.walls[w].b).distance(p))
+        .fold(f32::MAX, f32::min);
+    if map.sector_contains(s, p) {
+        b.radius + d
+    } else {
+        b.radius - d
+    }
+}
+
+/// Moves slider `mv` to `z` along `dir`, carrying the bodies standing on it: each is moved by
+/// the same offset with `clip_move` in the moved map, so a rider overhanging the edge is stopped
+/// by the track's walls instead of being pushed into them. If the slider would cut deeper into
+/// a body beside or under it, or squeeze one against a ceiling, undoes everything and returns
+/// false (it then reverses, like a door hitting the player).
+fn slide(map: &mut Map, mv: &Mover, dir: Vec2, z: f32, bodies: &mut [Body]) -> bool {
+    let s = mv.sector;
+    let floor = map.sectors[s].floor_z;
+    let riders: Vec<bool> = bodies
+        .iter()
+        .map(|b| {
+            b.on_ground
+                && (b.pos.z - floor).abs() < CARRY_EPS
+                && (b.sector == s || map.sector_contains(s, b.pos.truncate()))
+        })
+        .collect();
+    let cut_before: Vec<f32> = bodies.iter().map(|b| cut(map, s, b)).collect();
+    let squeeze_before: Vec<f32> = bodies.iter().map(|b| squeeze(map, b)).collect();
+    let saved = bodies.to_vec();
+    place_slider(map, mv, dir, z);
+    let delta = dir * (z - mv.z);
+    for (b, &ride) in bodies.iter_mut().zip(&riders) {
+        if ride {
+            clip_move(map, b, delta, RIDE_STEP);
+        } else {
+            // The slider may have moved under (or out from under) a body it does not carry.
+            if let Some(n) = map.find_sector(b.pos.truncate(), Some(b.sector)) {
+                b.sector = n;
+            }
+            // Like a rising lift, it scoops up a body just below its floor (stepping off its
+            // leading edge) instead of leaving its feet inside it.
+            if b.pos.z < floor && b.pos.z > floor - CARRY_EPS && touches_sector(map, b, s) {
+                b.pos.z = floor;
+            }
+        }
+    }
+    let worse = (0..bodies.len()).any(|i| {
+        (!riders[i] && cut(map, s, &bodies[i]) > cut_before[i].max(0.0) + BLOCK_EPS)
+            || squeeze(map, &bodies[i]) > squeeze_before[i].max(0.0) + 1e-4
+    });
+    if worse {
+        place_slider(map, mv, dir, mv.z);
+        bodies.copy_from_slice(&saved);
+    }
+    !worse
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::collide::clip_move;
-    use crate::fixtures::{door_rooms, engine_room, lift_shaft};
+    use crate::fixtures::{door_rooms, engine_room, lift_shaft, slide_yard};
     use crate::props::{PropKind, PropOutcome};
     use crate::vitals::Vitals;
     use glam::Vec2;
@@ -1103,5 +1207,165 @@ mod tests {
         assert_eq!(mech.use_prop(1, &mut v), PropOutcome::SoldOut);
         assert_eq!((v.health.hp, mech.props[1].stock), (95, 0));
         assert_eq!(mech.use_prop(2, &mut v), PropOutcome::Racked);
+    }
+
+    const PLATFORM: &str = "(kind: Slide(by: (7.8, 0.0)), speed: 2.0)";
+    /// 7.8 m at 2 m/s, plus slack.
+    const RIDE: usize = 250;
+
+    /// The x range of slider sector 2's walls.
+    fn platform_x(map: &Map) -> (f32, f32) {
+        map.sectors[2]
+            .walls()
+            .map(|w| map.walls[w].a.x)
+            .fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)))
+    }
+
+    #[test]
+    fn slider_starts_in_place_and_travels_its_offset() {
+        let (mut map, mut mech) = setup(slide_yard(PLATFORM, ""));
+        let authored = map.clone();
+        assert_eq!(map, authored, "new leaves a slider where it was authored");
+        assert_eq!(
+            (mech.movers[0].start, mech.movers[0].end, mech.movers[0].z),
+            (0.0, 7.8, 0.0)
+        );
+        mech.toggle(0);
+        let changed = mech.tick(&mut map, &mut [], DT);
+        assert_eq!(
+            changed,
+            vec![2],
+            "the track is rebuilt as the slider's neighbour"
+        );
+        run(&mut map, &mut mech, &mut [], RIDE);
+        assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
+        let (lo, hi) = platform_x(&map);
+        assert!(
+            (lo - 11.9).abs() < 1e-4 && (hi - 13.9).abs() < 1e-4,
+            "{lo}..{hi}"
+        );
+        // The track's hole loop moved along: every portal is still mirrored.
+        for (id, w) in map.walls.iter().enumerate() {
+            if let Some(n) = w.next_wall {
+                assert_eq!((map.walls[n].a, map.walls[n].b), (w.b, w.a), "wall {id}");
+            }
+        }
+        assert_eq!(map.find_sector(Vec2::new(12.9, 2.0), None), Some(2));
+        assert_eq!(map.find_sector(Vec2::new(5.1, 2.0), None), Some(1));
+    }
+
+    #[test]
+    fn slider_auto_returns_exactly_home() {
+        let (mut map, mut mech) = setup(slide_yard(
+            "(kind: Slide(by: (7.8, 0.0)), speed: 2.0, auto_return: Some(0.5))",
+            "",
+        ));
+        let authored = map.clone();
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut [], 2 * RIDE + 60);
+        assert_eq!(mech.movers[0].motion, Motion::AtStart);
+        assert_eq!(map, authored, "back to the authored walls, bit for bit");
+    }
+
+    #[test]
+    fn one_shot_slider_stays_at_its_end() {
+        let (mut map, mut mech) = setup(slide_yard(
+            "(kind: Slide(by: (7.8, 0.0)), speed: 2.0, one_shot: true)",
+            "",
+        ));
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut [], RIDE);
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut [], RIDE);
+        assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
+        assert!((platform_x(&map).0 - 11.9).abs() < 1e-4);
+    }
+
+    #[test]
+    fn slider_carries_a_rider_by_its_path_length() {
+        let (mut map, mut mech) = setup(slide_yard(PLATFORM, ""));
+        let mut bodies = [body_at(&map, 5.1, 2.0)];
+        assert_eq!(bodies[0].sector, 2);
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut bodies, RIDE);
+        let b = bodies[0];
+        assert!(
+            b.pos.truncate().distance(Vec2::new(12.9, 2.0)) < 1e-3,
+            "rider at {}",
+            b.pos
+        );
+        assert_eq!((b.sector, b.pos.z), (2, 0.0));
+        // And back again.
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut bodies, RIDE);
+        assert!(bodies[0].pos.truncate().distance(Vec2::new(5.1, 2.0)) < 1e-3);
+    }
+
+    #[test]
+    fn overhanging_rider_is_stopped_by_the_track_wall() {
+        let (mut map, mut mech) = setup(slide_yard(PLATFORM, ""));
+        // On the leading edge, in front of the solid part of the pit's east wall (y < 1.5).
+        let mut bodies = [body_at(&map, 6.05, 1.2)];
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut bodies, RIDE);
+        assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
+        let b = bodies[0];
+        assert!(
+            b.pos.x <= 14.0 - b.radius + 2e-3 && b.pos.x > 13.5,
+            "rider at {}",
+            b.pos
+        );
+    }
+
+    #[test]
+    fn body_in_the_path_makes_the_slider_reverse() {
+        let (mut map, mut mech) = setup(slide_yard(PLATFORM, ""));
+        // Standing in the pit (below the platform's floor), in its way.
+        let mut bodies = [body_at(&map, 9.0, 2.0)];
+        assert_eq!(bodies[0].sector, 1);
+        mech.toggle(0);
+        mech.drain_events();
+        let mut reversed = false;
+        for _ in 0..RIDE * 2 {
+            mech.tick(&mut map, &mut bodies, DT);
+            reversed |= mech.movers[0].motion == Motion::ToStart;
+            assert!(
+                cut(&map, 2, &bodies[0]) <= BLOCK_EPS,
+                "slider cut into the body"
+            );
+        }
+        assert!(reversed);
+        assert_eq!(mech.movers[0].motion, Motion::AtStart);
+        assert_eq!(bodies[0].pos.truncate(), Vec2::new(9.0, 2.0), "not pushed");
+        let kind = mech.movers[0].def.kind;
+        assert_eq!(
+            mech.drain_events(),
+            vec![stopped(2, kind)],
+            "a reversal is silent; arriving home is not"
+        );
+    }
+
+    #[test]
+    fn body_in_the_pit_is_not_carried() {
+        let (mut map, mut mech) = setup(slide_yard(PLATFORM, ""));
+        // In the pit beside the platform's path (y < 1), never touched by it.
+        let mut bodies = [body_at(&map, 5.0, 0.5)];
+        mech.toggle(0);
+        run(&mut map, &mut mech, &mut bodies, RIDE);
+        assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
+        assert_eq!(bodies[0].pos.truncate(), Vec2::new(5.0, 0.5));
+    }
+
+    #[test]
+    fn slider_emits_start_and_stop_like_a_lift() {
+        let (mut map, mut mech) = setup(slide_yard(
+            "(kind: Slide(by: (7.8, 0.0)), speed: 2.0, channel: Some(3))",
+            "",
+        ));
+        let kind = MoverKind::Slide { by: (7.8, 0.0) };
+        assert_eq!(mech.fire(3), 1);
+        assert_eq!(mech.drain_events(), vec![started(2, kind)]);
+        run(&mut map, &mut mech, &mut [], RIDE);
+        assert_eq!(mech.drain_events(), vec![stopped(2, kind)]);
     }
 }

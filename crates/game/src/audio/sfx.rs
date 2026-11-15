@@ -139,7 +139,7 @@ pub fn play_cues(
             MechEvent::MoverStarted { sector, kind } => {
                 let cue = match kind {
                     MoverKind::Door => Cue::DoorStart,
-                    MoverKind::Lift { .. } => Cue::LiftStart,
+                    MoverKind::Lift { .. } | MoverKind::Slide { .. } => Cue::LiftStart,
                     MoverKind::Crack => continue,
                 };
                 if sector >= map.sectors.len() || movers.contains_key(&sector) {

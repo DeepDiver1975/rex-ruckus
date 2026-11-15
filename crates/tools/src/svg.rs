@@ -108,6 +108,7 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
             Some(MoverKind::Door) => ("sector door", "#e8a33d".to_string()),
             Some(MoverKind::Lift { .. }) => ("sector lift", "#5aa0e0".to_string()),
             Some(MoverKind::Crack) => ("sector crack", "url(#hatch)".to_string()),
+            Some(MoverKind::Slide { .. }) => ("sector slider", "#9b6ad6".to_string()),
             None if sec.hazard.is_some() => {
                 let url = match sec.hazard.map(|h| h.kind) {
                     Some(HazardKind::Electric) => "url(#electric)",
