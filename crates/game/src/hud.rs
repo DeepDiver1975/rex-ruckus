@@ -123,6 +123,7 @@ pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget, key: &str) -> Str
         UseTarget::Mover(m) => match mech.movers[m].def.kind {
             MoverKind::Door => "Door",
             MoverKind::Lift { .. } => "Lift",
+            MoverKind::Slide { .. } => "Platform",
             MoverKind::Crack => return String::new(),
         },
         UseTarget::Switch(i) => match map.switches[i].action {

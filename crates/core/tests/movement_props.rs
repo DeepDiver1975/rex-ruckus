@@ -2,7 +2,7 @@ mod common;
 
 use proptest::prelude::*;
 use rr_core::collide::{Body, z_range};
-use rr_core::fixtures::lift_shaft;
+use rr_core::fixtures::{lift_shaft, slide_yard};
 use rr_core::glam::Vec2;
 use rr_core::map::{KeySet, Map};
 use rr_core::mechanics::{Mechanics, UseTarget};
@@ -93,5 +93,10 @@ proptest! {
     #[test]
     fn random_play_on_a_lift(segs in segments()) {
         play(lift_shaft("(kind: Lift(to: 2.0))", ""), Vec2::new(5.0, 2.0), &segs)?;
+    }
+
+    #[test]
+    fn random_play_on_a_slider(segs in segments()) {
+        play(slide_yard("(kind: Slide(by: (7.8, 0.0)), speed: 2.0)", ""), Vec2::new(5.1, 2.0), &segs)?;
     }
 }

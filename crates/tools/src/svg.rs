@@ -108,6 +108,7 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
             Some(MoverKind::Door) => ("sector door", "#e8a33d".to_string()),
             Some(MoverKind::Lift { .. }) => ("sector lift", "#5aa0e0".to_string()),
             Some(MoverKind::Crack) => ("sector crack", "url(#hatch)".to_string()),
+            Some(MoverKind::Slide { .. }) => ("sector slider", "#9b6ad6".to_string()),
             None if sec.hazard.is_some() => {
                 let url = match sec.hazard.map(|h| h.kind) {
                     Some(HazardKind::Electric) => "url(#electric)",
@@ -131,6 +132,16 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
             sec.floor_z, sec.ceil_z
         )
         .unwrap();
+        // A slider is drawn at its start pose, with a dashed outline where it ends.
+        if let Some(MoverKind::Slide { by }) = sec.mover.map(|m| m.kind) {
+            let by = Vec2::from(by);
+            let end = outline(map, &sec.loops, |p| px(p + by));
+            writeln!(
+                o,
+                r##"<path class="slider-end" d="{end}" fill="none" stroke="#9b6ad6" stroke-width="2" stroke-dasharray="5 3"/>"##
+            )
+            .unwrap();
+        }
         let outer = &sec.loops[0];
         let c = px(outer.iter().map(|&w| map.walls[w].a).sum::<Vec2>() / outer.len() as f32);
         let label = match sec.mover.and_then(|m| m.channel) {
@@ -443,6 +454,20 @@ mod tests {
             },
         );
         assert_eq!(ids.matches("class=\"vid\"").count(), 2);
+    }
+
+    #[test]
+    fn draws_a_slider_and_its_end_pose() {
+        let map = rr_core::fixtures::slide_yard("(kind: Slide(by: (7.8, 0.0)))", "");
+        let svg = render_svg(&map);
+        assert_eq!(svg.matches("class=\"sector slider\"").count(), 1);
+        // Its end pose starts at (4.1 + 7.8, 1): x = (11.9 + 2)·20, y = (4 - 1 + 2)·20.
+        let end = svg
+            .lines()
+            .find(|l| l.contains("class=\"slider-end\""))
+            .unwrap();
+        assert!(end.contains("d=\"M278.0 100.0 "), "{end}");
+        assert!(end.contains("stroke-dasharray"), "{end}");
     }
 
     #[test]

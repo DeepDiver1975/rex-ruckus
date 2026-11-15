@@ -34,7 +34,7 @@ fn segs_cross(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> bool {
 }
 
 /// Smallest distance between segments `ab` and `cd` (zero if they cross).
-fn seg_seg_dist(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f32 {
+pub(crate) fn seg_seg_dist(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> f32 {
     if segs_cross(a, b, c, d) {
         return 0.0;
     }

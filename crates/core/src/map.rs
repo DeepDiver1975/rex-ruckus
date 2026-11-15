@@ -172,6 +172,10 @@ pub enum MoverKind {
     /// ceiling at its open height) and closed by `Mechanics::new`; the use key and channels
     /// leave it alone.
     Crack,
+    /// The whole sector slides sideways, rigidly, from its authored place (the start) to `by`
+    /// metres away (a crane platform, a monorail car, a sluice gate). It must be an island: one
+    /// loop, every wall a portal into the same track sector, which holds it as a hole.
+    Slide { by: (f32, f32) },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -738,6 +742,11 @@ fn check_mover(sector: SectorId, rs: &RawSector) -> Result<(), MapError> {
             return bad("lift end must be below the ceiling");
         }
     }
+    if let MoverKind::Slide { by: (x, y) } = m.kind
+        && !(x.is_finite() && y.is_finite() && (x != 0.0 || y != 0.0))
+    {
+        return bad("slide offset must be finite and non-zero");
+    }
     Ok(())
 }
 
@@ -1219,6 +1228,14 @@ mod tests {
             ("(kind: Lift(to: inf))", "lift end must be finite"),
             ("(kind: Lift(to: NaN))", "lift end must be finite"),
             ("(kind: Door, speed: 0.0)", "speed must be positive"),
+            (
+                "(kind: Slide(by: (0.0, 0.0)))",
+                "slide offset must be finite and non-zero",
+            ),
+            (
+                "(kind: Slide(by: (inf, 1.0)))",
+                "slide offset must be finite and non-zero",
+            ),
             (
                 "(kind: Door, auto_return: Some(-1.0))",
                 "auto_return must not be negative",

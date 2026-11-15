@@ -2,6 +2,7 @@
 //! exit (and every keycard) can be reached from the start. Run it on an authored map (straight
 //! from `Map::from_raw`, doors open), never on a live one.
 
+use crate::actors::steer::seg_seg_dist;
 use crate::defs::Defs;
 use crate::difficulty::Difficulty;
 use crate::geom::closest_point_on_segment;
@@ -64,6 +65,7 @@ pub fn validate(map: &Map) -> Vec<Issue> {
     check_portals(map, &mut r);
     check_overlaps(map, &mut r);
     check_wiring(map, &mut r);
+    check_sliders(map, &mut r);
     let reached = check_reachability(map, &mut r);
     check_actors(map, reached.as_deref(), &mut r);
     check_props(map, &mut r);
@@ -273,33 +275,207 @@ fn check_wiring(map: &Map, r: &mut Report) {
     }
 }
 
+/// Clearance a slider keeps from its track's other walls along its whole path (metres).
+const SLIDE_CLEARANCE: f32 = 0.05;
+/// Spacing of the poses at which a slider's path is checked (metres).
+const SLIDE_STEP: f32 = 0.25;
+/// A sector with a portal into the track this close to a resting slider's edge counts as next to
+/// the slider: the player can step across the gap (metres, the player's radius).
+const SLIDE_REACH: f32 = 0.35;
+
+/// The track of slider `s`: the one sector that every wall of its single loop opens into, and
+/// that holds the mirrored loop as one of its holes. `None` when `s` is no such island.
+fn slide_track(map: &Map, s: SectorId) -> Option<SectorId> {
+    let sec = &map.sectors[s];
+    let [lp] = sec.loops.as_slice() else {
+        return None;
+    };
+    let mut track = None;
+    let mut twins = BTreeSet::new();
+    for &w in lp {
+        let (Some(t), Some(back)) = (map.walls[w].next_sector, map.walls[w].next_wall) else {
+            return None;
+        };
+        if t == s || track.is_some_and(|x| x != t) {
+            return None;
+        }
+        track = Some(t);
+        twins.insert(back);
+    }
+    let t = track?;
+    map.sectors[t]
+        .loops
+        .iter()
+        .skip(1)
+        .any(|hole| hole.iter().copied().collect::<BTreeSet<_>>() == twins)
+        .then_some(t)
+}
+
+/// Even-odd test against one loop.
+fn in_loop(map: &Map, lp: &[WallId], p: Vec2) -> bool {
+    let mut inside = false;
+    for &w in lp {
+        let (a, b) = (map.walls[w].a, map.walls[w].b);
+        if (a.y > p.y) != (b.y > p.y) && p.x < a.x + (p.y - a.y) * (b.x - a.x) / (b.y - a.y) {
+            inside = !inside;
+        }
+    }
+    inside
+}
+
+/// Can the player operate this mover, given the keys held and channels fired?
+fn operable(def: &crate::map::MoverDef, keys: KeySet, fired: &[Channel]) -> bool {
+    match def.channel {
+        Some(c) => fired.contains(&c),
+        None => def.lock.is_none_or(|k| keys.contains(k)),
+    }
+}
+
+/// Sliders: each is an island in one track, stays inside it with `SLIDE_CLEARANCE` along its
+/// whole path, and carries nothing that would not move with it.
+fn check_sliders(map: &Map, r: &mut Report) {
+    let start = Vec2::new(map.player_start.pos.0, map.player_start.pos.1);
+    for (s, sec) in map.sectors.iter().enumerate() {
+        let Some(MoverKind::Slide { by }) = sec.mover.map(|m| m.kind) else {
+            continue;
+        };
+        let Some(t) = slide_track(map, s) else {
+            r.error(format!(
+                "sector {s}: a slider must be an island: one loop whose walls are all portals into one track sector, which holds it as a hole"
+            ));
+            continue;
+        };
+        let by = Vec2::from(by);
+        let own: Vec<WallId> = sec.walls().collect();
+        let twins: Vec<WallId> = own.iter().filter_map(|&w| map.walls[w].next_wall).collect();
+        let others: Vec<WallId> = map.sectors[t]
+            .walls()
+            .filter(|w| !twins.contains(w))
+            .collect();
+        let holes: Vec<&Vec<WallId>> = map.sectors[t]
+            .loops
+            .iter()
+            .skip(1)
+            .filter(|h| !h.iter().any(|w| twins.contains(w)))
+            .collect();
+        let n = (by.length() / SLIDE_STEP).ceil().max(1.0) as usize;
+        let leaves = (0..=n).map(|k| by * (k as f32 / n as f32)).find(|&off| {
+            let corner = map.walls[own[0]].a + off;
+            let inside = in_loop(map, &map.sectors[t].loops[0], corner)
+                && !holes.iter().any(|h| in_loop(map, h, corner));
+            let close = others.iter().any(|&o| {
+                let (c, d) = (map.walls[o].a, map.walls[o].b);
+                own.iter().any(|&w| {
+                    let (a, b) = (map.walls[w].a + off, map.walls[w].b + off);
+                    seg_seg_dist(a, b, c, d) < SLIDE_CLEARANCE
+                }) || map.sector_contains(s, c - off)
+            });
+            !inside || close
+        });
+        if let Some(off) = leaves {
+            r.error(format!(
+                "sector {s}: slider leaves its track (sector {t}) or comes within {SLIDE_CLEARANCE} m of its walls {off} along its path"
+            ));
+        }
+        let on_path =
+            |p: Vec2| (0..=n).any(|k| map.sector_contains(s, p - by * (k as f32 / n as f32)));
+        for (i, item) in map.items.iter().enumerate() {
+            if map.find_sector(item.pos, None) == Some(s) {
+                r.error(format!(
+                    "item {i} is on slider sector {s}, which would leave it behind"
+                ));
+            }
+        }
+        for (i, sw) in map.switches.iter().enumerate() {
+            if map.walls[sw.wall].sector == s {
+                r.error(format!("switch {i} is on slider sector {s}"));
+            }
+        }
+        for (i, p) in map.props.iter().enumerate() {
+            if p.sector == t && p.corners().iter().any(|&c| on_path(c)) {
+                r.error(format!(
+                    "prop {i} ({:?}) stands in the path of slider sector {s}",
+                    p.kind
+                ));
+            }
+        }
+        if map.find_sector(start, None) == Some(s) {
+            r.error(format!("player_start is on slider sector {s}"));
+        }
+        for (i, l) in map.lights.iter().enumerate() {
+            if map.sector_contains(s, Vec2::new(l.pos.0, l.pos.1)) {
+                r.warn(format!(
+                    "light {i} is inside slider sector {s}; it will not move with it"
+                ));
+            }
+        }
+    }
+}
+
+/// Extra links sliders make, per sector: at its start pose, and at its end pose once the player
+/// can operate it, a slider is next to every sector (other than its track) behind a track
+/// portal within `SLIDE_REACH` of its edge. Symmetric.
+fn slide_contacts(map: &Map, keys: KeySet, fired: &[Channel]) -> Vec<Vec<SectorId>> {
+    let mut out = vec![Vec::new(); map.sectors.len()];
+    for (s, sec) in map.sectors.iter().enumerate() {
+        let Some(def) = sec.mover else { continue };
+        let MoverKind::Slide { by } = def.kind else {
+            continue;
+        };
+        let Some(t) = slide_track(map, s) else {
+            continue;
+        };
+        let mut offs = vec![Vec2::ZERO];
+        if operable(&def, keys, fired) {
+            offs.push(Vec2::from(by));
+        }
+        for off in offs {
+            for w in map.sectors[t].walls() {
+                let wall = &map.walls[w];
+                let Some(n) = wall.passage().filter(|&n| n != s) else {
+                    continue;
+                };
+                let near = sec.walls().any(|e| {
+                    let (a, b) = (map.walls[e].a + off, map.walls[e].b + off);
+                    seg_seg_dist(a, b, wall.a, wall.b) <= SLIDE_REACH
+                });
+                if near && !out[s].contains(&n) {
+                    out[s].push(n);
+                    out[n].push(s);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Floor/ceiling pairs a sector can offer a player, given the keys held and channels fired.
 fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
     let sec = &map.sectors[s];
     let Some(def) = sec.mover else {
         return vec![(sec.floor_z, sec.ceil_z)];
     };
-    let operable = match def.channel {
-        Some(c) => fired.contains(&c),
-        None => def.lock.is_none_or(|k| keys.contains(k)),
-    };
+    let operable = operable(&def, keys, fired);
     match (def.kind, operable) {
         (MoverKind::Door, true) => vec![(sec.floor_z, sec.ceil_z)],
         (MoverKind::Door, false) => vec![],
         (MoverKind::Lift { to }, true) => vec![(sec.floor_z, sec.ceil_z), (to, sec.ceil_z)],
         (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
+        // Its heights never change; where it can take the player is `slide_contacts`.
+        (MoverKind::Slide { .. }, _) => vec![(sec.floor_z, sec.ceil_z)],
         // Only a blast opens it, and no level may depend on one.
         (MoverKind::Crack, _) => vec![],
     }
 }
 
 fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning) -> Vec<bool> {
+    let contacts = slide_contacts(map, keys, fired);
     let mut reached = vec![false; map.sectors.len()];
     reached[start] = true;
     let mut queue = vec![start];
     while let Some(s) = queue.pop() {
         let from = poses(map, s, keys, fired);
-        for n in map.neighbours(s) {
+        for n in map.neighbours(s).chain(contacts[s].iter().copied()) {
             if reached[n] {
                 continue;
             }
@@ -508,7 +684,7 @@ mod tests {
     use super::*;
     use crate::difficulty::Difficulty;
     use crate::fixtures::{
-        combat_room, door_rooms, engine_room, lift_shaft, pillar_room, two_rooms,
+        combat_room, door_rooms, engine_room, lift_shaft, pillar_room, slide_yard, two_rooms,
     };
     use crate::map::{ActorKind, ActorSpawn};
 
@@ -986,5 +1162,103 @@ mod tests {
             "switches: [(wall: (7, 0), action: Channel(1))],",
         );
         assert!(has(&warnings(&map), "one-shot"));
+    }
+
+    const PLATFORM: &str = "(kind: Slide(by: (7.8, 0.0)), speed: 2.0)";
+    /// An exit on ledge B's east wall and a medkit on the ledge.
+    const LEDGE: &str =
+        "switches: [(wall: (4, 5), action: Exit)], items: [(kind: Medkit, pos: (16.0, 2.0))],";
+
+    #[test]
+    fn ledge_reached_only_through_a_slider_end_pose() {
+        assert_eq!(validate(&slide_yard(PLATFORM, LEDGE)), vec![]);
+        // Called by a switch on the ledge itself: the slider never leaves, so neither does
+        // anyone reach the ledge.
+        let stuck = slide_yard(
+            "(kind: Slide(by: (7.8, 0.0)), speed: 2.0, channel: Some(9))",
+            "switches: [(wall: (4, 5), action: Exit), (wall: (5, 6), action: Channel(9))], \
+             items: [(kind: Medkit, pos: (16.0, 2.0))],",
+        );
+        assert!(
+            has(&errors(&stuck), "no exit can be reached"),
+            "{:?}",
+            errors(&stuck)
+        );
+        assert!(has(&warnings(&stuck), "item 0 (Medkit) cannot be reached"));
+        // Stopping short of the ledge (1 m off) does not reach it either.
+        let short = slide_yard("(kind: Slide(by: (6.8, 0.0)), speed: 2.0)", LEDGE);
+        assert!(has(&errors(&short), "no exit can be reached"));
+    }
+
+    #[test]
+    fn slider_must_be_an_island() {
+        let map = door_rooms("(kind: Slide(by: (0.0, 1.0)))", "");
+        assert!(
+            has(&errors(&map), "sector 1: a slider must be an island"),
+            "{:?}",
+            errors(&map)
+        );
+    }
+
+    #[test]
+    fn slider_path_must_stay_in_its_track() {
+        for by in ["(7.9, 0.0)", "(8.5, 0.0)", "(0.0, 1.5)", "(-0.2, 0.0)"] {
+            let map = slide_yard(&format!("(kind: Slide(by: {by}))"), LEDGE);
+            assert!(
+                has(
+                    &errors(&map),
+                    "sector 2: slider leaves its track (sector 1)"
+                ),
+                "{by}: {:?}",
+                errors(&map)
+            );
+        }
+        // A pillar standing in the way.
+        let pillar = Map::from_ron(
+            r#"(name: "t", materials: ["m"],
+            vertices: [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0),
+                       (1.0, 1.0), (2.0, 1.0), (2.0, 3.0), (1.0, 3.0),
+                       (6.0, 1.9), (6.0, 2.1), (6.2, 2.1), (6.2, 1.9)],
+            sectors: [
+                (loops: [[0, 1, 2, 3], [4, 7, 6, 5], [8, 9, 10, 11]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0),
+                (loops: [[4, 5, 6, 7]], floor_z: 2.9, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0,
+                 mover: Some((kind: Slide(by: (7.0, 0.0))))),
+            ],
+            player_start: (pos: (0.5, 0.5), angle_deg: 0.0))"#,
+        )
+        .unwrap();
+        assert!(
+            has(&errors(&pillar), "slider leaves its track"),
+            "{:?}",
+            errors(&pillar)
+        );
+    }
+
+    #[test]
+    fn nothing_may_stand_on_or_in_the_way_of_a_slider() {
+        let errs = errors(&slide_yard(
+            PLATFORM,
+            "items: [(kind: Medkit, pos: (5.0, 2.0))], \
+             props: [(kind: PoolTable, pos: (9.0, 2.0), angle_deg: 0.0)], \
+             switches: [(wall: (10, 11), action: Exit)], \
+             lights: [(pos: (5.0, 2.0, 3.0), color: (1.0, 1.0, 1.0), intensity: 1000.0, range: 5.0)],",
+        ));
+        assert!(has(&errs, "item 0 is on slider sector 2"), "{errs:?}");
+        assert!(has(&errs, "switch 0 is on slider sector 2"), "{errs:?}");
+        assert!(
+            has(
+                &errs,
+                "prop 0 (PoolTable) stands in the path of slider sector 2"
+            ),
+            "{errs:?}"
+        );
+        let mut map = slide_yard(PLATFORM, LEDGE);
+        map.player_start.pos = (5.0, 2.0);
+        assert!(has(&errors(&map), "player_start is on slider sector 2"));
+        let lit = slide_yard(
+            PLATFORM,
+            "lights: [(pos: (5.0, 2.0, 3.0), color: (1.0, 1.0, 1.0), intensity: 1000.0, range: 5.0)],",
+        );
+        assert!(has(&warnings(&lit), "light 0 is inside slider sector 2"));
     }
 }

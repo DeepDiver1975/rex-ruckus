@@ -79,6 +79,33 @@ pub fn lift_shaft(lift: &str, extra: &str) -> Map {
     three_cells(2.0, 2.0, 6.0, &format!("mover: Some({lift})"), extra)
 }
 
+/// A slider over a pit. Dock A (sector 0) x∈[0,4], y∈[0,4], floor 0; pit T (sector 1, the
+/// track) x∈[4,14], floor -1, too deep to climb out of; platform P (sector 2) x∈[4.1,6.1],
+/// y∈[1,3], floor 0, an island in T 0.1 m off the dock; ledge B (sector 3) x∈[14,18],
+/// y∈[1.5,2.5], floor 0, behind a portal in T's east wall (solid above and below it). Ceilings 4.
+/// `platform` is P's mover RON, e.g. `"(kind: Slide(by: (7.8, 0.0)), speed: 2.0)"`, which ends
+/// 0.1 m off the ledge. Start (2,2) facing east.
+pub fn slide_yard(platform: &str, extra: &str) -> Map {
+    let src = format!(
+        r#"(
+        name: "slide yard",
+        materials: ["wall", "floor", "ceiling"],
+        vertices: [(0.0, 0.0), (4.0, 0.0), (14.0, 0.0), (14.0, 1.5), (18.0, 1.5), (18.0, 2.5),
+                   (14.0, 2.5), (14.0, 4.0), (4.0, 4.0), (0.0, 4.0),
+                   (4.1, 1.0), (6.1, 1.0), (6.1, 3.0), (4.1, 3.0)],
+        sectors: [
+            (loops: [[0, 1, 8, 9]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[1, 2, 3, 6, 7, 8], [10, 13, 12, 11]], floor_z: -1.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+            (loops: [[10, 11, 12, 13]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0, mover: Some({platform})),
+            (loops: [[3, 4, 5, 6]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+        ],
+        player_start: (pos: (2.0, 2.0), angle_deg: 0.0),
+        {extra}
+    )"#
+    );
+    Map::from_ron(&src).expect("slide_yard fixture is valid")
+}
+
 /// A thin triangle with a sharp corner at the origin: (0,0), (10,0), (10,h). Floor 0, ceiling 3.
 /// Start (8, 0.4·h).
 pub fn wedge(h: f32) -> Map {
