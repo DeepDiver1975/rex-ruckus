@@ -12,13 +12,13 @@ use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
-use rr_core::map::{ActorKind, ActorSpawn};
+use rr_core::map::{ActorKind, ActorSpawn, Map};
 use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_game::actors::{
     ActorVisual, ActorVisualsPlugin, BarrelVisual, BoltVisual, BombVisual, DroneVisual,
-    EnforcerVisual, GruntVisual, RocketVisual, SlasherVisual, Spark,
+    EnforcerVisual, GruntVisual, QueenVisual, RocketVisual, SlasherVisual, Spark,
 };
-use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, insert_defs};
+use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, PlayerVitals, insert_defs};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::fx::{ExplosionFx, ExplosionLight, FxPlugin, ScreenShake};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
@@ -43,6 +43,14 @@ fn app_with(kinds: &[ActorKind]) -> App {
             on_death: None,
         });
     }
+    let mut app = app_on(map);
+    // Freeze the sim: only the frame-loop visuals run from here on.
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Complete;
+    app
+}
+
+/// The visuals app on `map`, after its first frame, with the sim running.
+fn app_on(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Mesh>()
@@ -67,8 +75,6 @@ fn app_with(kinds: &[ActorKind]) -> App {
         FxPlugin,
     ));
     app.update();
-    // Freeze the sim: only the frame-loop visuals run from here on.
-    *app.world_mut().resource_mut::<PlayState>() = PlayState::Complete;
     app
 }
 
@@ -770,4 +776,162 @@ fn a_node_tip_glows_after_a_shot() {
         app.update();
     }
     assert_eq!(tip(&mut app), Visibility::Hidden, "dark again");
+}
+
+/// A 24 m hall with three burrow points and the Hive Queen (actor 0) awake in the middle.
+fn hive_app() -> App {
+    let map = Map::from_ron(
+        r#"(
+        name: "hive", materials: ["wall", "floor", "ceiling"],
+        vertices: [(0.0, 0.0), (24.0, 0.0), (24.0, 24.0), (0.0, 24.0)],
+        sectors: [(loops: [[0, 1, 2, 3]], floor_z: 0.0, ceil_z: 6.0, floor_mat: 1, ceil_mat: 2, wall_mat: 0)],
+        player_start: (pos: (2.0, 2.0), angle_deg: 45.0),
+        actors: [(kind: HiveQueen, pos: (12.0, 12.0), angle_deg: 225.0, asleep: false)],
+        burrow_points: [(6.0, 18.0), (18.0, 18.0), (18.0, 6.0)],
+    )"#,
+    )
+    .unwrap();
+    app_on(map)
+}
+
+fn root_visibility(app: &mut App, idx: usize) -> Visibility {
+    let root = actor_root(app, idx);
+    *app.world().get::<Visibility>(root).unwrap()
+}
+
+#[test]
+fn the_queen_spawns_with_her_model_and_plays_her_burrow_clips() {
+    use ClipRole::*;
+    let mut app = hive_app();
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Complete;
+    assert_eq!(count::<QueenVisual>(&mut app), 1);
+    let scene = app
+        .world()
+        .resource::<ModelLibrary>()
+        .enemy(ActorKind::HiveQueen)
+        .model
+        .scene
+        .clone();
+    assert!(
+        scene.path().unwrap().to_string().contains("hive_queen.glb"),
+        "{scene:?}"
+    );
+    let m = model_root(&mut app, 0);
+    assert_eq!(
+        app.world().get::<ModelSlot>(m).unwrap().enemy,
+        Some(ActorKind::HiveQueen)
+    );
+    let nodes = fake_ready(&mut app, ActorKind::HiveQueen, &ClipRole::ALL);
+    let defs = Defs::builtin();
+    let q = defs.enemy(ActorKind::HiveQueen);
+    let plan = q.phased(1).burrow.unwrap();
+    let pound = q.phased(2).pound.unwrap();
+    for (state, role, shown) in [
+        (
+            AiState::Burrow { t: 1.0, plan },
+            Burrow,
+            Visibility::Inherited,
+        ),
+        (AiState::Under { t: 1.0, plan }, Burrow, Visibility::Hidden),
+        (AiState::Emerge { t: 0.5 }, Emerge, Visibility::Inherited),
+        (
+            AiState::Pound {
+                t: 0.5,
+                plan: pound,
+            },
+            Attack,
+            Visibility::Inherited,
+        ),
+        (AiState::Chase, Walk, Visibility::Inherited),
+    ] {
+        set_actor(&mut app, 0, state, 0.0);
+        app.update();
+        let (main, active) = playing(&mut app, 0);
+        assert_eq!(main, Some(nodes[&role]), "{state:?}");
+        if role != Walk {
+            assert!(!active.unwrap().looped, "{state:?} plays once");
+        }
+        assert_eq!(root_visibility(&mut app, 0), shown, "{state:?}");
+    }
+}
+
+/// The real sim drives a full burrow: she digs, vanishes, comes up elsewhere with Gnashers
+/// (which get visuals of their own) and her clips follow, frame by frame, without a panic.
+#[test]
+fn a_forced_burrow_cycle_switches_clips_and_shows_the_minions() {
+    use ClipRole::*;
+    let mut app = hive_app();
+    let nodes = fake_ready(&mut app, ActorKind::HiveQueen, &ClipRole::ALL);
+    let mut q = app.world_mut().query::<&mut PlayerVitals>();
+    for mut v in q.iter_mut(app.world_mut()) {
+        v.0.health.max = 1_000_000;
+        v.0.health.hp = 1_000_000;
+    }
+    {
+        let mut c = app.world_mut().resource_mut::<LevelCombat>();
+        let queen = &mut c.0.actors[0];
+        queen.health.hp = queen.health.max / 2;
+        queen.phase = 1;
+        queen.state = AiState::Chase;
+        queen.burrow_in = 0.0;
+    }
+    let start = app.world().resource::<LevelCombat>().0.actors[0].body.pos;
+    let (mut clips, mut hidden) = (Vec::new(), false);
+    for _ in 0..120 {
+        app.update();
+        let main = playing(&mut app, 0).0;
+        if clips.last() != Some(&main) {
+            clips.push(main);
+        }
+        hidden |= root_visibility(&mut app, 0) == Visibility::Hidden;
+    }
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    let at = |role| clips.iter().position(|c| *c == Some(nodes[&role]));
+    let (burrow, emerge) = (at(Burrow).expect("burrowed"), at(Emerge).expect("emerged"));
+    assert!(burrow < emerge, "{clips:?}");
+    assert!(hidden, "hidden while underground");
+    let combat = &app.world().resource::<LevelCombat>().0;
+    assert_ne!(combat.actors[0].body.pos, start, "came up elsewhere");
+    let minions = combat
+        .actors
+        .iter()
+        .filter(|a| a.kind == ActorKind::Slasher)
+        .count();
+    assert_eq!(minions, 2);
+    assert_eq!(
+        count::<SlasherVisual>(&mut app),
+        minions,
+        "a visual per minion"
+    );
+    app.update();
+    assert_eq!(count::<SlasherVisual>(&mut app), minions, "and only one");
+}
+
+#[test]
+fn a_ground_pound_shakes_without_a_fireball() {
+    let mut app = app();
+    app.world_mut().spawn((Camera3d::default(), PlayerCamera));
+    app.world_mut()
+        .resource_mut::<FxQueue>()
+        .combat
+        .push(CombatEvent::GroundPound {
+            actor: 0,
+            point: Vec3::new(3.0, 1.5, 0.0),
+            radius: 6.0,
+        });
+    app.update();
+    assert!(app.world().resource::<ScreenShake>().trauma > 0.0);
+    assert_eq!(count::<ExplosionFx>(&mut app), 0);
+}
+
+#[test]
+fn acid_bolts_take_the_queens_colour() {
+    let mut app = app_with(&[ActorKind::HiveQueen]);
+    app.world_mut().resource_mut::<LevelCombat>().0.projectiles = vec![bolt(1)];
+    app.update();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&PointLight, With<BoltVisual>>();
+    let color = q.single(app.world()).unwrap().color.to_srgba();
+    assert!(color.green > color.red, "acid green: {color:?}");
 }
