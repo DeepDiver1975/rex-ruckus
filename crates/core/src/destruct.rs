@@ -90,6 +90,12 @@ impl Destruct {
         (found, self.secrets_total)
     }
 
+    /// Secrets the level still hides (what a payphone tip reports).
+    pub fn secrets_left(&self) -> u32 {
+        let (found, total) = self.secrets();
+        total.saturating_sub(found)
+    }
+
     /// Breaks light `i`'s fixture for good. False if the light does not exist, is not
     /// breakable or is already broken.
     pub fn break_light(&mut self, map: &Map, i: usize) -> bool {

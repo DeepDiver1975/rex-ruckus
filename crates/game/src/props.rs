@@ -74,7 +74,52 @@ pub fn fallback_parts(kind: PropKind) -> Vec<(Vec3, Vec3, Color)> {
                 Color::srgb(0.05, 0.45, 0.15),
             ),
         ],
+        PropKind::Arcade => vec![
+            (
+                Vec3::new(w, ht, d),
+                Vec3::new(0.0, ht * 0.5, 0.0),
+                Color::srgb(0.15, 0.1, 0.45),
+            ),
+            (
+                Vec3::new(w * 0.7, 0.45, 0.02),
+                Vec3::new(0.0, ht * 0.68, -d * 0.5 - 0.01),
+                Color::srgb(0.3, 0.9, 0.6),
+            ),
+        ],
+        PropKind::Jukebox => vec![
+            (
+                Vec3::new(w, ht, d),
+                Vec3::new(0.0, ht * 0.5, 0.0),
+                Color::srgb(0.5, 0.2, 0.08),
+            ),
+            (
+                Vec3::new(w * 0.7, ht * 0.4, 0.02),
+                Vec3::new(0.0, ht * 0.62, -d * 0.5 - 0.01),
+                Color::srgb(1.0, 0.65, 0.25),
+            ),
+        ],
+        // Wall-mounted: the box hangs at head height against the wall behind it (+z).
+        PropKind::Payphone => vec![
+            (
+                Vec3::new(w, 0.9, d),
+                Vec3::new(0.0, 1.35, 0.0),
+                Color::srgb(0.6, 0.62, 0.66),
+            ),
+            (
+                Vec3::new(0.08, 0.28, 0.06),
+                Vec3::new(-w * 0.3, 1.4, -d * 0.5 - 0.03),
+                Color::srgb(0.1, 0.1, 0.12),
+            ),
+        ],
     }
+}
+
+/// Whether a fallback's thin front panel glows (a lit display or front).
+fn lit_front(kind: PropKind) -> bool {
+    matches!(
+        kind,
+        PropKind::Vending | PropKind::Arcade | PropKind::Jukebox
+    )
 }
 
 /// Height of an item prop's centre above its floor.
@@ -196,8 +241,8 @@ fn spawn_props(
             continue;
         }
         for (size, centre, c) in fallback_parts(p.kind) {
-            // The vending machine's front panel glows.
-            let emissive = if p.kind == PropKind::Vending && size.z < 0.05 {
+            // The vending machine's, arcade cabinet's and jukebox's front panels glow.
+            let emissive = if lit_front(p.kind) && size.z < 0.05 {
                 c.to_linear() * 2.0
             } else {
                 LinearRgba::BLACK

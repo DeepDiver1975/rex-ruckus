@@ -453,6 +453,21 @@ mod tests {
         assert_eq!(reader.len(), (0.16f64 * 22050.0).round() as u32);
     }
 
+    /// The jukebox is busy, and the music ducked, for `JUKEBOX_SECS`: its stinger must last
+    /// that long (to within a frame or so).
+    #[test]
+    fn jukebox_stinger_lasts_as_long_as_the_jukebox_is_busy() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/sounds/synth.ron");
+        let recipes = parse_recipes(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let r = recipes
+            .iter()
+            .find(|r| r.name == "jukebox_stinger")
+            .unwrap();
+        let secs = render(r).len() as f32 / SAMPLE_RATE as f32;
+        let want = rr_core::mechanics::JUKEBOX_SECS;
+        assert!((secs - want).abs() < 0.05, "{secs} s, want {want} s");
+    }
+
     #[test]
     fn peak_is_minus_one_dbfs() {
         for src in [ONE_SHOT, LOOPED] {
@@ -584,6 +599,10 @@ mod tests {
         "boss_rocket",
         "boss_minigun",
         "boss_death",
+        "arcade_jingle",
+        "jukebox_stinger",
+        "payphone_tip",
+        "dial_tone",
     ];
 
     #[test]
@@ -598,7 +617,12 @@ mod tests {
             let pcm = render(r);
             bytes += wav_bytes(&pcm).len();
             let secs = pcm.len() as f64 / SAMPLE_RATE as f64;
-            let max = if r.looped { 2.0 } else { 2.5 };
+            // The jukebox stinger is music: it runs as long as the jukebox is busy.
+            let max = match r.name.as_str() {
+                _ if r.looped => 2.0,
+                "jukebox_stinger" => rr_core::mechanics::JUKEBOX_SECS as f64,
+                _ => 2.5,
+            };
             assert!(secs <= max + 1e-9, "{} is {secs} s", r.name);
             let looped = ["drone_hum", "lift_hum", "jetpack_loop", "quake_rumble"]
                 .contains(&r.name.as_str());
