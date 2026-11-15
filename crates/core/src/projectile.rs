@@ -14,6 +14,9 @@ const PLAYER_BODY: usize = 0;
 pub enum Shooter {
     Player,
     Actor(usize),
+    /// The level itself: a scripted blast (`Map::blasts`). It has no body, so its splash is
+    /// never scaled down as self-damage, and nobody turns on it. It never owns a projectile.
+    World,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +69,7 @@ impl Projectile {
         let owner = match self.owner {
             Shooter::Player => i == PLAYER_BODY,
             Shooter::Actor(a) => i == a + 1,
+            Shooter::World => false,
         };
         let non_target = match self.targets {
             Targets::Player => i != PLAYER_BODY,

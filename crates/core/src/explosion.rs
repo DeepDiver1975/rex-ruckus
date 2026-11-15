@@ -45,8 +45,9 @@ pub fn solve(
 ) -> Vec<BlastHit> {
     let s = &blast.splash;
     let owner = match blast.owner {
-        Shooter::Player => 0,
-        Shooter::Actor(a) => a + 1,
+        Shooter::Player => Some(0),
+        Shooter::Actor(a) => Some(a + 1),
+        Shooter::World => None,
     };
     let mut hits = Vec::new();
     for (i, body) in bodies.iter().enumerate() {
@@ -58,7 +59,7 @@ pub fn solve(
             continue;
         }
         let mut damage = (s.damage as f32 * (1.0 - d / s.radius)).round();
-        if i == owner {
+        if Some(i) == owner {
             damage = (damage * s.self_scale).round();
         }
         if damage < 1.0 {

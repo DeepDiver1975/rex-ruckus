@@ -92,7 +92,7 @@ pub enum CombatEvent {
         wall: Option<WallId>,
     },
     ProjectileGone(u32),
-    /// A blast went off (rocket, bomb or barrel).
+    /// A blast went off (rocket, bomb, barrel or a scripted level blast).
     Explosion {
         point: Vec3,
         radius: f32,
@@ -340,7 +340,8 @@ impl Combat {
     ///    tuning and spawn their bolts;
     /// 3. living actors and the player are pushed apart where they overlap;
     /// 4. projectiles fly; a hit on the player damages it; splash projectiles queue blasts;
-    /// 5. queued blasts whose fuse ran out go off (see [`Combat::process_blasts`]);
+    /// 5. scripted blasts the level's channels set off join the queue (on their `delay`), and
+    ///    queued blasts whose fuse ran out go off (see [`Combat::process_blasts`]);
     /// 6. corpses snap to their floor (dead flyers fall to it first).
     ///
     /// Shots, projectiles and blasts that shatter glass change `map` (through `destruct`) and
@@ -468,6 +469,7 @@ impl Combat {
 
         self.separate(map, player.body);
         out.extend(self.fly(map, defs, player, dt));
+        self.queue_scripted(map, mech);
         self.process_blasts(map, mech, defs, player, dt, &mut out);
 
         let gravity = Tuning::default().gravity;
@@ -697,5 +699,7 @@ mod hazard_tests;
 mod infight_tests;
 #[cfg(test)]
 mod light_tests;
+#[cfg(test)]
+mod scripted_tests;
 #[cfg(test)]
 mod tests;

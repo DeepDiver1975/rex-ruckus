@@ -7,8 +7,8 @@ use crate::collide::{Body, clip_move, touches_sector, z_range};
 use crate::geom::closest_point_on_segment;
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::{
-    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawQuake, SectorId, SwitchAction,
-    WallId,
+    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawBlast, RawQuake, SectorId,
+    SwitchAction, WallId,
 };
 use crate::props::{PropKind, PropOutcome};
 use crate::vitals::Vitals;
@@ -146,6 +146,10 @@ pub struct Mechanics {
     inside: Option<SectorId>,
     /// Each authored quake with its elapsed time while it runs.
     quakes: Vec<(RawQuake, Option<f32>)>,
+    /// Each authored blast, and whether its channel already set it off (blasts go off once).
+    blasts: Vec<(RawBlast, bool)>,
+    /// Blasts set off since `take_blasts` last ran, in map order; combat queues them.
+    blasts_due: Vec<RawBlast>,
     mover_of: Vec<Option<usize>>,
     events: Vec<MechEvent>,
 }
@@ -221,6 +225,8 @@ impl Mechanics {
             trig_done: vec![false; map.triggers.len()],
             inside: None,
             quakes: map.quakes.iter().map(|&q| (q, None)).collect(),
+            blasts: map.blasts.iter().map(|&b| (b, false)).collect(),
+            blasts_due: Vec::new(),
             mover_of,
             events: Vec::new(),
         }
@@ -262,8 +268,16 @@ impl Mechanics {
         }
     }
 
-    /// The channel bus: toggles every mover listening on `ch`. Returns how many reacted.
+    /// The channel bus: toggles every mover listening on `ch`, starts its quakes and sets off
+    /// its blasts that have not gone off yet (handed to combat through `take_blasts`). Returns
+    /// how many movers reacted.
     pub fn fire(&mut self, ch: Channel) -> usize {
+        for (b, done) in &mut self.blasts {
+            if b.channel == ch && !*done {
+                *done = true;
+                self.blasts_due.push(*b);
+            }
+        }
         for (q, t) in &mut self.quakes {
             if q.channel == ch {
                 *t = Some(0.0);
@@ -281,6 +295,12 @@ impl Mechanics {
             self.toggle(m);
         }
         hits.len()
+    }
+
+    /// Takes the scripted blasts set off since the last call (`Combat::tick` queues them on
+    /// their `delay`).
+    pub fn take_blasts(&mut self) -> Vec<RawBlast> {
+        std::mem::take(&mut self.blasts_due)
     }
 
     /// Runs an action that does not come from a switch (a trigger or a death): fires the
@@ -1195,6 +1215,25 @@ mod tests {
             }
         );
         assert_eq!(ev.len(), 3, "Busy is silent");
+    }
+
+    #[test]
+    fn a_channel_sets_each_of_its_blasts_off_once() {
+        let mut map = engine_room(
+            "blasts: [(channel: 7, at: (3.0, 2.0, 1.0), radius: 2.0, damage: 30, delay: 0.25),
+                      (channel: 8, at: (4.0, 2.0, 1.0), radius: 2.0, damage: 30)],",
+        );
+        let mut mech = Mechanics::new(&mut map);
+        assert!(mech.take_blasts().is_empty());
+        mech.fire(7);
+        assert_eq!(mech.take_blasts(), vec![map.blasts[0]]);
+        assert!(mech.take_blasts().is_empty(), "taken once");
+        mech.fire(7);
+        assert!(mech.take_blasts().is_empty(), "never re-armed");
+        // A trigger on the channel sets it off too.
+        mech.enter(&map, 0);
+        mech.apply(SwitchAction::Channel(8));
+        assert_eq!(mech.take_blasts(), vec![map.blasts[1]]);
     }
 
     #[test]
