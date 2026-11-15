@@ -138,6 +138,11 @@
     props: [
         // 0.46 m deep model, front on +Z natively; footprint is 0.7 x 0.5 m.
         (kind: Toilet, scene: "models/props/toilet.glb", place: (scale: 1.45, yaw_deg: 180.0, offset: (0.0, 0.0, 0.12))),
+        // Original, built at real size on their footprints (front on +Z), see scripts/models/.
+        (kind: Arcade, scene: "models/props/arcade.glb", place: (scale: 1.0, yaw_deg: 180.0)),
+        (kind: Jukebox, scene: "models/props/jukebox.glb", place: (scale: 1.0, yaw_deg: 180.0)),
+        // Its back plate is flush with the back of the 0.3 m deep box, against the wall.
+        (kind: Payphone, scene: "models/props/payphone.glb", place: (scale: 1.0, yaw_deg: 180.0)),
     ],
     extras: (
         held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 0.5, offset: (0.0, 0.015, 0.0))), // 0.11 / 0.21

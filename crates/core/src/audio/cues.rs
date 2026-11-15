@@ -152,6 +152,10 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
                 (PropKind::Vending, PropOutcome::SoldOut) => Cue::VendingEmpty,
                 (PropKind::Vending, _) => Cue::VendingDispense,
                 (PropKind::PoolTable, _) => Cue::PoolBreak,
+                (PropKind::Arcade, _) => Cue::ArcadeJingle,
+                (PropKind::Jukebox, _) => Cue::JukeboxStinger,
+                (PropKind::Payphone, PropOutcome::DialTone) => Cue::DialTone,
+                (PropKind::Payphone, _) => Cue::PayphoneTip,
             };
             if let Some(p) = map.props.get(prop) {
                 out.push((cue, Some(p.pos.extend(map.sectors[p.sector].floor_z + 0.5))));
@@ -420,6 +424,20 @@ mod tests {
             mech(used(2, PropKind::PoolTable, PropOutcome::Racked)),
             vec![Cue::PoolBreak]
         );
+        for (kind, outcome, cue) in [
+            (PropKind::Arcade, PropOutcome::Played, Cue::ArcadeJingle),
+            (PropKind::Jukebox, PropOutcome::Stinger, Cue::JukeboxStinger),
+            (PropKind::Payphone, PropOutcome::Tip(1), Cue::PayphoneTip),
+            (PropKind::Payphone, PropOutcome::DialTone, Cue::DialTone),
+            (PropKind::Arcade, PropOutcome::Busy, Cue::DialTone),
+        ] {
+            let want = if outcome == PropOutcome::Busy {
+                vec![]
+            } else {
+                vec![cue]
+            };
+            assert_eq!(mech(used(2, kind, outcome)), want, "{kind:?} {outcome:?}");
+        }
         assert_eq!(
             mech(used(9, PropKind::PoolTable, PropOutcome::Racked)),
             vec![],
@@ -732,6 +750,10 @@ mod tests {
             (1, PropKind::Vending, PropOutcome::Dispensed(5)),
             (1, PropKind::Vending, PropOutcome::SoldOut),
             (2, PropKind::PoolTable, PropOutcome::Racked),
+            (0, PropKind::Arcade, PropOutcome::Played),
+            (0, PropKind::Jukebox, PropOutcome::Stinger),
+            (0, PropKind::Payphone, PropOutcome::Tip(2)),
+            (0, PropKind::Payphone, PropOutcome::DialTone),
         ] {
             mech_cues(
                 &MechEvent::PropUsed {

@@ -495,3 +495,91 @@ fn teleport_look(app: &mut App, angle_deg: f32) {
     let mut q = app.world_mut().query::<&mut Look>();
     q.single_mut(app.world_mut()).unwrap().angle = angle_deg.to_radians();
 }
+
+/// The breach in engine_lab: the switch on the gag room's west wall fires channel 10, and half a
+/// second later the scripted blast in the sealed lounge goes off and blows the crack wall
+/// (sector 23) open. The closed crack shields the player at the switch.
+#[test]
+fn the_breach_switch_blows_the_crack_wall_open() {
+    const BREACH: usize = 23;
+    const LOUNGE: usize = 24;
+    let mut app = app(load_map("engine_lab.ron"));
+    teleport(&mut app, 1.0, 10.0, 180.0);
+    ticks(&mut app, 1);
+    assert_eq!(
+        app.world().resource::<UsePrompt>().0,
+        Some(UseTarget::Switch(4))
+    );
+    input(&mut app).use_pressed = true;
+    let mut boom = None;
+    let mut opened = false;
+    let mut n = 0;
+    while n < 120 && boom.is_none() {
+        ticks(&mut app, 1);
+        n += 1;
+        let fx = app.world().resource::<FxQueue>();
+        boom = boom.or(fx.combat.iter().find_map(|e| match e {
+            CombatEvent::Explosion { point, radius } => Some((*point, *radius)),
+            _ => None,
+        }));
+        opened |= fx.combat.contains(&CombatEvent::CrackOpened(BREACH));
+        app.world_mut().resource_mut::<FxQueue>().combat.clear();
+    }
+    let (point, radius) = boom.expect("the blast went off");
+    assert_eq!((point, radius), (Vec3::new(-2.0, 12.0, 1.0), 3.0));
+    assert!(opened, "the blast opened the breach");
+    let secs = n as f32 / 64.0;
+    assert!(
+        (0.4..0.7).contains(&secs),
+        "after the 0.5 s delay: {secs} s"
+    );
+    assert_eq!(
+        vitals(&mut app).0.health.hp,
+        100,
+        "the closed crack shielded the player"
+    );
+
+    // The crack opens through the mechanics, then the lounge is a walk away.
+    ticks(&mut app, 60);
+    let map = &app.world().resource::<CurrentMap>().0;
+    assert!(
+        map.sectors[BREACH].ceil_z >= 2.9,
+        "{}",
+        map.sectors[BREACH].ceil_z
+    );
+    teleport(&mut app, 0.8, 12.0, 180.0);
+    assert_eq!(walk_to(&mut app, LOUNGE, 120).sector, LOUNGE);
+}
+
+/// A payphone tells how many secrets are left on the first call only.
+#[test]
+fn a_payphone_call_counts_the_secrets_left_once() {
+    let mut app = app(load_map("engine_lab.ron"));
+    // Facing the payphone on the hall's west wall.
+    teleport(&mut app, 1.0, 6.0, 180.0);
+    ticks(&mut app, 1);
+    let phone = app
+        .world()
+        .resource::<CurrentMap>()
+        .0
+        .props
+        .iter()
+        .position(|p| p.kind == rr_core::props::PropKind::Payphone)
+        .unwrap();
+    assert_eq!(
+        app.world().resource::<UsePrompt>().0,
+        Some(UseTarget::Prop(phone))
+    );
+    input(&mut app).use_pressed = true;
+    ticks(&mut app, 1);
+    let text = app.world().resource::<HudMessage>().text.clone();
+    assert!(text.contains("1 secret still out there"), "{text}");
+    // After the cooldown: only a dial tone.
+    ticks(&mut app, 120);
+    input(&mut app).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(
+        app.world().resource::<HudMessage>().text,
+        "Just a dial tone."
+    );
+}

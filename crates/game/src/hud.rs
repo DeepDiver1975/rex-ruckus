@@ -135,6 +135,9 @@ pub fn prompt_label(map: &Map, mech: &Mechanics, t: UseTarget, key: &str) -> Str
             (PropKind::Vending, 0) => "Sold out",
             (PropKind::Vending, _) => "Buy soda",
             (PropKind::PoolTable, _) => "Rack 'em",
+            (PropKind::Arcade, _) => "Play a round",
+            (PropKind::Jukebox, _) => "Play a tune",
+            (PropKind::Payphone, _) => "Pick up",
         },
     };
     format!("[{key}] {what}")

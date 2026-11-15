@@ -95,6 +95,11 @@
     VendingDispense: (files: ["sounds/synth/vending_dispense.wav"], volume: 0.7, max_voices: 1),
     VendingEmpty: (files: ["sounds/synth/vending_empty.wav"], volume: 0.6, max_voices: 1),
     PoolBreak: (files: ["sounds/synth/pool_break.wav"], volume: 0.6, max_voices: 1),
+    ArcadeJingle: (files: ["sounds/synth/arcade_jingle.wav"], volume: 0.5, max_voices: 1),
+    // Music, not an effect: centred on the player, over the ducked level music.
+    JukeboxStinger: (files: ["sounds/synth/jukebox_stinger.wav"], volume: 0.6, max_voices: 1, spatial: false),
+    PayphoneTip: (files: ["sounds/synth/payphone_tip.wav"], volume: 0.6, max_voices: 1),
+    DialTone: (files: ["sounds/synth/dial_tone.wav"], volume: 0.4, max_voices: 1),
     ActorPain(Boss): (files: ["sounds/synth/enemy_pain.wav"], volume: 0.8, max_voices: 1, pitch_jitter: 0.05),
     BossRoar: (files: ["sounds/synth/boss_roar.wav"], volume: 1.0, ref_dist: 8.0, max_dist: 80.0, max_voices: 1),
     BossRocket: (files: ["sounds/synth/boss_rocket.wav"], volume: 0.9, ref_dist: 6.0, max_dist: 60.0, max_voices: 3, pitch_jitter: 0.05),

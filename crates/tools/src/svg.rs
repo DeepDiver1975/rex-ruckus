@@ -287,6 +287,24 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
         .unwrap();
     }
 
+    // Scripted blasts: a dashed orange ring of the blast's radius, labelled with its channel.
+    for (i, b) in map.blasts.iter().enumerate() {
+        let c = px(Vec2::new(b.at.0, b.at.1));
+        writeln!(
+            o,
+            r##"<circle class="blast" cx="{:.1}" cy="{:.1}" r="{:.1}" fill="#ff8c1a" fill-opacity="0.12" stroke="#ff8c1a" stroke-dasharray="6 3" stroke-width="2"><title>blast {i}: {} damage, {} s delay</title></circle><text x="{:.1}" y="{:.1}" fill="#ff8c1a" text-anchor="middle">ch{} boom</text>"##,
+            c.x,
+            c.y,
+            b.radius * SCALE,
+            b.damage,
+            b.delay,
+            c.x,
+            c.y + 4.0,
+            b.channel
+        )
+        .unwrap();
+    }
+
     for t in &map.triggers {
         let sec = &map.sectors[t.sector];
         let outer = &sec.loops[0];
@@ -446,6 +464,17 @@ mod tests {
         );
         assert_eq!(svg.matches("class=\"light\"").count(), 1);
         assert_eq!(svg.matches("class=\"vid\"").count(), 0);
+        assert_eq!(svg.matches("class=\"blast\"").count(), 0);
+        let boom = rr_core::fixtures::engine_room(
+            "blasts: [(channel: 7, at: (3.0, 2.0, 1.0), radius: 2.5, damage: 40)],",
+        );
+        let svg = render_svg(&boom);
+        let ring = svg.lines().find(|l| l.contains("class=\"blast\"")).unwrap();
+        // 2.5 m at 20 px per metre.
+        assert!(
+            ring.contains("r=\"50.0\"") && ring.contains(">ch7 boom<"),
+            "{ring}"
+        );
         let verts = [(0.0, 0.0), (6.0, 0.0)];
         let ids = render_svg_with(
             &map,

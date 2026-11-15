@@ -223,6 +223,40 @@ fn passthrough_values_round_trip() {
 }
 
 #[test]
+fn blasts_pass_through_and_open_their_breach() {
+    let src = r#"sectors: [
+            (id: "a", rect: (0.0, 0.0, 4.0, 4.0)),
+            (id: "crack", rect: (4.0, 1.0, 4.5, 3.0), mover: (kind: Crack)),
+            (id: "b", rect: (4.5, 0.0, 8.5, 4.0)),
+        ],
+        switches: [
+            (wall: ((0.0, 4.0), (0.0, 0.0)), sector: "a", action: Channel(5)),
+            (wall: ((8.5, 0.0), (8.5, 4.0)), sector: "b", action: Exit),
+        ],
+        blasts: [(channel: 5, at: (2.5, 2.0, 1.0), radius: 3.0, damage: 40, delay: 0.5)]"#;
+    let m = built(src);
+    assert_eq!(
+        m.blasts,
+        vec![rr_core::map::RawBlast {
+            channel: 5,
+            at: (2.5, 2.0, 1.0),
+            radius: 3.0,
+            damage: 40,
+            delay: 0.5
+        }]
+    );
+    // The exit behind the crack counts as reachable: the blast on the switch's channel opens it.
+    let issues = rr_core::validate::validate(&m);
+    assert!(!rr_core::validate::has_errors(&issues), "{issues:?}");
+    // A level without blasts builds without the field.
+    let out = build_source(&level(
+        r#"sectors: [(id: "a", rect: (0.0, 0.0, 4.0, 4.0))]"#,
+    ))
+    .unwrap();
+    assert!(!out.contains("blasts"), "{out}");
+}
+
+#[test]
 fn a_slider_builds_as_an_island_in_its_track() {
     use rr_core::map::MoverKind;
     let m = built(

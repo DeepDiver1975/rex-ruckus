@@ -5,7 +5,7 @@
 
 use rr_core::hazard::Hazard;
 use rr_core::map::{
-    KNOWN_MATERIALS, Key, MoverDef, PlayerStart, RawActor, RawItem, RawLight, RawQuake,
+    KNOWN_MATERIALS, Key, MoverDef, PlayerStart, RawActor, RawBlast, RawItem, RawLight, RawQuake,
     SwitchAction,
 };
 use rr_core::props::RawProp;
@@ -134,6 +134,9 @@ pub struct SourceLevel {
     pub triggers: Vec<SourceTrigger>,
     #[serde(default)]
     pub quakes: Vec<RawQuake>,
+    /// Scripted blasts, in world coordinates like `lights`.
+    #[serde(default)]
+    pub blasts: Vec<RawBlast>,
     #[serde(default)]
     pub props: Vec<RawProp>,
 }
@@ -658,6 +661,10 @@ fn emit(
     });
     writeln!(o, "    triggers: {},", list(tr)?).map_err(w)?;
     writeln!(o, "    quakes: {},", list(level.quakes.iter().map(ron))?).map_err(w)?;
+    // Only when there are any, so levels without blasts build as they always did.
+    if !level.blasts.is_empty() {
+        writeln!(o, "    blasts: {},", list(level.blasts.iter().map(ron))?).map_err(w)?;
+    }
     writeln!(o, "    props: {},", list(level.props.iter().map(ron))?).map_err(w)?;
     writeln!(o, ")").map_err(w)?;
     Ok(o)

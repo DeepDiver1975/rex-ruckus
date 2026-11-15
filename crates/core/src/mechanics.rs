@@ -7,8 +7,8 @@ use crate::collide::{Body, clip_move, touches_sector, z_range};
 use crate::geom::closest_point_on_segment;
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::{
-    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawQuake, SectorId, SwitchAction,
-    WallId,
+    Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawBlast, RawQuake, SectorId,
+    SwitchAction, WallId,
 };
 use crate::props::{PropKind, PropOutcome};
 use crate::vitals::Vitals;
@@ -122,6 +122,13 @@ pub const TOILET_HEAL: i32 = 10;
 pub const SODA_HEAL: i32 = 5;
 /// Seconds before a toilet can be flushed again.
 pub const FLUSH_COOLDOWN: f32 = 1.5;
+/// Seconds an arcade round (its jingle) takes before the cabinet takes another coin.
+pub const ARCADE_COOLDOWN: f32 = 3.0;
+/// Length of the jukebox stinger in seconds (`jukebox_stinger` in `assets/sounds/synth.ron`):
+/// the jukebox is busy, and the level music ducked, for this long.
+pub const JUKEBOX_SECS: f32 = 4.0;
+/// Seconds before a payphone can be picked up again.
+pub const PAYPHONE_COOLDOWN: f32 = 1.5;
 
 /// A prop's runtime state.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -129,6 +136,8 @@ pub struct PropState {
     pub kind: PropKind,
     pub stock: u32,
     pub cooldown: f32,
+    /// A payphone already gave its tip.
+    pub tipped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +155,10 @@ pub struct Mechanics {
     inside: Option<SectorId>,
     /// Each authored quake with its elapsed time while it runs.
     quakes: Vec<(RawQuake, Option<f32>)>,
+    /// Each authored blast, and whether its channel already set it off (blasts go off once).
+    blasts: Vec<(RawBlast, bool)>,
+    /// Blasts set off since `take_blasts` last ran, in map order; combat queues them.
+    blasts_due: Vec<RawBlast>,
     mover_of: Vec<Option<usize>>,
     events: Vec<MechEvent>,
 }
@@ -216,11 +229,14 @@ impl Mechanics {
                     kind: p.kind,
                     stock: p.stock,
                     cooldown: 0.0,
+                    tipped: false,
                 })
                 .collect(),
             trig_done: vec![false; map.triggers.len()],
             inside: None,
             quakes: map.quakes.iter().map(|&q| (q, None)).collect(),
+            blasts: map.blasts.iter().map(|&b| (b, false)).collect(),
+            blasts_due: Vec::new(),
             mover_of,
             events: Vec::new(),
         }
@@ -262,8 +278,16 @@ impl Mechanics {
         }
     }
 
-    /// The channel bus: toggles every mover listening on `ch`. Returns how many reacted.
+    /// The channel bus: toggles every mover listening on `ch`, starts its quakes and sets off
+    /// its blasts that have not gone off yet (handed to combat through `take_blasts`). Returns
+    /// how many movers reacted.
     pub fn fire(&mut self, ch: Channel) -> usize {
+        for (b, done) in &mut self.blasts {
+            if b.channel == ch && !*done {
+                *done = true;
+                self.blasts_due.push(*b);
+            }
+        }
         for (q, t) in &mut self.quakes {
             if q.channel == ch {
                 *t = Some(0.0);
@@ -281,6 +305,12 @@ impl Mechanics {
             self.toggle(m);
         }
         hits.len()
+    }
+
+    /// Takes the scripted blasts set off since the last call (`Combat::tick` queues them on
+    /// their `delay`).
+    pub fn take_blasts(&mut self) -> Vec<RawBlast> {
+        std::mem::take(&mut self.blasts_due)
     }
 
     /// Runs an action that does not come from a switch (a trigger or a death): fires the
@@ -332,14 +362,20 @@ impl Mechanics {
         channel_locks(map, ch).find(|&k| !keys.contains(k))
     }
 
-    /// The player uses prop `i`. Toilet: +10 health up to 100 (a plain flush at full health),
+    /// The player uses prop `i`; `secrets_left` is how many secrets the level still hides
+    /// (`Destruct::secrets_left`). Toilet: +10 health up to 100 (a plain flush at full health),
     /// then a 1.5 s cooldown. Vending machine: +5 up to 100 per soda while stock lasts. Pool
-    /// table: flavour. Queues `PropUsed` unless the toilet is still busy.
-    pub fn use_prop(&mut self, i: usize, vitals: &mut Vitals) -> PropOutcome {
+    /// table: flavour. Arcade: a round, then `ARCADE_COOLDOWN`. Jukebox: a stinger, busy for
+    /// `JUKEBOX_SECS`. Payphone: the first call gives `Tip(secrets_left)`, later ones a dial
+    /// tone, each followed by `PAYPHONE_COOLDOWN`. Queues `PropUsed` unless the prop is busy
+    /// (a cooldown running).
+    pub fn use_prop(&mut self, i: usize, vitals: &mut Vitals, secrets_left: u32) -> PropOutcome {
         let p = &mut self.props[i];
         let before = vitals.health.hp;
+        if p.cooldown > 0.0 {
+            return PropOutcome::Busy;
+        }
         let outcome = match p.kind {
-            PropKind::Toilet if p.cooldown > 0.0 => return PropOutcome::Busy,
             PropKind::Toilet => {
                 p.cooldown = FLUSH_COOLDOWN;
                 vitals.heal_to(TOILET_HEAL, PLAYER_MAX_HEALTH);
@@ -355,6 +391,22 @@ impl Mechanics {
                 PropOutcome::Dispensed(vitals.health.hp - before)
             }
             PropKind::PoolTable => PropOutcome::Racked,
+            PropKind::Arcade => {
+                p.cooldown = ARCADE_COOLDOWN;
+                PropOutcome::Played
+            }
+            PropKind::Jukebox => {
+                p.cooldown = JUKEBOX_SECS;
+                PropOutcome::Stinger
+            }
+            PropKind::Payphone => {
+                p.cooldown = PAYPHONE_COOLDOWN;
+                if std::mem::replace(&mut p.tipped, true) {
+                    PropOutcome::DialTone
+                } else {
+                    PropOutcome::Tip(secrets_left)
+                }
+            }
         };
         let kind = self.props[i].kind;
         self.events.push(MechEvent::PropUsed {
@@ -1174,14 +1226,14 @@ mod tests {
         let (mut map, mut mech) = setup(engine_room(""));
         let mut v = Vitals::new();
         v.damage(15);
-        assert_eq!(mech.use_prop(0, &mut v), PropOutcome::Healed(10));
+        assert_eq!(mech.use_prop(0, &mut v, 0), PropOutcome::Healed(10));
         assert_eq!(v.health.hp, 95);
-        assert_eq!(mech.use_prop(0, &mut v), PropOutcome::Busy);
+        assert_eq!(mech.use_prop(0, &mut v, 0), PropOutcome::Busy);
         run(&mut map, &mut mech, &mut [], 91);
-        assert_eq!(mech.use_prop(0, &mut v), PropOutcome::Healed(5));
+        assert_eq!(mech.use_prop(0, &mut v, 0), PropOutcome::Healed(5));
         run(&mut map, &mut mech, &mut [], 91);
         assert_eq!(
-            mech.use_prop(0, &mut v),
+            mech.use_prop(0, &mut v, 0),
             PropOutcome::Flushed,
             "flushes at full health"
         );
@@ -1197,16 +1249,109 @@ mod tests {
         assert_eq!(ev.len(), 3, "Busy is silent");
     }
 
+    /// The engine room with an arcade cabinet (prop 3), a jukebox (prop 4) and a payphone
+    /// (prop 5) added to its gag room.
+    fn arcade_room() -> (Map, Mechanics) {
+        let mut map = engine_room("");
+        for (kind, x) in [
+            (PropKind::Arcade, 14.0),
+            (PropKind::Jukebox, 15.5),
+            (PropKind::Payphone, 17.0),
+        ] {
+            map.props.push(crate::props::Prop {
+                kind,
+                pos: Vec2::new(x, 3.5),
+                angle: 270f32.to_radians(),
+                stock: 3,
+                sector: 4,
+            });
+        }
+        setup(map)
+    }
+
+    #[test]
+    fn arcade_plays_a_round_then_cools_down() {
+        let (mut map, mut mech) = arcade_room();
+        let mut v = Vitals::new();
+        assert_eq!(mech.use_prop(3, &mut v, 0), PropOutcome::Played);
+        assert_eq!(mech.use_prop(3, &mut v, 0), PropOutcome::Busy);
+        // Just short of 3 s it is still busy; then it takes another coin.
+        run(&mut map, &mut mech, &mut [], 179);
+        assert_eq!(mech.use_prop(3, &mut v, 0), PropOutcome::Busy);
+        run(&mut map, &mut mech, &mut [], 2);
+        assert_eq!(mech.use_prop(3, &mut v, 0), PropOutcome::Played);
+        assert_eq!(v.health.hp, 100, "no gameplay effect");
+        let ev = mech.drain_events();
+        assert_eq!(ev.len(), 2, "Busy is silent: {ev:?}");
+        assert_eq!(
+            ev[0],
+            MechEvent::PropUsed {
+                prop: 3,
+                kind: PropKind::Arcade,
+                outcome: PropOutcome::Played
+            }
+        );
+    }
+
+    #[test]
+    fn jukebox_is_busy_for_the_length_of_its_stinger() {
+        let (mut map, mut mech) = arcade_room();
+        let mut v = Vitals::new();
+        assert_eq!(mech.use_prop(4, &mut v, 0), PropOutcome::Stinger);
+        assert_eq!(mech.props[4].cooldown, JUKEBOX_SECS);
+        let ticks = (JUKEBOX_SECS / DT).round() as usize;
+        run(&mut map, &mut mech, &mut [], ticks - 1);
+        assert_eq!(mech.use_prop(4, &mut v, 0), PropOutcome::Busy);
+        run(&mut map, &mut mech, &mut [], 2);
+        assert_eq!(mech.use_prop(4, &mut v, 0), PropOutcome::Stinger);
+    }
+
+    #[test]
+    fn payphone_tips_once_with_the_secrets_left_then_gives_a_dial_tone() {
+        let (mut map, mut mech) = arcade_room();
+        let mut v = Vitals::new();
+        assert_eq!(mech.use_prop(5, &mut v, 2), PropOutcome::Tip(2));
+        assert_eq!(mech.use_prop(5, &mut v, 2), PropOutcome::Busy);
+        run(&mut map, &mut mech, &mut [], 91);
+        assert_eq!(mech.use_prop(5, &mut v, 1), PropOutcome::DialTone);
+        run(&mut map, &mut mech, &mut [], 91);
+        assert_eq!(mech.use_prop(5, &mut v, 0), PropOutcome::DialTone);
+        // Every payphone gives its own tip once, with the count at the time of the call.
+        map.props.push(map.props[5]);
+        let mut mech = Mechanics::new(&mut map);
+        assert_eq!(mech.use_prop(6, &mut v, 1), PropOutcome::Tip(1));
+        assert_eq!(mech.use_prop(5, &mut v, 0), PropOutcome::Tip(0));
+    }
+
+    #[test]
+    fn a_channel_sets_each_of_its_blasts_off_once() {
+        let mut map = engine_room(
+            "blasts: [(channel: 7, at: (3.0, 2.0, 1.0), radius: 2.0, damage: 30, delay: 0.25),
+                      (channel: 8, at: (4.0, 2.0, 1.0), radius: 2.0, damage: 30)],",
+        );
+        let mut mech = Mechanics::new(&mut map);
+        assert!(mech.take_blasts().is_empty());
+        mech.fire(7);
+        assert_eq!(mech.take_blasts(), vec![map.blasts[0]]);
+        assert!(mech.take_blasts().is_empty(), "taken once");
+        mech.fire(7);
+        assert!(mech.take_blasts().is_empty(), "never re-armed");
+        // A trigger on the channel sets it off too.
+        mech.enter(&map, 0);
+        mech.apply(SwitchAction::Channel(8));
+        assert_eq!(mech.take_blasts(), vec![map.blasts[1]]);
+    }
+
     #[test]
     fn vending_machine_sells_its_stock_then_is_sold_out() {
         let (_, mut mech) = setup(engine_room(""));
         let mut v = Vitals::new();
         v.damage(15);
-        assert_eq!(mech.use_prop(1, &mut v), PropOutcome::Dispensed(5));
-        assert_eq!(mech.use_prop(1, &mut v), PropOutcome::Dispensed(5));
-        assert_eq!(mech.use_prop(1, &mut v), PropOutcome::SoldOut);
+        assert_eq!(mech.use_prop(1, &mut v, 0), PropOutcome::Dispensed(5));
+        assert_eq!(mech.use_prop(1, &mut v, 0), PropOutcome::Dispensed(5));
+        assert_eq!(mech.use_prop(1, &mut v, 0), PropOutcome::SoldOut);
         assert_eq!((v.health.hp, mech.props[1].stock), (95, 0));
-        assert_eq!(mech.use_prop(2, &mut v), PropOutcome::Racked);
+        assert_eq!(mech.use_prop(2, &mut v, 0), PropOutcome::Racked);
     }
 
     const PLATFORM: &str = "(kind: Slide(by: (7.8, 0.0)), speed: 2.0)";

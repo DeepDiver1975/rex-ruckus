@@ -1,12 +1,13 @@
-//! The explosion queue: rockets, detonated bombs and barrels all go off through
+//! The explosion queue: rockets, detonated bombs, barrels and scripted blasts all go off through
 //! [`Combat::process_blasts`], one tick at a time.
 
 use super::{BODY_PLAYER, Combat, CombatEvent, PlayerTarget, hurt_player};
 use crate::collide::Body;
-use crate::defs::Defs;
+use crate::defs::{Defs, SplashDef};
 use crate::explosion::{Blast, sectors_in_reach, solve, walls_in_reach};
 use crate::map::Map;
 use crate::mechanics::Mechanics;
+use crate::projectile::Shooter;
 use glam::Vec3;
 
 /// Gap left between a blast centre and the surface it went off against (m).
@@ -50,6 +51,33 @@ impl Combat {
             blast,
             via: Via::Barrel,
         });
+    }
+
+    /// Queues the scripted blasts (`Map::blasts`) that `mech`'s channels set off since the last
+    /// tick, each on its `delay` and owned by `Shooter::World`: the same queue rockets and
+    /// barrels use, so they do everything those do. A blast centred outside every sector is
+    /// dropped (`validate` reports it).
+    pub(super) fn queue_scripted(&mut self, map: &Map, mech: &mut Mechanics) {
+        for b in mech.take_blasts() {
+            let center = b.centre();
+            let Some(sector) = map.find_sector(center.truncate(), None) else {
+                continue;
+            };
+            let splash = SplashDef {
+                radius: b.radius,
+                damage: b.damage,
+                self_scale: 1.0,
+            };
+            self.queue_blast(
+                b.delay,
+                Blast {
+                    center,
+                    sector,
+                    splash,
+                    owner: Shooter::World,
+                },
+            );
+        }
     }
 
     /// Runs every queued blast's fuse down by `dt` and sets off, in queue order, those that

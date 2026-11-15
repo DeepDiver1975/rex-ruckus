@@ -32,7 +32,7 @@ use rr_core::map::SectorId;
 use rr_core::rng::Rng;
 use std::collections::HashMap;
 
-pub use music::MusicTrack;
+pub use music::{MUSIC_DUCK, MusicDuck, MusicTrack};
 pub use quips::{QuipLines, QuipState, QuipVoice};
 pub use sfx::play_cues;
 
@@ -180,6 +180,7 @@ impl Plugin for AudioFxPlugin {
             });
         }
         app.init_resource::<GameCues>()
+            .init_resource::<MusicDuck>()
             .insert_resource(SfxRng(Rng::new(SFX_SEED)))
             .insert_resource(self.options)
             // Loaded before the first level spawn, whose audio systems are gated on the bank.
@@ -209,6 +210,7 @@ impl Plugin for AudioFxPlugin {
                     attach_listener,
                     (
                         play_cues,
+                        music::duck_music,
                         loop_gain,
                         tick_quake_loops,
                         stop_movers_off_play,
@@ -501,11 +503,11 @@ type PlayingSound = (
     Option<&'static mut SpatialAudioSink>,
 );
 
-/// A playing sound's volume before the global one: music follows the live music slider, the rest
-/// keep their spawn volume.
-fn sink_volume(spawn: Volume, is_music: bool, volumes: &AudioVolumes) -> Volume {
+/// A playing sound's volume before the global one: music follows the live music slider (times
+/// `duck`, the [`MusicDuck`] gain), the rest keep their spawn volume.
+fn sink_volume(spawn: Volume, is_music: bool, volumes: &AudioVolumes, duck: f32) -> Volume {
     if is_music {
-        Volume::Linear(volumes.music)
+        Volume::Linear(volumes.music * duck)
     } else {
         spawn
     }
@@ -516,12 +518,14 @@ fn sink_volume(spawn: Volume, is_music: bool, volumes: &AudioVolumes) -> Volume 
 fn apply_volumes(
     mut commands: Commands,
     volumes: Res<AudioVolumes>,
+    duck: Option<Res<MusicDuck>>,
     mut sinks: Query<PlayingSound>,
 ) {
+    let duck = duck.map_or(1.0, |d| d.gain());
     let global = Volume::Linear(volumes.global());
     commands.insert_resource(GlobalVolume::new(global));
     for (settings, music, sink, spatial) in &mut sinks {
-        let v = sink_volume(settings.volume, music.is_some(), &volumes) * global;
+        let v = sink_volume(settings.volume, music.is_some(), &volumes, duck) * global;
         if let Some(mut sink) = sink {
             sink.set_volume(v);
         }
@@ -598,8 +602,11 @@ mod tests {
             ..Default::default()
         };
         let spawn = Volume::Linear(0.9);
-        assert_eq!(sink_volume(spawn, true, &v), Volume::Linear(0.2));
-        assert_eq!(sink_volume(spawn, false, &v), spawn);
+        assert_eq!(sink_volume(spawn, true, &v, 1.0), Volume::Linear(0.2));
+        assert_eq!(sink_volume(spawn, false, &v, 1.0), spawn);
+        // A jukebox stinger ducks the music, never the effects.
+        assert_eq!(sink_volume(spawn, true, &v, 0.5), Volume::Linear(0.1));
+        assert_eq!(sink_volume(spawn, false, &v, 0.5), spawn);
     }
 
     #[test]

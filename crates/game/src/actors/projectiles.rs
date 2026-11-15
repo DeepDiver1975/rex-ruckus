@@ -40,7 +40,8 @@ pub enum ProjKind {
 /// Picks the visual for a projectile.
 pub fn proj_kind(p: &Projectile) -> ProjKind {
     match p.owner {
-        Shooter::Actor(_) => ProjKind::Bolt,
+        // The level never fires projectiles; a bolt is the neutral look.
+        Shooter::Actor(_) | Shooter::World => ProjKind::Bolt,
         Shooter::Player if p.bounce.is_some() || p.remote => ProjKind::Bomb,
         Shooter::Player => ProjKind::Rocket,
     }

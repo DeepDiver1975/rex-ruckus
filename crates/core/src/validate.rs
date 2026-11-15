@@ -1,16 +1,21 @@
 //! Level checks for `rr-tools validate` and CI: geometry sanity, trigger wiring, and whether the
 //! exit (and every keycard) can be reached from the start. Run it on an authored map (straight
 //! from `Map::from_raw`, doors open), never on a live one.
+//!
+//! Reachability never counts on a barrel or a rocket to open a crack wall; a crack that a
+//! scripted blast (`Map::blasts`) on a channel the player can fire reaches is passable.
 
 use crate::actors::steer::seg_seg_dist;
-use crate::defs::Defs;
+use crate::defs::{Defs, SplashDef};
 use crate::difficulty::Difficulty;
+use crate::explosion::{Blast, sectors_in_reach};
 use crate::geom::closest_point_on_segment;
 use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverKind, SectorId, Switch, SwitchAction, Wall, WallId,
 };
-use crate::mechanics::channel_required_keys;
+use crate::mechanics::{Mechanics, channel_required_keys};
 use crate::movement::{Pose, Tuning, can_cross};
+use crate::projectile::Shooter;
 use glam::Vec2;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -239,6 +244,7 @@ fn check_wiring(map: &Map, r: &mut Report) {
                 .iter()
                 .any(|s| s.mover.is_some_and(|m| m.channel == Some(c)))
             && !map.quakes.iter().any(|q| q.channel == c)
+            && !map.blasts.iter().any(|b| b.channel == c)
         {
             r.warn(format!("switch {i}: channel {c} has no listeners"));
         }
@@ -261,6 +267,7 @@ fn check_wiring(map: &Map, r: &mut Report) {
             r.error(format!("quake {i}: channel {} has no source", q.channel));
         }
     }
+    check_blasts(map, r);
     let exit_here = map
         .switches
         .iter()
@@ -273,6 +280,80 @@ fn check_wiring(map: &Map, r: &mut Report) {
     if !exit_here {
         r.warn("level has no exit".into());
     }
+}
+
+/// Scripted blasts: wired to a fired channel, centred inside a sector between its floor and
+/// ceiling, with a positive radius and no negative damage or delay.
+fn check_blasts(map: &Map, r: &mut Report) {
+    for (i, b) in map.blasts.iter().enumerate() {
+        if b.channel == 0 {
+            r.error(format!("blast {i}: channel must not be 0"));
+        } else if !channel_sourced(map, b.channel) {
+            r.error(format!("blast {i}: channel {} has no source", b.channel));
+        }
+        let c = b.centre();
+        if !c.is_finite() {
+            r.error(format!("blast {i}: position must be finite"));
+        } else {
+            match map.find_sector(c.truncate(), None) {
+                None => r.error(format!("blast {i} at {c} is outside every sector")),
+                Some(s) => {
+                    let sec = &map.sectors[s];
+                    if !(sec.floor_z < c.z && c.z < sec.ceil_z) {
+                        r.error(format!(
+                            "blast {i} at {c}: z must lie between the floor and ceiling of sector {s}"
+                        ));
+                    }
+                }
+            }
+        }
+        if !(b.radius > 0.0 && b.radius.is_finite()) {
+            r.error(format!("blast {i}: radius must be positive"));
+        }
+        if b.damage < 0 {
+            r.error(format!("blast {i}: damage must not be negative"));
+        }
+        if !(b.delay >= 0.0 && b.delay.is_finite()) {
+            r.error(format!("blast {i}: delay must be 0 or more seconds"));
+        }
+    }
+}
+
+/// The crack walls scripted blasts open, as (crack sector, the blast's channel): what
+/// `explosion::sectors_in_reach` finds from each blast's centre on the level in its start pose
+/// (doors and cracks closed, as `Mechanics::new` leaves them). Invalid blasts open nothing.
+fn blast_openings(map: &Map) -> Vec<(SectorId, Channel)> {
+    if map.blasts.is_empty() {
+        return Vec::new();
+    }
+    let mut start = map.clone();
+    Mechanics::new(&mut start);
+    let mut out = Vec::new();
+    for b in &map.blasts {
+        let center = b.centre();
+        if !(center.is_finite() && b.radius > 0.0 && b.radius.is_finite()) {
+            continue;
+        }
+        let Some(sector) = start.find_sector(center.truncate(), None) else {
+            continue;
+        };
+        let blast = Blast {
+            center,
+            sector,
+            splash: SplashDef {
+                radius: b.radius,
+                damage: b.damage,
+                self_scale: 1.0,
+            },
+            owner: Shooter::World,
+        };
+        out.extend(
+            sectors_in_reach(&start, &blast)
+                .into_iter()
+                .map(|s| (s, b.channel)),
+        );
+    }
+    out
 }
 
 /// Clearance a slider keeps from its track's other walls along its whole path (metres).
@@ -449,8 +530,15 @@ fn slide_contacts(map: &Map, keys: KeySet, fired: &[Channel]) -> Vec<Vec<SectorI
     out
 }
 
-/// Floor/ceiling pairs a sector can offer a player, given the keys held and channels fired.
-fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
+/// Floor/ceiling pairs a sector can offer a player, given the keys held, the channels fired and
+/// the cracks scripted blasts open (`blast_openings`).
+fn poses(
+    map: &Map,
+    s: SectorId,
+    keys: KeySet,
+    fired: &[Channel],
+    opened: &[(SectorId, Channel)],
+) -> Vec<Pose> {
     let sec = &map.sectors[s];
     let Some(def) = sec.mover else {
         return vec![(sec.floor_z, sec.ceil_z)];
@@ -463,23 +551,34 @@ fn poses(map: &Map, s: SectorId, keys: KeySet, fired: &[Channel]) -> Vec<Pose> {
         (MoverKind::Lift { .. }, false) => vec![(sec.floor_z, sec.ceil_z)],
         // Its heights never change; where it can take the player is `slide_contacts`.
         (MoverKind::Slide { .. }, _) => vec![(sec.floor_z, sec.ceil_z)],
-        // Only a blast opens it, and no level may depend on one.
+        // Only a blast opens it, and no level may depend on a barrel or a rocket: only on a
+        // scripted blast whose channel has fired.
+        (MoverKind::Crack, _) if opened.iter().any(|&(c, ch)| c == s && fired.contains(&ch)) => {
+            vec![(sec.floor_z, sec.ceil_z)]
+        }
         (MoverKind::Crack, _) => vec![],
     }
 }
 
-fn flood(map: &Map, start: SectorId, keys: KeySet, fired: &[Channel], t: &Tuning) -> Vec<bool> {
+fn flood(
+    map: &Map,
+    start: SectorId,
+    keys: KeySet,
+    fired: &[Channel],
+    opened: &[(SectorId, Channel)],
+    t: &Tuning,
+) -> Vec<bool> {
     let contacts = slide_contacts(map, keys, fired);
     let mut reached = vec![false; map.sectors.len()];
     reached[start] = true;
     let mut queue = vec![start];
     while let Some(s) = queue.pop() {
-        let from = poses(map, s, keys, fired);
+        let from = poses(map, s, keys, fired, opened);
         for n in map.neighbours(s).chain(contacts[s].iter().copied()) {
             if reached[n] {
                 continue;
             }
-            let to = poses(map, n, keys, fired);
+            let to = poses(map, n, keys, fired, opened);
             if from.iter().any(|&a| to.iter().any(|&b| can_cross(a, b, t))) {
                 reached[n] = true;
                 queue.push(n);
@@ -517,7 +616,8 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
     let mut fired: Vec<Channel> = Vec::new();
     // Monotone (keys and channels only ever grow), so this always converges; the bound is a guard.
     let rounds = map.switches.len() + map.triggers.len() + map.actors.len() + Key::ALL.len() + 1;
-    let mut reached = flood(map, start, keys, &fired, &t);
+    let opened = blast_openings(map);
+    let mut reached = flood(map, start, keys, &fired, &opened, &t);
     for _ in 0..rounds {
         let mut changed = false;
         for item in &map.items {
@@ -559,7 +659,7 @@ fn check_reachability(map: &Map, r: &mut Report) -> Option<Vec<bool>> {
         if !changed {
             break;
         }
-        reached = flood(map, start, keys, &fired, &t);
+        reached = flood(map, start, keys, &fired, &opened, &t);
     }
     for (i, item) in map.items.iter().enumerate() {
         if !map.find_sector(item.pos, None).is_some_and(|s| reached[s]) {
@@ -860,6 +960,108 @@ mod tests {
         // The exit on the near side is fine, however the crack sits.
         let near = door_rooms("(kind: Crack)", "switches: [(wall: (7, 0), action: Exit)],");
         assert_eq!(validate(&near), vec![]);
+    }
+
+    /// The exit behind a crack (B's east wall), a channel 5 switch at `switch` and `blasts`.
+    fn breach(switch: &str, blasts: &str) -> Map {
+        door_rooms(
+            "(kind: Crack)",
+            &format!(
+                "switches: [(wall: (3, 4), action: Exit), (wall: {switch}, action: Channel(5))],
+                 blasts: [{blasts}],"
+            ),
+        )
+    }
+
+    #[test]
+    fn a_scripted_blast_on_a_fired_channel_opens_the_route() {
+        // From room A, 2 m from the crack's wall: in reach.
+        let map = breach(
+            "(7, 0)",
+            "(channel: 5, at: (2.0, 2.0, 1.0), radius: 3.0, damage: 20)",
+        );
+        assert_eq!(validate(&map), vec![]);
+        // A key behind the breach counts as reachable too.
+        let mut keyed = map.clone();
+        keyed.switches[0].key = Some(Key::Red);
+        keyed.items.push(crate::map::Item {
+            kind: ItemKind::Key(Key::Red),
+            pos: Vec2::new(6.5, 2.0),
+            skill: Difficulty::Easy,
+        });
+        assert_eq!(validate(&keyed), vec![]);
+    }
+
+    #[test]
+    fn a_crack_stays_shut_without_a_scripted_blast_that_reaches_it_on_a_fired_channel() {
+        // Out of reach: 1.5 m does not get to the wall 2 m away.
+        let short = breach(
+            "(7, 0)",
+            "(channel: 5, at: (2.0, 2.0, 1.0), radius: 1.5, damage: 20)",
+        );
+        assert!(has(&errors(&short), "no exit can be reached"));
+        // The channel's only switch is behind the crack it would open.
+        let behind = breach(
+            "(4, 5)",
+            "(channel: 5, at: (2.0, 2.0, 1.0), radius: 3.0, damage: 20)",
+        );
+        assert!(has(&errors(&behind), "no exit can be reached"));
+        // A barrel beside the crack is no way through: nothing may depend on one.
+        let barrel = door_rooms(
+            "(kind: Crack)",
+            "switches: [(wall: (3, 4), action: Exit)], actors: [(kind: Barrel, pos: (3.0, 2.0))],",
+        );
+        assert!(has(&errors(&barrel), "no exit can be reached"));
+    }
+
+    #[test]
+    fn blast_mistakes_are_reported() {
+        let good = breach(
+            "(7, 0)",
+            "(channel: 5, at: (2.0, 2.0, 1.0), radius: 3.0, damage: 20)",
+        );
+        // A blast counts as a listener of its channel's switch.
+        assert!(!has(&warnings(&good), "no listeners"));
+        let with = |f: &dyn Fn(&mut crate::map::RawBlast)| {
+            let mut m = good.clone();
+            f(&mut m.blasts[0]);
+            errors(&m)
+        };
+        assert!(has(
+            &with(&|b| b.channel = 6),
+            "blast 0: channel 6 has no source"
+        ));
+        assert!(has(
+            &with(&|b| b.channel = 0),
+            "blast 0: channel must not be 0"
+        ));
+        assert!(has(&with(&|b| b.at.0 = 30.0), "is outside every sector"));
+        assert!(has(
+            &with(&|b| b.at.2 = 3.5),
+            "z must lie between the floor and ceiling"
+        ));
+        assert!(has(
+            &with(&|b| b.at.2 = 0.0),
+            "z must lie between the floor and ceiling"
+        ));
+        assert!(has(
+            &with(&|b| b.at.1 = f32::NAN),
+            "position must be finite"
+        ));
+        assert!(has(&with(&|b| b.radius = 0.0), "radius must be positive"));
+        assert!(has(
+            &with(&|b| b.radius = f32::INFINITY),
+            "radius must be positive"
+        ));
+        assert!(has(
+            &with(&|b| b.damage = -1),
+            "damage must not be negative"
+        ));
+        assert!(has(&with(&|b| b.delay = -0.5), "delay must be 0 or more"));
+        assert!(has(
+            &with(&|b| b.delay = f32::NAN),
+            "delay must be 0 or more"
+        ));
     }
 
     #[test]

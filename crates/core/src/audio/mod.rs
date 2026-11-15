@@ -124,6 +124,14 @@ pub enum Cue {
     VendingEmpty,
     /// A pool table was racked.
     PoolBreak,
+    /// An arcade cabinet played a round.
+    ArcadeJingle,
+    /// A jukebox played its stinger (the game ducks the music meanwhile).
+    JukeboxStinger,
+    /// A payphone's first call: a ring, then a garbled voice.
+    PayphoneTip,
+    /// A payphone with nobody on the line.
+    DialTone,
     /// The boss wakes or enters a new phase.
     BossRoar,
     /// The boss fires in phase 1 (rocket).
@@ -181,6 +189,10 @@ impl Cue {
             VendingDispense,
             VendingEmpty,
             PoolBreak,
+            ArcadeJingle,
+            JukeboxStinger,
+            PayphoneTip,
+            DialTone,
             BossRoar,
             BossRocket,
             BossMinigun,

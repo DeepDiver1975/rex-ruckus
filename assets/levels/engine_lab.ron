@@ -14,9 +14,13 @@
 // second slime pit → the switch by the corridor mouth (channel 9) sends the platform across the
 // pit to the far ledge (a medkit), which nothing else reaches; the ledge switch calls it back. A
 // stair in the pit's west edge climbs out of the slime.
+// Breach (channel 10): the switch on the gag room's west wall rumbles the floor, and half a second
+// later a scripted blast in the sealed lounge behind the wall blows its crack wall open → the
+// lounge (a secret: an arcade cabinet and a jukebox; pipe bombs). The payphone on the hall's west
+// wall tells how many secrets are left on the first call.
 (
     name: "Engine Lab",
-    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door"],
+    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door", "carpet"],
     vertices: [
         (0.0, 0.0), (12.0, 0.0), (12.0, 3.0), (12.0, 5.0), (12.0, 8.0), (6.0, 8.0), // 0-5   hall
         (4.0, 8.0), (0.0, 8.0),                                                       // 6-7
@@ -42,6 +46,8 @@
         (7.5, -8.1), (10.5, -8.1), (10.5, -5.1), (7.5, -5.1),                         // 78-81 platform
         (7.0, -13.0), (11.0, -13.0),                                                  // 82-83 far ledge
         (8.1, -2.4), (9.9, -2.4), (9.9, -1.6), (8.1, -1.6),                           // 84-87 gate
+        (0.0, 13.0), (0.0, 11.0), (-0.5, 11.0), (-0.5, 13.0),                         // 88-91 breach
+        (-4.5, 9.5), (-0.5, 9.5), (-0.5, 14.5), (-4.5, 14.5),                         // 92-95 lounge
     ],
     sectors: [
         // 0 hall (start; jetpack, shotgun, armour)
@@ -49,7 +55,7 @@
         // 1 doorway to the gag room
         (loops: [[6, 5, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 2 gag room (toilet, vending machine, pool table; chaingun, medkit)
-        (loops: [[10, 9, 8, 11, 12, 13]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
+        (loops: [[10, 9, 8, 11, 12, 13, 88, 89]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 4, ceil_mat: 3, wall_mat: 0),
         // 3 doorway to the pit
         (loops: [[2, 14, 15, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 4 west ledge
@@ -102,6 +108,12 @@
          mover: Some((kind: Slide(by: (0.0, -3.8)), channel: Some(9), speed: 1.5))),
         // 22 far ledge (medkit)
         (loops: [[82, 83, 76, 75]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 23 breach: a crack wall in the gag room's west wall, opened only by blast 0 (channel 10)
+        (loops: [[90, 89, 88, 91]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         mover: Some((kind: Crack))),
+        // 24 lounge behind the breach (secret: arcade cabinet, jukebox, pipe bombs)
+        (loops: [[92, 93, 90, 91, 94, 95]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 7, ceil_mat: 3, wall_mat: 0,
+         secret: true),
     ],
     switches: [
         // Gate: beside the hall's south doorway, and in the corridor south of the gate.
@@ -109,13 +121,22 @@
         // Platform: by the corridor mouth on the landing (in reach from the docked platform),
         // and on the far ledge.
         (wall: (71, 61), action: Channel(9)), (wall: (82, 83), action: Channel(9)),
+        // Breach: on the gag room's west wall, south of the crack.
+        (wall: (89, 10), action: Channel(10)),
     ],
     triggers: [(sector: 11, action: Channel(7))],
-    quakes: [(channel: 7, duration: 3.0, strength: 0.8)],
+    quakes: [(channel: 7, duration: 3.0, strength: 0.8), (channel: 10, duration: 1.2, strength: 0.5)],
+    // In the lounge, 1.5 m behind the breach: the closed crack shields the gag room.
+    blasts: [(channel: 10, at: (-2.0, 12.0, 1.0), radius: 3.0, damage: 40, delay: 0.5)],
     props: [
         (kind: Toilet, pos: (1.0, 14.3), angle_deg: 270.0),
         (kind: Vending, pos: (9.4, 12.0), angle_deg: 180.0, stock: 3),
         (kind: PoolTable, pos: (5.0, 12.0), angle_deg: 0.0),
+        // Lounge: the cabinet against the west wall, the jukebox against the north wall.
+        (kind: Arcade, pos: (-4.09, 11.0), angle_deg: 0.0),
+        (kind: Jukebox, pos: (-2.5, 14.19), angle_deg: 270.0),
+        // Hall: on the west wall, facing east.
+        (kind: Payphone, pos: (0.16, 6.0), angle_deg: 0.0),
     ],
     items: [
         // Hall
@@ -127,6 +148,8 @@
         (kind: Rockets, pos: (37.0, 10.0)), (kind: Atom, pos: (40.0, -4.0)),
         // Far ledge: only the platform gets there.
         (kind: Medkit, pos: (9.0, -12.5)),
+        // Lounge: only the breach gets there.
+        (kind: PipeBombs, pos: (-1.5, 10.2)),
     ],
     actors: [
         // On one line from the arena doorway: the Enforcer's volleys at the player go through
@@ -147,5 +170,6 @@
         (pos: (47.0, 3.0, 5.5), color: (1.0, 0.5, 0.4), intensity: 150000.0, range: 25.0),
         (pos: (9.0, -0.6, 2.6), color: (0.9, 0.9, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
         (pos: (12.5, -8.5, 3.5), color: (0.6, 1.0, 0.6), intensity: 50000.0, range: 12.0, shadows: false),
+        (pos: (-2.5, 12.0, 2.7), color: (1.0, 0.5, 0.9), intensity: 20000.0, range: 7.0, shadows: false),
     ],
 )

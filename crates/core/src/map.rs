@@ -44,6 +44,8 @@ pub struct RawLevel {
     #[serde(default)]
     pub quakes: Vec<RawQuake>,
     #[serde(default)]
+    pub blasts: Vec<RawBlast>,
+    #[serde(default)]
     pub props: Vec<RawProp>,
 }
 
@@ -310,6 +312,27 @@ pub struct RawQuake {
     pub strength: f32,
 }
 
+/// A scripted explosion: the first time channel `channel` fires it goes off at `at` after
+/// `delay` seconds, as a real blast of `radius` metres and `damage` at the centre (falling off
+/// linearly), owned by nobody (`Shooter::World`). It opens crack walls and breaks glass and
+/// lights in reach like a barrel. Firing the channel again does nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawBlast {
+    pub channel: Channel,
+    pub at: (f32, f32, f32),
+    pub radius: f32,
+    pub damage: i32,
+    #[serde(default)]
+    pub delay: f32,
+}
+
+impl RawBlast {
+    pub fn centre(&self) -> Vec3 {
+        Vec3::new(self.at.0, self.at.1, self.at.2)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorSpawn {
     pub kind: ActorKind,
@@ -414,6 +437,7 @@ pub struct Map {
     pub music: Option<String>,
     pub triggers: Vec<RawTrigger>,
     pub quakes: Vec<RawQuake>,
+    pub blasts: Vec<RawBlast>,
     pub props: Vec<Prop>,
 }
 
@@ -639,6 +663,7 @@ impl Map {
             music: raw.music,
             triggers: Vec::new(),
             quakes: Vec::new(),
+            blasts: raw.blasts,
             props: Vec::new(),
         };
         for (index, t) in raw.triggers.iter().enumerate() {

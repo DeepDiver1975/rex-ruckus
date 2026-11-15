@@ -175,6 +175,12 @@ pub fn prop_message(o: PropOutcome) -> Option<String> {
         PropOutcome::Dispensed(n) => format!("Soda! +{n} health"),
         PropOutcome::SoldOut => "Sold out.".into(),
         PropOutcome::Racked => "Racked 'em. No time for a game.".into(),
+        PropOutcome::Played => "GAME OVER. NEW HIGH SCORE: REX".into(),
+        PropOutcome::Stinger => "The jukebox kicks out a riff.".into(),
+        PropOutcome::Tip(0) => "A voice rasps: \"You found them all.\" Click.".into(),
+        PropOutcome::Tip(1) => "A voice rasps: \"1 secret still out there.\"".into(),
+        PropOutcome::Tip(n) => format!("A voice rasps: \"{n} secrets still out there.\""),
+        PropOutcome::DialTone => "Just a dial tone.".into(),
         PropOutcome::Busy => return None,
     })
 }
@@ -191,6 +197,7 @@ type UseQuery = (
 pub fn use_key(
     map: Res<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
+    combat: Option<Res<LevelCombat>>,
     mut prompt: ResMut<UsePrompt>,
     mut msg: ResMut<HudMessage>,
     mut state: ResMut<PlayState>,
@@ -204,8 +211,10 @@ pub fn use_key(
         }
         let Some(t) = target else { continue };
         if let UseTarget::Prop(i) = t {
+            // What a payphone tip reports.
+            let secrets_left = combat.as_ref().map_or(0, |c| c.0.destruct.secrets_left());
             if let Some(v) = vitals.as_deref_mut()
-                && let Some(text) = prop_message(mech.0.use_prop(i, &mut v.0))
+                && let Some(text) = prop_message(mech.0.use_prop(i, &mut v.0, secrets_left))
             {
                 msg.show(text);
             }
@@ -305,5 +314,23 @@ mod tests {
             Some("Sold out.")
         );
         assert_eq!(prop_message(PropOutcome::Busy), None);
+        assert_eq!(
+            prop_message(PropOutcome::Tip(2)).as_deref(),
+            Some("A voice rasps: \"2 secrets still out there.\"")
+        );
+        assert!(
+            prop_message(PropOutcome::Tip(1))
+                .unwrap()
+                .contains("1 secret still")
+        );
+        for o in [
+            PropOutcome::Played,
+            PropOutcome::Stinger,
+            PropOutcome::Tip(0),
+            PropOutcome::DialTone,
+        ] {
+            let text = prop_message(o).unwrap();
+            assert!(!text.is_empty() && text.len() <= 48, "{text}");
+        }
     }
 }

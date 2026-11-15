@@ -1,5 +1,6 @@
-//! Gag props: toilets, vending machines and pool tables. Solid oriented boxes the player bumps
-//! into and can use; shots and pathfinding ignore them (a documented limitation).
+//! Gag props: toilets, vending machines, pool tables, arcade cabinets, jukeboxes and payphones.
+//! Solid oriented boxes the player bumps into and can use; shots and pathfinding ignore them (a
+//! documented limitation).
 
 use crate::collide::{Body, clip_move};
 use crate::map::{Map, SectorId};
@@ -11,10 +12,24 @@ pub enum PropKind {
     Toilet,
     Vending,
     PoolTable,
+    /// An arcade cabinet: plays a round (flavour).
+    Arcade,
+    /// Plays a music stinger over the ducked level music.
+    Jukebox,
+    /// Wall-mounted: a shallow box whose back sits against the wall. The first call tells how
+    /// many secrets are left.
+    Payphone,
 }
 
 impl PropKind {
-    pub const ALL: [PropKind; 3] = [PropKind::Toilet, PropKind::Vending, PropKind::PoolTable];
+    pub const ALL: [PropKind; 6] = [
+        PropKind::Toilet,
+        PropKind::Vending,
+        PropKind::PoolTable,
+        PropKind::Arcade,
+        PropKind::Jukebox,
+        PropKind::Payphone,
+    ];
 
     /// Half the footprint: x along the facing (depth), y across it (width), metres.
     pub fn half_extents(self) -> Vec2 {
@@ -22,6 +37,9 @@ impl PropKind {
             PropKind::Toilet => Vec2::new(0.35, 0.25),
             PropKind::Vending => Vec2::new(0.4, 0.5),
             PropKind::PoolTable => Vec2::new(1.2, 0.65),
+            PropKind::Arcade => Vec2::new(0.4, 0.35),
+            PropKind::Jukebox => Vec2::new(0.3, 0.45),
+            PropKind::Payphone => Vec2::new(0.15, 0.2),
         }
     }
 
@@ -30,6 +48,10 @@ impl PropKind {
             PropKind::Toilet => 0.8,
             PropKind::Vending => 1.9,
             PropKind::PoolTable => 0.85,
+            PropKind::Arcade => 1.8,
+            PropKind::Jukebox => 1.5,
+            // The box runs from the floor; the phone itself hangs at head height.
+            PropKind::Payphone => 1.9,
         }
     }
 
@@ -38,6 +60,9 @@ impl PropKind {
             PropKind::Toilet => "toilet",
             PropKind::Vending => "vending machine",
             PropKind::PoolTable => "pool table",
+            PropKind::Arcade => "arcade cabinet",
+            PropKind::Jukebox => "jukebox",
+            PropKind::Payphone => "payphone",
         }
     }
 }
@@ -97,7 +122,16 @@ pub enum PropOutcome {
     SoldOut,
     /// Pool table: flavour only.
     Racked,
-    /// Still flushing (cooldown); nothing happens and no event is queued.
+    /// Arcade cabinet: a round played (flavour only).
+    Played,
+    /// Jukebox: a stinger started; the level music ducks while it plays.
+    Stinger,
+    /// Payphone, the first call: this many secrets are left in the level.
+    Tip(u32),
+    /// Payphone, every later call: nobody on the line.
+    DialTone,
+    /// Still busy (a toilet flushing, a round or a stinger playing, the line clicking off):
+    /// nothing happens and no event is queued.
     Busy,
 }
 

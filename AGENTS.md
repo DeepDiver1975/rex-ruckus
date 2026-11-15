@@ -71,11 +71,14 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - Headless tests do not add `AudioPlugin`; audio systems are gated on the `SoundBank` resource,
   so tests without audio need no changes.
 - Bevy debug builds are large; dependencies are built without debuginfo on purpose.
-- New level fields (`hazard`, `mover.one_shot`, `triggers`, `quakes`, `props`, `on_death`) default
-  off. A trigger fires when the player *enters* its sector (so the start sector's triggers fire on
+- New level fields (`hazard`, `mover.one_shot`, `triggers`, `quakes`, `blasts`, `props`, `on_death`)
+  default off. A trigger fires when the player *enters* its sector (so the start sector's triggers fire on
   the first tick); `once` defaults to true.
 - Props collide with bodies but not with shots or pathfinding, and must not stand in a mover
-  sector (`validate` enforces it).
+  sector (`validate` enforces it). Every kind shares the use cooldown: arcade 3 s, jukebox
+  `JUKEBOX_SECS` (the `jukebox_stinger` length, checked by an rr-tools test; the game ducks the
+  music meanwhile), payphone 1.5 s. A payphone is wall-mounted: put its centre 0.15 m (+ a hair)
+  off the wall, facing out. Its first call reports `Destruct::secrets_left`, later ones a dial tone.
 - A slider (`mover: (kind: Slide(by: (x, y)), …)`) moves its whole sector by `by`. It must be an
   island: one loop, every wall a portal into one track sector that holds it as a hole, with
   ≥ 0.05 m clearance along the whole path. Bodies standing on it ride along; one beside or under
@@ -104,7 +107,8 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   `--check` also fails on a built level (one carrying the "Built by `rr-tools build`" line) whose
   source is not among those given.
 - Episode levels hold 30-45 enemies on Normal (barrels excluded); Easy is about 2/3 of that, Hard about 1.25x.
-- `validate`'s "cannot be reached from the start" item warnings are expected only for crack-wall stashes and jetpack-only ledges. It never treats a Crack as passable, so no key may sit behind one.
+- `validate`'s "cannot be reached from the start" item warnings are expected only for crack-wall stashes and jetpack-only ledges. It never counts on a barrel or rocket to open a Crack, so no key may sit behind one; a Crack that a scripted blast on a fired (reachable) channel reaches is passable.
+- `blasts: [(channel, at: (x, y, z), radius, damage, delay)]` are scripted explosions: the first time the channel fires, each goes off once after `delay` through combat's blast queue (splash with falloff, cracks, glass, lights, `Explosion`), owned by `Shooter::World` (no self-damage discount, no infighting). `Mechanics::fire` hands them to `Combat::tick` via `take_blasts`. `validate` wants a channel source, `at` inside a sector between floor and ceiling, radius > 0, damage and delay >= 0.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 - Material names must be in `rr_core::map::KNOWN_MATERIALS` (each has a `texel()` arm); `validate` rejects others. Fill lights set `shadows: false`; keep ≤ 12 shadowed lights per level.
 
