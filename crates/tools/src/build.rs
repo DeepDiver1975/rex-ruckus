@@ -139,6 +139,9 @@ pub struct SourceLevel {
     pub blasts: Vec<RawBlast>,
     #[serde(default)]
     pub props: Vec<RawProp>,
+    /// Burrow points, in world coordinates like `lights`.
+    #[serde(default)]
+    pub burrow_points: Vec<(f32, f32)>,
 }
 
 /// Millimetre grid key.
@@ -666,6 +669,11 @@ fn emit(
         writeln!(o, "    blasts: {},", list(level.blasts.iter().map(ron))?).map_err(w)?;
     }
     writeln!(o, "    props: {},", list(level.props.iter().map(ron))?).map_err(w)?;
+    // Likewise only when there are any.
+    if !level.burrow_points.is_empty() {
+        let pts = level.burrow_points.iter().map(ron);
+        writeln!(o, "    burrow_points: {},", list(pts)?).map_err(w)?;
+    }
     writeln!(o, ")").map_err(w)?;
     Ok(o)
 }
