@@ -9,6 +9,7 @@ use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
+use rr_core::extrude::extrude_sector;
 use rr_core::fixtures::{combat_room, door_rooms, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Map, SwitchAction};
 use rr_core::mechanics::{Motion, UseTarget};
@@ -19,7 +20,7 @@ use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, PlayerVitals, inser
 use rr_game::episode::{EpisodePlugin, Stats};
 use rr_game::flow::{FlowPlugin, PlayState, load_level};
 use rr_game::fx::{FxPlugin, ScreenShake};
-use rr_game::level::CurrentMap;
+use rr_game::level::{CurrentMap, LevelMaterials, SectorMesh, load_map, rebuild_dirty_sectors};
 use rr_game::mechanics::{
     HudMessage, HudSubtitle, LevelMechanics, MechanicsSimPlugin, UsePrompt, insert_level,
 };
@@ -389,4 +390,108 @@ fn reveal_runs_every_six_ticks() {
     // Now in phase: a forgotten map comes back exactly one reveal period later.
     forget(&mut app);
     assert_eq!(ticks_to_reveal(&mut app), REVEAL_EVERY as usize);
+}
+
+/// Engine lab's platform (sector 21) and its track, the second slime pit (sector 20).
+const PLATFORM: usize = 21;
+const PIT: usize = 20;
+const FAR_LEDGE: usize = 22;
+
+fn mesh_count(app: &mut App, s: usize) -> usize {
+    let mut q = app.world_mut().query::<&SectorMesh>();
+    q.iter(app.world()).filter(|m| m.0 == s).count()
+}
+
+/// Standing on the docked platform, the player presses the landing's switch, rides across the
+/// slime pit and steps off onto the far ledge, which nothing else reaches. The renderer
+/// rebuilds the moving sectors on the way.
+#[test]
+fn the_platform_carries_the_player_across_the_pit() {
+    let mut app = app(load_map("engine_lab.ron"));
+    app.insert_resource(LevelMaterials(vec![Handle::default(); 32], Vec::new()))
+        .add_systems(Update, rebuild_dirty_sectors);
+    // On the platform's north-east corner, facing the switch by the corridor mouth.
+    teleport(&mut app, 10.3, -5.5, 80.0);
+    assert_eq!(body(&mut app).sector, PLATFORM);
+    input(&mut app).use_pressed = true;
+    ticks(&mut app, 1);
+    let mech = &app.world().resource::<LevelMechanics>().0;
+    assert!(mech.switch_on[2], "the landing switch");
+    let m = mech.mover_in(PLATFORM).unwrap();
+    assert_eq!(mech.movers[m].motion, Motion::ToEnd);
+
+    for _ in 0..60 {
+        app.update();
+        if matches!(
+            app.world().resource::<LevelMechanics>().0.movers[m].motion,
+            Motion::AtEnd { .. }
+        ) {
+            break;
+        }
+    }
+    let b = body(&mut app);
+    assert_eq!(b.sector, PLATFORM);
+    assert!(
+        b.pos.truncate().distance(Vec2::new(10.3, -9.3)) < 0.01,
+        "rode 3.8 m south to {}",
+        b.pos
+    );
+    app.update();
+    let live = app.world().resource::<CurrentMap>().0.clone();
+    for s in [PLATFORM, PIT] {
+        assert_eq!(
+            mesh_count(&mut app, s),
+            extrude_sector(&live, s).unwrap().len(),
+            "sector {s} rebuilt at the end pose"
+        );
+    }
+
+    teleport_look(&mut app, 270.0);
+    let b = walk_to(&mut app, FAR_LEDGE, 60);
+    assert_eq!(b.sector, FAR_LEDGE, "stepped off at {}", b.pos);
+    assert_eq!(b.pos.z, 0.0);
+}
+
+/// Walks the player along its heading for up to `n` ticks, until it is in sector `goal`.
+fn walk_to(app: &mut App, goal: usize, n: usize) -> Body {
+    input(app).forward = 1.0;
+    for _ in 0..n {
+        ticks(app, 1);
+        if body(app).sector == goal {
+            break;
+        }
+    }
+    input(app).forward = 0.0;
+    body(app)
+}
+
+/// The sluice gate (sector 17) hangs across the corridor south of the hall until the switch
+/// beside the doorway slides it into its pocket.
+#[test]
+fn the_sluice_gate_slides_aside_to_open_the_corridor() {
+    const LANDING: usize = 18;
+    let mut app = app(load_map("engine_lab.ron"));
+    teleport(&mut app, 9.0, 1.0, 270.0);
+    let b = walk_to(&mut app, LANDING, 120);
+    assert_eq!(b.sector, 16, "held in the corridor");
+    assert!(
+        b.pos.y >= -1.6 + b.radius - 0.01,
+        "stopped by the gate at {}",
+        b.pos
+    );
+    // The switch on the hall's south wall, east of the doorway.
+    teleport(&mut app, 11.0, 0.8, 270.0);
+    input(&mut app).use_pressed = true;
+    ticks(&mut app, 120);
+    let mech = &app.world().resource::<LevelMechanics>().0;
+    let m = mech.mover_in(17).unwrap();
+    assert!(matches!(mech.movers[m].motion, Motion::AtEnd { .. }));
+    teleport(&mut app, 9.0, 1.0, 270.0);
+    assert_eq!(walk_to(&mut app, LANDING, 120).sector, LANDING);
+}
+
+/// Turns the player to `angle_deg` where it stands.
+fn teleport_look(app: &mut App, angle_deg: f32) {
+    let mut q = app.world_mut().query::<&mut Look>();
+    q.single_mut(app.world_mut()).unwrap().angle = angle_deg.to_radians();
 }

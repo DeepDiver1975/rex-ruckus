@@ -9,6 +9,11 @@
 // grate → trigger pad (channel 7: a quake, and the collapse floor ahead drops 2 m) → down the
 // hole and south through the tunnel (rockets) → open-air boss arena (atom; the boss's death
 // ends the level).
+// Side trip south of the hall (sliders): the switch beside the south doorway (channel 8) slides
+// the sluice gate, a tall block hanging in the corridor, aside into its pocket → landing over a
+// second slime pit → the switch by the corridor mouth (channel 9) sends the platform across the
+// pit to the far ledge (a medkit), which nothing else reaches; the ledge switch calls it back. A
+// stair in the pit's west edge climbs out of the slime.
 (
     name: "Engine Lab",
     materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door"],
@@ -29,10 +34,18 @@
         (38.0, -6.0), (56.0, -6.0), (56.0, 12.0),                                     // 47-49 boss arena
         (44.0, -2.0), (44.0, 0.0), (46.0, 0.0), (46.0, -2.0),                         // 50-53 pillar
         (44.0, 6.0), (44.0, 8.0), (46.0, 8.0), (46.0, 6.0),                           // 54-57 pillar
+        (8.0, 0.0), (10.0, 0.0),                                                      // 58-59 south doorway
+        (8.0, -4.0), (10.0, -4.0), (10.0, -3.0),                                      // 60-62 gate corridor
+        (8.0, -1.5), (6.0, -1.5), (6.0, -2.5), (8.0, -2.5),                           // 63-66 gate pocket
+        (4.0, -5.0), (5.0, -5.0), (14.0, -5.0), (14.0, -4.0), (11.0, -4.0), (4.0, -4.0), // 67-72 landing
+        (4.0, -12.0), (5.0, -12.0), (7.0, -12.0), (11.0, -12.0), (14.0, -12.0),       // 73-77 stair, pit
+        (7.5, -8.1), (10.5, -8.1), (10.5, -5.1), (7.5, -5.1),                         // 78-81 platform
+        (7.0, -13.0), (11.0, -13.0),                                                  // 82-83 far ledge
+        (8.1, -2.4), (9.9, -2.4), (9.9, -1.6), (8.1, -1.6),                           // 84-87 gate
     ],
     sectors: [
         // 0 hall (start; jetpack, shotgun, armour)
-        (loops: [[0, 1, 2, 3, 4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        (loops: [[0, 58, 59, 1, 2, 3, 4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 1 doorway to the gag room
         (loops: [[6, 5, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 2 gag room (toilet, vending machine, pool table; chaingun, medkit)
@@ -68,6 +81,34 @@
         // 15 boss arena under the open sky (atom; two pillars)
         (loops: [[47, 48, 49, 46, 45], [50, 51, 52, 53], [54, 55, 56, 57]], floor_z: -2.0, ceil_z: 6.0,
          floor_mat: 1, ceil_mat: 2, wall_mat: 0),
+        // 16 gate corridor (the gate's track): south from the hall, with a pocket to the west
+        (loops: [[60, 61, 62, 59, 58, 63, 64, 65, 66], [84, 87, 86, 85]], floor_z: 0.0, ceil_z: 3.0,
+         floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 17 sluice gate: a block hanging to 0.1 m under the ceiling, 0.1 m clear of the corridor
+        // walls; slides 2 m west into the pocket on channel 8
+        (loops: [[84, 85, 86, 87]], floor_z: 2.9, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
+         mover: Some((kind: Slide(by: (-2.0, 0.0)), channel: Some(8), speed: 1.5))),
+        // 18 landing over the second pit
+        (loops: [[67, 68, 69, 70, 71, 61, 60, 72]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 19 stair out of the pit
+        (loops: [[73, 74, 68, 67]], floor_z: -0.5, ceil_z: 3.5, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        // 20 second slime pit (the platform's track), too deep to climb out of but by the stair
+        (loops: [[74, 75, 76, 77, 69, 68], [78, 81, 80, 79]], floor_z: -1.0, ceil_z: 4.0,
+         floor_mat: 1, ceil_mat: 3, wall_mat: 0,
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // 21 platform: docked 0.1 m off the landing, slides 3.8 m south to 0.1 m off the far
+        // ledge on channel 9
+        (loops: [[78, 79, 80, 81]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3,
+         mover: Some((kind: Slide(by: (0.0, -3.8)), channel: Some(9), speed: 1.5))),
+        // 22 far ledge (medkit)
+        (loops: [[82, 83, 76, 75]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+    ],
+    switches: [
+        // Gate: beside the hall's south doorway, and in the corridor south of the gate.
+        (wall: (59, 1), action: Channel(8)), (wall: (61, 62), action: Channel(8)),
+        // Platform: by the corridor mouth on the landing (in reach from the docked platform),
+        // and on the far ledge.
+        (wall: (71, 61), action: Channel(9)), (wall: (82, 83), action: Channel(9)),
     ],
     triggers: [(sector: 11, action: Channel(7))],
     quakes: [(channel: 7, duration: 3.0, strength: 0.8)],
@@ -84,6 +125,8 @@
         // East ledge, arena, tunnel, boss arena
         (kind: RocketLauncher, pos: (24.0, 2.0)), (kind: HealthSmall, pos: (17.0, 10.0)),
         (kind: Rockets, pos: (37.0, 10.0)), (kind: Atom, pos: (40.0, -4.0)),
+        // Far ledge: only the platform gets there.
+        (kind: Medkit, pos: (9.0, -12.5)),
     ],
     actors: [
         // On one line from the arena doorway: the Enforcer's volleys at the player go through
@@ -102,5 +145,7 @@
         (pos: (34.5, 15.0, 3.2), color: (0.8, 0.9, 1.0), intensity: 30000.0, range: 8.0, breakable: true),
         (pos: (37.0, 11.0, -0.4), color: (1.0, 0.6, 0.3), intensity: 20000.0, range: 8.0),
         (pos: (47.0, 3.0, 5.5), color: (1.0, 0.5, 0.4), intensity: 150000.0, range: 25.0),
+        (pos: (9.0, -0.6, 2.6), color: (0.9, 0.9, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (12.5, -8.5, 3.5), color: (0.6, 1.0, 0.6), intensity: 50000.0, range: 12.0, shadows: false),
     ],
 )
