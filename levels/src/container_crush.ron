@@ -1,0 +1,483 @@
+// Episode 2, level 1: the Port Ruckus freight harbour at night, where the hive's first breach was
+// spotted. Coordinates in metres, x = east, y = north, z = up. The quay and yards are at z 0, the
+// harbour water at z -3, the ship's main deck at z 0.5 and its bridge at z 3.5.
+// Route: the landward approach (start west, facing east) → the checkpoint lane between two glass
+// guard huts (the shotgun in the north booth) → the gate yard (a parked container truck) → the
+// west container lane (stacks one, two and three high) → the open container tunnel through the
+// stack wall → the east container lane: the demolition crew's control container in the south
+// wall (its switch fires channel 3: a rumble, then a scripted blast blows open the welded stack
+// in the east wall) → through the breach to the office forecourt → the harbour office: the lobby
+// (reception counter, vending machine, payphone) and the open stairs up to the mezzanine → the
+// manager's office and the Blue key → drop off the mezzanine where the glass rail is missing →
+// the blue door in the lobby's north wall → the back corridor → the crane yard (stacks, a
+// forklift, the maintenance shed with the jetpack; the chaingun between two stacks) → the steel
+// stairs up to the gantry crane's cabin (z 3) over the quay → onto the container platform docked
+// at the cabin's loading gate; the cabin's control panel (channel 4) sends the crane platform
+// across the dark water to the cargo ship's bridge wing → the bridge (screens, the console; the
+// Red key) → the lift down to the crew mess → the deck door → the main deck (hatch covers, deck
+// containers, the mast) → the red hatch in the forecastle → the stairs down into the hold,
+// flooded with toxic slime: south walkway, east walkway → the hive growth creeping through the
+// bow → the exit switch on the hive wall.
+// Shortcuts and recovery: the switch on the deck post (channel 6) opens the gangway gate, a way
+// back to the quay; the post on the bridge wing and the cabin panel call the platform either way;
+// a player who falls in the water rides a ladder lift (in each basin, by the quay) back up.
+// Secrets: (1) the welded container in the west lane's south wall cracks open on a blast (the
+// barrel beside it): pipe bombs and shells (validate warns its items "cannot be reached from the
+// start": a crack-wall stash, by design); (2) a crouch vent low in the manager's east wall into
+// the archive (armour, a medkit); (3) a jetpack-only ledge on top of the crane's east leg, 8 m
+// over the quay (an atom; validate warns it "cannot be reached from the start", by design).
+(
+    name: "Container Crush",
+    defaults: (floor_z: 0.0, ceil_z: 10.0, floor: "asphalt", ceil: "sky", wall: "container"),
+    music: Some("container_crush"),
+    player_start: (pos: (3.0, 19.0), angle_deg: 0.0),
+    sectors: [
+        // ---- The landward gate and the checkpoint ----
+        (id: "approach", rect: (0.0, 12.0, 8.0, 26.0),
+         holes: [[(3.0, 13.5), (6.0, 13.5), (6.0, 14.3), (3.0, 14.3)]],
+         wall: "concrete"),
+        (id: "jersey_a", rect: (3.0, 13.5, 6.0, 14.3), floor_z: 0.9, floor: "concrete", wall: "concrete", face: "concrete"),
+        // Two glass guard huts either side of the barrier lane, open on the lane side.
+        (id: "hut_s", rect: (8.0, 12.0, 12.0, 16.0), ceil_z: 2.8, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "lane", rect: (8.0, 16.0, 12.0, 22.0), ceil_z: 4.5, ceil: "metal", wall: "concrete"),
+        (id: "booth", rect: (8.0, 22.0, 12.0, 26.0), ceil_z: 2.8, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        // The gate yard: a container truck parked along the north wall, a jersey barrier; the
+        // only way on is the gap in the stack wall to the east.
+        (id: "gate_yard", poly: [(12.0, 8.0), (22.0, 8.0), (22.0, 18.0), (24.0, 18.0), (24.0, 22.0), (22.0, 22.0),
+                                 (22.0, 32.0), (12.0, 32.0)],
+         holes: [[(14.0, 27.0), (19.5, 27.0), (19.5, 29.5), (14.0, 29.5)],
+                 [(19.8, 27.2), (21.4, 27.2), (21.4, 29.3), (19.8, 29.3)],
+                 [(15.0, 11.0), (19.0, 11.0), (19.0, 11.8), (15.0, 11.8)]],
+         floor: "concrete"),
+        (id: "truck_box", rect: (14.0, 27.0, 19.5, 29.5), floor_z: 3.8, floor: "container", face: "container"),
+        (id: "truck_cab", rect: (19.8, 27.2, 21.4, 29.3), floor_z: 2.3, floor: "hull", wall: "hull", face: "hull"),
+        (id: "gy_jersey", rect: (15.0, 11.0, 19.0, 11.8), floor_z: 0.9, floor: "concrete", face: "concrete"),
+
+        // ---- West container lane: stacks one (2.6), two (5.2) and three (7.8) high ----
+        (id: "lane_w", rect: (24.0, 4.0, 42.0, 38.0),
+         holes: [[(27.0, 6.5), (33.0, 6.5), (33.0, 9.0), (27.0, 9.0)],
+                 [(27.0, 12.0), (29.5, 12.0), (29.5, 18.0), (27.0, 18.0)],
+                 [(32.0, 12.0), (38.0, 12.0), (38.0, 14.5), (32.0, 14.5)],
+                 [(27.0, 24.0), (33.0, 24.0), (33.0, 26.5), (27.0, 26.5)],
+                 [(35.0, 17.0), (37.5, 17.0), (37.5, 29.0), (35.0, 29.0)],
+                 [(27.0, 30.0), (33.0, 30.0), (33.0, 32.5), (27.0, 32.5)],
+                 [(36.0, 32.5), (39.0, 32.5), (39.0, 35.0), (36.0, 35.0)]]),
+        (id: "c1", rect: (27.0, 6.5, 33.0, 9.0), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "c2", rect: (27.0, 12.0, 29.5, 18.0), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "c3", rect: (32.0, 12.0, 38.0, 14.5), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "c4", rect: (27.0, 24.0, 33.0, 26.5), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "c5", rect: (35.0, 17.0, 37.5, 29.0), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "c6", rect: (27.0, 30.0, 33.0, 32.5), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "c7", rect: (36.0, 32.5, 39.0, 35.0), floor_z: 7.8, floor: "container", face: "container"),
+        // Secret 1: a welded container in the south wall cracks open on a blast (the barrel
+        // beside it): the stash inside.
+        (id: "weld", rect: (35.0, 3.6, 37.5, 4.0), ceil_z: 2.5, floor: "metal", ceil: "metal",
+         mover: (kind: Crack)),
+        (id: "stash", rect: (34.8, -2.2, 37.7, 3.6), ceil_z: 2.5, floor: "metal", ceil: "metal", secret: true),
+        // The open container tunnel through the stack wall between the lanes.
+        (id: "tunnel", rect: (42.0, 19.0, 48.0, 21.5), ceil_z: 2.5, floor: "metal", ceil: "metal"),
+
+        // ---- East container lane ----
+        (id: "lane_e", rect: (48.0, 4.0, 66.0, 38.0),
+         holes: [[(51.0, 7.0), (57.0, 7.0), (57.0, 9.5), (51.0, 9.5)],
+                 [(60.0, 6.5), (62.5, 6.5), (62.5, 12.5), (60.0, 12.5)],
+                 [(51.0, 13.0), (53.5, 13.0), (53.5, 25.0), (51.0, 25.0)],
+                 [(56.5, 15.5), (62.5, 15.5), (62.5, 18.0), (56.5, 18.0)],
+                 [(57.0, 24.0), (63.0, 24.0), (63.0, 26.5), (57.0, 26.5)],
+                 [(51.0, 30.0), (57.0, 30.0), (57.0, 32.5), (51.0, 32.5)],
+                 [(60.0, 30.0), (62.5, 30.0), (62.5, 35.5), (60.0, 35.5)]]),
+        (id: "d1", rect: (51.0, 7.0, 57.0, 9.5), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "d2", rect: (60.0, 6.5, 62.5, 12.5), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "d3", rect: (51.0, 13.0, 53.5, 25.0), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "d4", rect: (56.5, 15.5, 62.5, 18.0), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "d5", rect: (57.0, 24.0, 63.0, 26.5), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "d6", rect: (51.0, 30.0, 57.0, 32.5), floor_z: 7.8, floor: "container", face: "container"),
+        (id: "d7", rect: (60.0, 30.0, 62.5, 35.5), floor_z: 2.6, floor: "container", face: "container"),
+        // The demolition crew's control container in the south wall, its walls lined with
+        // monitors; the switch on its back wall fires channel 3.
+        (id: "detonator", rect: (55.0, -2.0, 57.5, 4.0), ceil_z: 2.5, floor: "metal", ceil: "metal", wall: "screen"),
+        // The welded stack in the east wall: blast 0 (channel 3) blows it open.
+        (id: "breach", rect: (66.0, 18.0, 66.75, 22.0), ceil_z: 3.5, floor: "concrete", ceil: "container",
+         mover: (kind: Crack)),
+
+        // ---- Office forecourt and the harbour office ----
+        (id: "forecourt", rect: (66.75, 8.0, 74.0, 34.0),
+         holes: [[(69.0, 26.0), (70.5, 26.0), (70.5, 28.5), (69.0, 28.5)],
+                 [(72.5, 10.0), (72.9, 10.0), (72.9, 10.4), (72.5, 10.4)]]),
+        (id: "forklift_f", rect: (69.0, 26.0, 70.5, 28.5), floor_z: 1.6, floor: "metal", wall: "metal", face: "metal"),
+        // The glass front: the doorway and two window sills, glazed on the forecourt side.
+        (id: "entrance", rect: (74.0, 19.0, 75.0, 23.0), ceil_z: 3.0, floor: "tile", ceil: "metal", wall: "storefront"),
+        (id: "win_s", rect: (74.0, 13.0, 75.0, 18.0), floor_z: 0.9, ceil_z: 3.0, floor: "metal", ceil: "metal",
+         wall: "storefront", face: "storefront"),
+        (id: "win_n", rect: (74.0, 24.0, 75.0, 29.0), floor_z: 0.9, ceil_z: 3.0, floor: "metal", ceil: "metal",
+         wall: "storefront", face: "storefront"),
+        // The lobby: a double-height atrium (reception counter, two pillars), the mezzanine
+        // over its east side.
+        (id: "lobby", rect: (75.0, 12.0, 88.0, 30.0),
+         holes: [[(80.0, 22.0), (84.0, 22.0), (84.0, 23.0), (80.0, 23.0)],
+                 [(78.0, 15.5), (78.8, 15.5), (78.8, 16.3), (78.0, 16.3)],
+                 [(84.0, 15.5), (84.8, 15.5), (84.8, 16.3), (84.0, 16.3)]],
+         ceil_z: 7.5, floor: "tile", ceil: "ceiling_tile", wall: "concrete"),
+        (id: "counter", rect: (80.0, 22.0, 84.0, 23.0), floor_z: 1.1, ceil_z: 7.5, floor: "wood", wall: "wood", face: "wood"),
+        // The mezzanine (z 3.5): glass rail along the south half of its edge, open beyond.
+        (id: "mezz", poly: [(88.0, 21.0), (100.0, 21.0), (100.0, 30.0), (88.0, 30.0), (88.0, 26.0)],
+         holes: [[(93.0, 25.0), (96.0, 25.0), (96.0, 26.5), (93.0, 26.5)]],
+         floor_z: 3.5, ceil_z: 7.5, floor: "carpet", ceil: "ceiling_tile", wall: "concrete", face: "concrete"),
+        (id: "desk1", rect: (93.0, 25.0, 96.0, 26.5), floor_z: 4.5, ceil_z: 7.5, floor: "wood", wall: "wood", face: "wood"),
+        (id: "manager_door", rect: (95.0, 20.5, 97.0, 21.0), floor_z: 3.5, ceil_z: 6.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door)),
+        (id: "manager", rect: (92.0, 12.0, 100.0, 20.5), floor_z: 3.5, ceil_z: 6.0, floor: "carpet", ceil: "wood", wall: "wood"),
+        // Secret 2: a crouch vent low in the manager's east wall (0.5 up, 1.2 high), into the
+        // archive.
+        (id: "vent", rect: (100.0, 15.0, 101.5, 17.0), floor_z: 4.0, ceil_z: 5.2, floor: "grate", ceil: "metal", wall: "grate"),
+        (id: "archive", rect: (101.5, 13.0, 106.0, 19.0), floor_z: 4.0, ceil_z: 6.0, floor: "concrete", ceil: "concrete",
+         wall: "wood", secret: true),
+        (id: "blue_door", rect: (78.0, 30.0, 82.0, 30.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Blue)),
+        (id: "office_back", rect: (78.0, 30.5, 82.0, 40.0), ceil_z: 3.5, floor: "concrete", ceil: "metal", wall: "concrete"),
+
+        // ---- Crane yard and quay: the quay edge is y 58 ----
+        // The notch at x 32-38.5 is the crane's west leg: the stairs and cabin inside it.
+        (id: "yard", poly: [(22.0, 40.0), (100.0, 40.0), (100.0, 58.0), (38.5, 58.0), (38.5, 44.8), (32.0, 44.8),
+                            (32.0, 58.0), (14.0, 58.0), (14.0, 52.0), (22.0, 52.0)],
+         holes: [[(24.0, 42.0), (30.0, 42.0), (30.0, 44.5), (24.0, 44.5)],
+                 [(52.0, 42.0), (58.0, 42.0), (58.0, 44.5), (52.0, 44.5)],
+                 [(54.0, 48.0), (56.5, 48.0), (56.5, 54.0), (54.0, 54.0)],
+                 [(64.0, 41.5), (66.5, 41.5), (66.5, 50.0), (64.0, 50.0)],
+                 [(70.0, 46.0), (76.0, 46.0), (76.0, 48.5), (70.0, 48.5)],
+                 [(86.0, 42.5), (92.0, 42.5), (92.0, 45.0), (86.0, 45.0)],
+                 [(88.0, 49.0), (94.0, 49.0), (94.0, 51.5), (88.0, 51.5)],
+                 [(60.0, 51.0), (61.5, 51.0), (61.5, 53.5), (60.0, 53.5)],
+                 [(26.0, 56.9), (26.6, 56.9), (26.6, 57.5), (26.0, 57.5)],
+                 [(57.0, 56.9), (57.6, 56.9), (57.6, 57.5), (57.0, 57.5)],
+                 [(39.5, 55.0), (41.5, 55.0), (41.5, 57.4), (39.5, 57.4)],
+                 // Light poles.
+                 [(29.0, 50.0), (29.4, 50.0), (29.4, 50.4), (29.0, 50.4)],
+                 [(68.0, 54.0), (68.4, 54.0), (68.4, 54.4), (68.0, 54.4)],
+                 [(82.0, 47.0), (82.4, 47.0), (82.4, 47.4), (82.0, 47.4)]],
+         floor: "concrete"),
+        (id: "ys1", rect: (24.0, 42.0, 30.0, 44.5), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "ys3", rect: (52.0, 42.0, 58.0, 44.5), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "ys4", rect: (54.0, 48.0, 56.5, 54.0), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "ys5", rect: (64.0, 41.5, 66.5, 50.0), floor_z: 7.8, floor: "container", face: "container"),
+        (id: "ys6", rect: (70.0, 46.0, 76.0, 48.5), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "ys7", rect: (86.0, 42.5, 92.0, 45.0), floor_z: 2.6, floor: "container", face: "container"),
+        (id: "ys8", rect: (88.0, 49.0, 94.0, 51.5), floor_z: 5.2, floor: "container", face: "container"),
+        (id: "forklift", rect: (60.0, 51.0, 61.5, 53.5), floor_z: 1.6, floor: "metal", wall: "metal", face: "metal"),
+        (id: "bollard1", rect: (26.0, 56.9, 26.6, 57.5), floor_z: 0.7, floor: "metal", wall: "metal", face: "metal"),
+        (id: "bollard2", rect: (57.0, 56.9, 57.6, 57.5), floor_z: 0.7, floor: "metal", wall: "metal", face: "metal"),
+        // Secret 3: the top of the crane's east leg, 8 m up (jetpack only).
+        (id: "jib_ledge", rect: (39.5, 55.0, 41.5, 57.4), floor_z: 8.0, floor: "grate", wall: "metal", face: "rail",
+         secret: true),
+        (id: "cabin", rect: (33.0, 53.5, 37.5, 58.0), floor_z: 3.0, ceil_z: 6.0, floor: "grate", ceil: "metal", wall: "screen",
+         face: "metal"),
+        // The maintenance shed against the yard's south wall (the jetpack).
+        (id: "shed_door", rect: (44.0, 39.5, 46.0, 40.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "shed", rect: (42.5, 31.0, 47.5, 39.5), ceil_z: 4.0, floor: "concrete", ceil: "pipe", wall: "pipe"),
+
+        // ---- Harbour water (z -3) ----
+        // The west basin is the crane platform's track.
+        (id: "basin_w", poly: [(18.0, 58.0), (19.0, 58.0), (19.0, 59.5), (21.0, 59.5), (21.0, 58.0), (62.0, 58.0),
+                               (62.0, 74.0), (18.0, 74.0)],
+         holes: [[(33.25, 58.1), (37.25, 58.1), (37.25, 62.1), (33.25, 62.1)]],
+         floor_z: -3.0, floor: "water", wall: "concrete", face: "concrete"),
+        // The crane platform: a container on the spreader, docked 0.1 m off the cabin's loading
+        // gate; slides 11.8 m north to 0.1 m off the bridge wing on channel 4.
+        (id: "platform", rect: (33.25, 58.1, 37.25, 62.1), floor_z: 3.0, floor: "container", wall: "container",
+         face: "container", mover: (kind: Slide(by: (0.0, 11.8)), channel: 4, speed: 2.0)),
+        (id: "ladder_w", rect: (19.0, 58.0, 21.0, 59.5), floor_z: -3.0, floor: "grate", wall: "concrete", face: "rail",
+         mover: (kind: Lift(to: 0.0), speed: 2.0, auto_return: 4.0)),
+        (id: "basin_e", poly: [(64.0, 58.0), (90.0, 58.0), (90.0, 59.5), (92.0, 59.5), (92.0, 58.0), (96.0, 58.0),
+                               (96.0, 74.0), (64.0, 74.0)],
+         floor_z: -3.0, floor: "water", wall: "hull", face: "hull"),
+        (id: "ladder_e", rect: (90.0, 58.0, 92.0, 59.5), floor_z: -3.0, floor: "grate", wall: "concrete", face: "rail",
+         mover: (kind: Lift(to: 0.0), speed: 2.0, auto_return: 4.0)),
+        // The gangway, its gate at the ship end (channel 6, from the deck).
+        (id: "gangway", rect: (62.0, 58.0, 64.0, 73.5), floor_z: 0.25, floor: "grate", wall: "rail", face: "rail"),
+        (id: "gang_gate", rect: (62.0, 73.5, 64.0, 74.0), floor_z: 0.5, ceil_z: 3.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door, channel: 6)),
+        // Seaward of the ship, out to the breakwater.
+        (id: "sea", rect: (14.0, 94.0, 100.0, 100.0), floor_z: -3.0, floor: "water", wall: "concrete", face: "hull"),
+
+        // ---- The cargo ship: superstructure aft (west), the main deck, the forecastle ----
+        (id: "bridge_wing", rect: (31.0, 74.0, 40.0, 78.0),
+         holes: [[(32.0, 74.4), (33.2, 74.4), (33.2, 75.0), (32.0, 75.0)]],
+         floor_z: 3.5, floor: "grate", wall: "hull", face: "hull"),
+        // The bridge: glass to the wing either side of its doorway, glass over the main deck.
+        (id: "bridge", poly: [(28.0, 78.0), (31.0, 78.0), (34.0, 78.0), (36.0, 78.0), (40.0, 78.0), (40.0, 86.0), (28.0, 86.0)],
+         holes: [[(31.0, 82.0), (37.0, 82.0), (37.0, 83.0), (31.0, 83.0)]],
+         floor_z: 3.5, ceil_z: 6.5, floor: "metal", ceil: "metal", wall: "screen", face: "hull"),
+        (id: "console", rect: (31.0, 82.0, 37.0, 83.0), floor_z: 4.5, ceil_z: 6.5, floor: "metal", wall: "metal", face: "screen"),
+        (id: "bridge_lift", rect: (28.5, 86.0, 31.0, 89.0), floor_z: 3.5, ceil_z: 6.5, floor: "metal", ceil: "metal",
+         wall: "metal", face: "metal", mover: (kind: Lift(to: 0.5), speed: 2.5)),
+        (id: "mess", rect: (31.0, 86.5, 39.5, 93.0),
+         holes: [[(33.0, 89.0), (36.5, 89.0), (36.5, 90.5), (33.0, 90.5)]],
+         floor_z: 0.5, ceil_z: 3.2, floor: "tile", ceil: "ceiling_tile", wall: "metal"),
+        (id: "mess_table", rect: (33.0, 89.0, 36.5, 90.5), floor_z: 1.25, ceil_z: 3.2, floor: "wood", wall: "wood", face: "wood"),
+        (id: "mess_door", rect: (39.5, 89.0, 40.0, 91.0), floor_z: 0.5, ceil_z: 3.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door)),
+        (id: "crew_door", rect: (30.5, 90.0, 31.0, 92.0), floor_z: 0.5, ceil_z: 2.8, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door)),
+        (id: "crew", rect: (20.0, 89.5, 30.5, 93.0),
+         holes: [[(27.0, 91.3), (30.0, 91.3), (30.0, 92.8), (27.0, 92.8)]],
+         floor_z: 0.5, ceil_z: 3.0, floor: "carpet", ceil: "wood", wall: "wood"),
+        (id: "bunk", rect: (27.0, 91.3, 30.0, 92.8), floor_z: 1.1, ceil_z: 3.0, floor: "velvet", wall: "wood", face: "wood"),
+        // The main deck: two hatch covers, three deck containers, the mast, the gangway post.
+        (id: "deck", rect: (40.0, 74.0, 70.0, 93.5),
+         holes: [[(44.0, 81.0), (52.0, 81.0), (52.0, 87.0), (44.0, 87.0)],
+                 [(55.0, 81.0), (63.0, 81.0), (63.0, 87.0), (55.0, 87.0)],
+                 [(45.0, 89.5), (51.0, 89.5), (51.0, 92.0), (45.0, 92.0)],
+                 [(52.0, 76.5), (58.0, 76.5), (58.0, 79.0), (52.0, 79.0)],
+                 [(62.0, 89.0), (68.0, 89.0), (68.0, 91.5), (62.0, 91.5)],
+                 [(53.1, 83.6), (53.9, 83.6), (53.9, 84.4), (53.1, 84.4)],
+                 [(64.6, 74.8), (65.4, 74.8), (65.4, 75.6), (64.6, 75.6)]],
+         floor_z: 0.5, floor: "metal", wall: "hull", face: "hull"),
+        (id: "hatch1", rect: (44.0, 81.0, 52.0, 87.0), floor_z: 1.5, floor: "metal", wall: "hull", face: "hull"),
+        (id: "hatch2", rect: (55.0, 81.0, 63.0, 87.0), floor_z: 1.5, floor: "metal", wall: "hull", face: "hull"),
+        (id: "dc1", rect: (45.0, 89.5, 51.0, 92.0), floor_z: 3.1, floor: "container", face: "container"),
+        (id: "dc2", rect: (52.0, 76.5, 58.0, 79.0), floor_z: 3.1, floor: "container", face: "container"),
+        (id: "dc3", rect: (62.0, 89.0, 68.0, 91.5), floor_z: 3.1, floor: "container", face: "container"),
+        (id: "bulwark", rect: (40.0, 93.5, 70.0, 94.0), floor_z: 2.2, floor: "metal", wall: "hull", face: "hull"),
+        (id: "red_door", rect: (70.0, 82.0, 70.5, 86.0), floor_z: 0.5, ceil_z: 3.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door, lock: Red)),
+
+        // ---- The hold (walkways z -2.5 over toxic slime at z -3.5) and the hive breach ----
+        (id: "h_land", rect: (78.5, 76.0, 82.5, 93.5), floor_z: -2.5, ceil_z: 4.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "h_walk_s", rect: (82.5, 76.0, 96.0, 78.5), floor_z: -2.5, ceil_z: 4.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "h_walk_n", rect: (82.5, 91.0, 96.0, 93.5), floor_z: -2.5, ceil_z: 4.0, floor: "grate", ceil: "hull", wall: "hull"),
+        (id: "h_east", rect: (93.0, 78.5, 96.0, 91.0), floor_z: -2.5, ceil_z: 4.0, floor: "grate", ceil: "hull", wall: "hive"),
+        (id: "h_slime", rect: (82.5, 78.5, 93.0, 91.0),
+         holes: [[(86.0, 83.0), (89.5, 83.0), (89.5, 87.0), (86.0, 87.0)]],
+         floor_z: -3.5, ceil_z: 4.0, floor: "slime", ceil: "hull", wall: "hull", face: "hull",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "crates", rect: (86.0, 83.0, 89.5, 87.0), floor_z: -1.0, ceil_z: 4.0, floor: "wood", wall: "wood", face: "wood"),
+        (id: "hive_mouth", rect: (96.0, 83.0, 98.0, 87.0), floor_z: -2.75, ceil_z: 3.0, floor: "hive", ceil: "hive", wall: "hive",
+         face: "hive"),
+        (id: "hive_den", poly: [(98.0, 80.0), (104.0, 80.0), (104.0, 84.0), (104.0, 86.0), (104.0, 90.0), (98.0, 90.0)],
+         holes: [[(100.0, 87.5), (101.2, 87.5), (101.2, 88.7), (100.0, 88.7)]],
+         floor_z: -3.0, ceil_z: 3.5, floor: "hive", ceil: "hive", wall: "hive", face: "hive"),
+        (id: "pod", rect: (100.0, 87.5, 101.2, 88.7), floor_z: -1.8, ceil_z: 3.5, floor: "hive", wall: "hive", face: "hive"),
+    ],
+    stairs: [
+        // The lobby up north to the mezzanine (z 3.5), open on the lobby side.
+        (id: "office_stairs", rect: (88.0, 12.0, 91.0, 21.0), dir: N, steps: 6, from_z: 0.5, to_z: 3.0, ceil_z: 7.5,
+         floor: "carpet", ceil: "ceiling_tile", wall: "concrete"),
+        // The yard up north inside the crane leg to the cabin (z 3).
+        (id: "cabin_stairs", rect: (34.0, 44.8, 36.5, 53.5), dir: N, steps: 5, from_z: 0.5, to_z: 2.5, ceil_z: 10.0,
+         floor: "grate", ceil: "sky", wall: "metal"),
+        // The red hatch down east into the hold (z -2.5).
+        (id: "hold_stairs", rect: (70.5, 82.0, 78.5, 86.0), dir: E, steps: 5, from_z: 0.0, to_z: -2.0, ceil_z: 3.0,
+         floor: "grate", ceil: "hull", wall: "hull"),
+    ],
+    switches: [
+        // The detonator: channel 3 (the breach).
+        (wall: ((55.0, -2.0), (57.5, -2.0)), sector: "detonator", action: Channel(3)),
+        // The crane cabin's panel on its west wall, in reach from the docked platform: channel 4.
+        (wall: ((33.0, 53.5), (33.0, 58.0)), sector: "cabin", action: Channel(4)),
+        // The call post on the bridge wing, in reach from the docked platform: channel 4.
+        (wall: ((32.0, 74.4), (33.2, 74.4)), sector: "bridge_wing", action: Channel(4)),
+        // The gangway post on the main deck: channel 6 (the gangway gate).
+        (wall: ((64.6, 74.8), (64.6, 75.6)), sector: "deck", action: Channel(6)),
+        // The exit, on the hive wall.
+        (wall: ((104.0, 84.0), (104.0, 86.0)), sector: "hive_den", action: Exit),
+    ],
+    triggers: [
+        // The hive stirs under the hold: a rumble as Rex comes down the stairs.
+        (sector: "h_land", action: Channel(7)),
+    ],
+    quakes: [
+        (channel: 3, duration: 1.4, strength: 0.6),
+        (channel: 7, duration: 2.5, strength: 0.5),
+    ],
+    // In the forecourt, 1.75 m behind the welded stack: the closed crack shields the lane.
+    blasts: [(channel: 3, at: (68.5, 20.0, 1.0), radius: 3.0, damage: 40, delay: 0.6)],
+    glass: [
+        // The guard huts' windows.
+        ((8.0, 12.0), (8.0, 16.0)), ((12.0, 12.0), (12.0, 16.0)),
+        ((8.0, 22.0), (8.0, 26.0)), ((12.0, 22.0), (12.0, 26.0)),
+        // The office's glass front and the mezzanine rail.
+        ((74.0, 13.0), (74.0, 18.0)), ((74.0, 24.0), (74.0, 29.0)),
+        ((88.0, 21.0), (88.0, 26.0)),
+        // The bridge: either side of the wing doorway, and over the main deck.
+        ((31.0, 78.0), (34.0, 78.0)), ((36.0, 78.0), (40.0, 78.0)),
+        ((40.0, 78.0), (40.0, 86.0)),
+    ],
+    props: [
+        // Lobby: the vending machine and the payphone on the north wall.
+        (kind: Vending, pos: (85.5, 29.5), angle_deg: 270.0, stock: 3),
+        (kind: Payphone, pos: (76.8, 29.84), angle_deg: 270.0),
+        // The crew mess: an arcade cabinet and a vending machine on the north wall.
+        (kind: Arcade, pos: (33.5, 92.55), angle_deg: 270.0),
+        (kind: Vending, pos: (38.5, 92.5), angle_deg: 270.0, stock: 2),
+        // The crew cabin: the head and the jukebox.
+        (kind: Toilet, pos: (20.4, 90.3), angle_deg: 0.0),
+        (kind: Jukebox, pos: (24.0, 92.6), angle_deg: 270.0),
+    ],
+    items: [
+        // Checkpoint: the shotgun in the north booth, ammo and health in the south hut.
+        (kind: Shotgun, pos: (10.0, 24.5)),
+        (kind: PistolAmmo, pos: (9.2, 13.0)),
+        (kind: HealthSmall, pos: (11.0, 13.0)),
+        (kind: ShotgunShells, pos: (13.5, 30.5)),
+        // West lane.
+        (kind: ShotgunShells, pos: (25.5, 21.0)),
+        (kind: HealthSmall, pos: (34.0, 31.0)),
+        (kind: PistolAmmo, pos: (40.5, 36.5)),
+        // Secret 1: the welded container.
+        (kind: PipeBombs, pos: (36.2, 0.5)),
+        (kind: ShotgunShells, pos: (36.2, -1.4)),
+        // The tunnel, the east lane, the detonator.
+        (kind: Armour, pos: (45.0, 20.25)),
+        (kind: ShotgunShells, pos: (49.5, 5.5)),
+        (kind: HealthSmall, pos: (64.5, 36.5)),
+        (kind: PistolAmmo, pos: (56.2, -1.0)),
+        // Forecourt, lobby, mezzanine.
+        (kind: Medkit, pos: (68.0, 32.5)),
+        (kind: ShotgunShells, pos: (86.5, 28.0)),
+        (kind: PistolAmmo, pos: (76.0, 13.0)),
+        (kind: HealthSmall, pos: (89.0, 28.8)),
+        // The manager's office: the Blue key.
+        (kind: Key(Blue), pos: (96.0, 14.5)),
+        (kind: ShotgunShells, pos: (99.0, 19.5)),
+        // Secret 2: the archive.
+        (kind: Armour, pos: (104.0, 16.0)),
+        (kind: Medkit, pos: (103.0, 14.0)),
+        (kind: HealthSmall, pos: (80.0, 35.0)),
+        // Crane yard: the chaingun between two stacks; the shed's jetpack.
+        (kind: Chaingun, pos: (55.2, 46.2)),
+        (kind: PistolAmmo, pos: (25.0, 54.0)),
+        (kind: PistolAmmo, pos: (93.0, 47.0)),
+        (kind: ShotgunShells, pos: (75.0, 44.0)),
+        (kind: HealthSmall, pos: (98.5, 56.0)),
+        (kind: Jetpack, pos: (46.0, 37.8)),
+        (kind: Medkit, pos: (43.5, 38.0)),
+        (kind: ShotgunShells, pos: (36.8, 54.2)),
+        // Secret 3: the jib ledge.
+        (kind: Atom, pos: (40.5, 56.2)),
+        // The ship: the Red key on the bridge.
+        (kind: Key(Red), pos: (34.0, 84.5)),
+        (kind: Armour, pos: (29.5, 79.0)),
+        (kind: Medkit, pos: (32.0, 87.5)),
+        (kind: PistolAmmo, pos: (22.5, 90.5)),
+        (kind: PistolAmmo, pos: (45.0, 76.5)),
+        (kind: ShotgunShells, pos: (68.5, 92.5)),
+        (kind: HealthSmall, pos: (41.5, 75.5)),
+        // The hold and the hive.
+        (kind: ShotgunShells, pos: (80.5, 77.5)),
+        (kind: PistolAmmo, pos: (95.0, 92.5)),
+        (kind: HealthSmall, pos: (94.5, 79.5)),
+        (kind: Medkit, pos: (80.5, 92.5)),
+        (kind: ShotgunShells, pos: (99.0, 89.0)),
+    ],
+    actors: [
+        // Gate yard.
+        (kind: Grunt, pos: (17.0, 20.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (17.0, 31.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (23.0, 20.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (14.0, 14.0), angle_deg: 90.0, skill: Hard),
+        // West lane.
+        (kind: Grunt, pos: (30.0, 10.5), angle_deg: 90.0),
+        (kind: Grunt, pos: (34.0, 22.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (40.0, 8.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (39.5, 26.0), angle_deg: 180.0, skill: Normal),
+        (kind: Drone, pos: (30.0, 28.0), angle_deg: 0.0, skill: Normal),
+        (kind: Grunt, pos: (25.5, 36.0), angle_deg: 0.0, skill: Hard),
+        (kind: Barrel, pos: (38.6, 5.0)),
+        // East lane.
+        (kind: Grunt, pos: (55.0, 12.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (64.0, 28.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (64.5, 8.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (59.0, 21.0), angle_deg: 180.0, skill: Normal),
+        (kind: Drone, pos: (54.0, 28.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (49.0, 37.0)),
+        // Forecourt: awake after the blast.
+        (kind: Grunt, pos: (71.0, 15.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (71.5, 30.5), angle_deg: 180.0, skill: Normal),
+        // Office: the lobby, the mezzanine, the manager's office.
+        (kind: Grunt, pos: (82.0, 25.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (79.0, 27.5), angle_deg: 180.0, skill: Normal),
+        (kind: Slasher, pos: (77.0, 14.0), angle_deg: 0.0, skill: Hard),
+        (kind: Grunt, pos: (92.0, 28.5), angle_deg: 180.0),
+        (kind: Enforcer, pos: (98.0, 23.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (96.0, 16.5), angle_deg: 90.0, skill: Normal),
+        // Crane yard and quay.
+        (kind: Enforcer, pos: (45.0, 49.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (62.0, 46.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (78.0, 52.0), angle_deg: 180.0),
+        (kind: Drone, pos: (50.0, 54.0), angle_deg: 0.0),
+        (kind: Grunt, pos: (96.0, 44.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (84.0, 55.0), angle_deg: 180.0, skill: Normal),
+        (kind: Slasher, pos: (72.0, 43.0), angle_deg: 180.0, skill: Hard),
+        (kind: Drone, pos: (90.0, 54.0), angle_deg: 180.0, skill: Hard),
+        (kind: Grunt, pos: (35.25, 55.2), angle_deg: 270.0, skill: Normal),
+        (kind: Barrel, pos: (59.0, 55.5)),
+        // The shed.
+        (kind: Slasher, pos: (45.0, 34.0), angle_deg: 90.0),
+        (kind: Barrel, pos: (43.3, 32.0)),
+        // The bridge, the mess, the crew cabin.
+        (kind: Enforcer, pos: (38.5, 84.5), angle_deg: 180.0),
+        (kind: Grunt, pos: (29.5, 84.0), angle_deg: 0.0, skill: Hard),
+        (kind: Slasher, pos: (35.0, 88.0), angle_deg: 0.0),
+        (kind: Grunt, pos: (22.0, 91.0), angle_deg: 0.0, skill: Normal),
+        // Main deck.
+        (kind: Grunt, pos: (49.0, 78.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (66.0, 85.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (53.5, 88.3), angle_deg: 270.0),
+        (kind: Drone, pos: (58.0, 88.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (67.0, 79.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (68.8, 87.5)),
+        // The hold and the hive.
+        (kind: Slasher, pos: (80.5, 90.0), angle_deg: 270.0),
+        (kind: Slasher, pos: (90.0, 77.2), angle_deg: 180.0),
+        (kind: Drone, pos: (88.0, 89.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (94.5, 84.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (94.5, 89.5), angle_deg: 270.0, skill: Normal),
+        (kind: Slasher, pos: (89.0, 92.2), angle_deg: 180.0, skill: Hard),
+        (kind: Drone, pos: (84.0, 80.5), angle_deg: 0.0, skill: Hard),
+        (kind: Barrel, pos: (95.0, 77.2)),
+        (kind: Slasher, pos: (101.0, 84.5), angle_deg: 180.0),
+        (kind: Slasher, pos: (102.5, 82.0), angle_deg: 180.0, skill: Hard),
+    ],
+    lights: [
+        // Night: sodium lamps over the gate, floods over the lanes and the yard (shadowed).
+        (pos: (20.0, 13.0, 7.0), color: (1.0, 0.7, 0.35), intensity: 500000.0, range: 20.0),
+        (pos: (33.0, 21.0, 9.0), color: (0.7, 0.8, 1.0), intensity: 1000000.0, range: 28.0),
+        (pos: (57.0, 21.0, 9.0), color: (1.0, 0.72, 0.4), intensity: 1000000.0, range: 28.0),
+        (pos: (81.0, 20.0, 7.0), color: (1.0, 0.95, 0.85), intensity: 500000.0, range: 20.0),
+        (pos: (29.2, 50.2, 9.5), color: (1.0, 0.7, 0.35), intensity: 1800000.0, range: 32.0),
+        (pos: (68.2, 54.2, 9.5), color: (1.0, 0.7, 0.35), intensity: 1800000.0, range: 32.0),
+        (pos: (82.2, 47.2, 9.5), color: (0.75, 0.85, 1.0), intensity: 1500000.0, range: 30.0),
+        (pos: (53.5, 84.0, 9.5), color: (1.0, 0.85, 0.6), intensity: 1800000.0, range: 30.0),
+        (pos: (34.0, 81.0, 6.0), color: (0.4, 0.8, 1.0), intensity: 150000.0, range: 12.0),
+        (pos: (87.75, 85.0, 3.6), color: (0.45, 1.0, 0.35), intensity: 700000.0, range: 20.0),
+        (pos: (101.0, 85.0, 3.0), color: (0.7, 1.0, 0.4), intensity: 200000.0, range: 12.0),
+        // Fills: the huts, the lane canopy, the tunnel, the stash, the detonator's screens.
+        (pos: (10.0, 14.0, 2.5), color: (0.9, 0.95, 1.0), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (10.0, 24.0, 2.5), color: (0.9, 0.95, 1.0), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (10.0, 19.0, 4.2), color: (1.0, 0.85, 0.6), intensity: 40000.0, range: 8.0, shadows: false),
+        (pos: (45.0, 20.25, 2.3), color: (1.0, 0.6, 0.3), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (36.2, 0.5, 2.2), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (56.25, 1.0, 2.2), color: (0.4, 0.9, 1.0), intensity: 30000.0, range: 7.0, shadows: false),
+        // The forecourt lamp, the mezzanine, the manager's office, the archive, the back corridor.
+        (pos: (72.7, 10.2, 6.0), color: (1.0, 0.7, 0.35), intensity: 300000.0, range: 18.0, shadows: false),
+        (pos: (94.0, 27.0, 7.0), color: (1.0, 0.95, 0.85), intensity: 120000.0, range: 12.0, shadows: false),
+        (pos: (96.0, 16.0, 5.7), color: (1.0, 0.85, 0.6), intensity: 60000.0, range: 9.0, shadows: false),
+        (pos: (103.75, 16.0, 5.7), color: (1.0, 0.85, 0.6), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (80.0, 35.0, 3.2), color: (0.9, 0.95, 1.0), intensity: 30000.0, range: 7.0, shadows: false),
+        // The shed, the crane cabin, the jib ledge's warning lamp.
+        (pos: (45.0, 35.0, 3.7), color: (1.0, 0.9, 0.7), intensity: 50000.0, range: 9.0, shadows: false),
+        (pos: (35.25, 55.75, 5.7), color: (0.4, 0.9, 1.0), intensity: 40000.0, range: 7.0, shadows: false),
+        (pos: (40.5, 56.2, 9.5), color: (1.0, 0.25, 0.2), intensity: 40000.0, range: 8.0, shadows: false),
+        // Moonlight over the water, the ship's deck lamps.
+        (pos: (40.0, 66.0, 8.0), color: (0.5, 0.65, 1.0), intensity: 600000.0, range: 26.0, shadows: false),
+        (pos: (80.0, 66.0, 8.0), color: (0.5, 0.65, 1.0), intensity: 600000.0, range: 26.0, shadows: false),
+        (pos: (57.0, 97.0, 6.0), color: (0.5, 0.65, 1.0), intensity: 300000.0, range: 22.0, shadows: false),
+        (pos: (35.5, 76.0, 7.0), color: (1.0, 0.85, 0.6), intensity: 120000.0, range: 12.0, shadows: false),
+        (pos: (67.0, 84.0, 4.0), color: (1.0, 0.3, 0.25), intensity: 60000.0, range: 9.0, shadows: false),
+        // The mess, the crew cabin, the stairs into the hold.
+        (pos: (35.25, 89.75, 3.0), color: (1.0, 0.9, 0.75), intensity: 50000.0, range: 9.0, shadows: false),
+        (pos: (25.0, 91.25, 2.8), color: (1.0, 0.8, 0.6), intensity: 30000.0, range: 7.0, shadows: false),
+        (pos: (74.5, 84.0, 2.6), color: (1.0, 0.3, 0.25), intensity: 30000.0, range: 7.0, shadows: false),
+    ],
+)
