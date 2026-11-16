@@ -1,0 +1,462 @@
+// Episode 2, level 4. Coordinates in metres, x = east, y = north, z = up.
+// The city's elevated Express Line, which the hive's servants use to move between the
+// waterfront and downtown. Rex rides it toward the mall.
+// Route: the depot yard at street level (start west, facing east; a retired car on blocks,
+// crates, concrete barriers) → the maintenance shed to the north (the shotgun by the inspection
+// pit) → the substation through the gate in the yard's south wall (transformers, live puddles;
+// the chaingun in the control kiosk) → the parts store (containers, racks) → the door east into
+// the depot office → the dispatch nook and the Blue key (channel 1: the office's front door
+// opens on the yard, the shortcut back) → the blue depot gate in the yard's east wall → the
+// street under the line (a parked van, the line's pylons; Drones under the walkways) → the
+// signal tower's base door → the base lift up to the relay room (z 8): the Red key in the live
+// fuse bay → the red door → the cab lift up to the signal cab (z 12): the jetpack, the rocket
+// launcher and the line switch (channel 4: the relay room's walkway door, platform A's boarding
+// gate and the station's street shutter open) → out onto the rail beam walkways (z 8, railed,
+// over the street): north to the junction deck, west to Station A → platform A: through the
+// boarding gate into the car. Stepping aboard fires channel 6 (the car runs 55.8 m east along
+// the glazed guideway over the street) and channel 7 (a rumble; the maintenance closet on
+// platform B opens, awake) → platform B: its screen door → down the stairs to the concourse
+// (cafe, electronics store, information kiosk) → the security office: its switch (channel 8)
+// slides the mall shutter up into its pocket and opens the skybridge closet, awake → the
+// skybridge → the exit switch at the mall doors.
+// The ticket hall (vending machine, payphone, turnstiles) hangs off platform A by its stairs;
+// its street entrance is shuttered until channel 4, the shortcut back down to the street.
+// The guideway's floor is a live rail; a call button on platform A (channel 6) brings the car
+// back, and stepping aboard again sends it off.
+// Secrets: (1) a crouch vent low in the ticket hall's west wall (1.2 m) into the old
+// signalling room (armour, pipe bombs); (2) the parts store's west wall cracks open on a blast
+// (a barrel beside it): a stash with an atom and rockets; (3) the signal gantry on its pylon
+// east of the junction deck at z 11.5, jetpack only (atom, rockets). Validate warns that the
+// stash's and the gantry's items "cannot be reached from the start": a crack-wall stash and a
+// jetpack ledge, by design.
+(
+    name: "Express Line",
+    defaults: (floor_z: 0.0, ceil_z: 4.0, floor: "concrete", ceil: "metal", wall: "concrete"),
+    music: Some("express_line"),
+    player_start: (pos: (4.0, 20.0), angle_deg: 0.0),
+    sectors: [
+        // ---- Depot yard (street level, open sky at 14 m) ----
+        (id: "yard", rect: (0.0, 0.0, 60.0, 40.0),
+         holes: [[(14.0, 30.0), (26.0, 30.0), (26.0, 33.0), (14.0, 33.0)],
+                 [(40.0, 22.0), (44.0, 22.0), (44.0, 26.0), (40.0, 26.0)],
+                 [(18.0, 12.0), (21.0, 12.0), (21.0, 13.0), (18.0, 13.0)],
+                 [(30.0, 18.0), (33.0, 18.0), (33.0, 19.0), (30.0, 19.0)]
+                 ],
+         ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "brick"),
+        (id: "retired_car", rect: (14.0, 30.0, 26.0, 33.0), floor_z: 3.0, ceil_z: 14.0, floor: "metal", ceil: "sky",
+         face: "hull"),
+        (id: "yard_crates", rect: (40.0, 22.0, 44.0, 26.0), floor_z: 2.6, ceil_z: 14.0, floor: "container", ceil: "sky",
+         face: "container"),
+        (id: "barrier_a", rect: (18.0, 12.0, 21.0, 13.0), floor_z: 1.0, ceil_z: 14.0, ceil: "sky", face: "concrete"),
+        (id: "barrier_b", rect: (30.0, 18.0, 33.0, 19.0), floor_z: 1.0, ceil_z: 14.0, ceil: "sky", face: "concrete"),
+        // The maintenance shed, open to the yard: an inspection pit, the workbench.
+        (id: "shed", rect: (2.0, 40.0, 20.0, 54.0),
+         holes: [[(4.0, 51.0), (9.0, 51.0), (9.0, 52.5), (4.0, 52.5)],
+                 [(10.0, 44.0), (17.0, 44.0), (17.0, 47.0), (10.0, 47.0)]],
+         ceil_z: 6.0, floor: "concrete", ceil: "metal", wall: "metal"),
+        (id: "shed_bench", rect: (4.0, 51.0, 9.0, 52.5), floor_z: 0.95, ceil_z: 6.0, floor: "wood", face: "wood"),
+        (id: "shed_pit", rect: (10.0, 44.0, 17.0, 47.0), floor_z: -0.5, ceil_z: 6.0, floor: "grate", face: "concrete"),
+        // The wash bay: standing water, the brush gantry.
+        (id: "wash", rect: (24.0, 40.0, 40.0, 54.0), holes: [[(30.0, 45.0), (34.0, 45.0), (34.0, 49.0), (30.0, 49.0)]],
+         ceil_z: 6.0, floor: "water", ceil: "metal", wall: "tile"),
+        (id: "wash_gantry", rect: (30.0, 45.0, 34.0, 49.0), floor_z: 1.2, ceil_z: 6.0, floor: "metal", face: "pipe"),
+        // The substation: transformers, live puddles, the control kiosk.
+        (id: "sub_gate", rect: (10.0, -0.5, 14.0, 0.0), ceil_z: 14.0, floor: "gravel", ceil: "sky", wall: "metal"),
+        (id: "substation", rect: (2.0, -16.0, 26.0, -0.5),
+         holes: [[(5.0, -12.0), (9.0, -12.0), (9.0, -7.0), (5.0, -7.0)],
+                 [(15.0, -12.0), (19.0, -12.0), (19.0, -7.0), (15.0, -7.0)],
+                 [(10.5, -12.5), (13.5, -12.5), (13.5, -6.5), (10.5, -6.5)],
+                 [(21.0, -15.0), (24.0, -15.0), (24.0, -13.0), (21.0, -13.0)]],
+         ceil_z: 14.0, floor: "gravel", ceil: "sky", wall: "concrete"),
+        (id: "tx_a", rect: (5.0, -12.0, 9.0, -7.0), floor_z: 2.5, ceil_z: 14.0, floor: "metal", ceil: "sky", face: "metal"),
+        (id: "tx_b", rect: (15.0, -12.0, 19.0, -7.0), floor_z: 2.5, ceil_z: 14.0, floor: "metal", ceil: "sky", face: "metal"),
+        (id: "spark_a", rect: (10.5, -12.5, 13.5, -6.5), ceil_z: 14.0, floor: "electric", ceil: "sky",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "spark_b", rect: (21.0, -15.0, 24.0, -13.0), ceil_z: 14.0, floor: "electric", ceil: "sky",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "kiosk", rect: (20.0, -20.0, 25.0, -16.0), ceil_z: 3.0, floor: "tile", ceil: "ceiling_tile", wall: "screen"),
+        // The parts store: stacked containers and racks; secret 2 behind the west wall.
+        (id: "parts_door", rect: (36.0, -0.5, 39.0, 0.0), ceil_z: 3.5, floor: "metal", wall: "metal", face: "door",
+         mover: (kind: Door)),
+        (id: "parts", rect: (30.0, -18.0, 58.0, -0.5),
+         holes: [[(32.0, -16.0), (38.0, -16.0), (38.0, -13.5), (32.0, -13.5)],
+                 [(42.0, -16.0), (48.0, -16.0), (48.0, -13.5), (42.0, -13.5)],
+                 [(33.0, -9.0), (36.0, -9.0), (36.0, -5.0), (33.0, -5.0)],
+                 [(44.0, -8.0), (50.0, -8.0), (50.0, -5.5), (44.0, -5.5)],
+                 [(52.0, -16.0), (56.0, -16.0), (56.0, -14.5), (52.0, -14.5)]],
+         ceil_z: 5.5, floor: "concrete", ceil: "metal", wall: "metal"),
+        (id: "crate_1", rect: (32.0, -16.0, 38.0, -13.5), floor_z: 2.6, ceil_z: 5.5, floor: "container", face: "container"),
+        (id: "crate_2", rect: (42.0, -16.0, 48.0, -13.5), floor_z: 2.6, ceil_z: 5.5, floor: "container", face: "container"),
+        (id: "crate_3", rect: (33.0, -9.0, 36.0, -5.0), floor_z: 2.6, ceil_z: 5.5, floor: "container", face: "container"),
+        (id: "crate_4", rect: (44.0, -8.0, 50.0, -5.5), floor_z: 2.6, ceil_z: 5.5, floor: "container", face: "container"),
+        (id: "parts_rack", rect: (52.0, -16.0, 56.0, -14.5), floor_z: 2.2, ceil_z: 5.5, floor: "metal", face: "metal"),
+        (id: "parts_crack", rect: (29.5, -12.0, 30.0, -9.0), ceil_z: 3.0, floor: "concrete", wall: "metal", face: "cracked",
+         mover: (kind: Crack)),
+        (id: "stash", rect: (26.5, -14.0, 29.5, -7.0), ceil_z: 3.0, floor: "tile", ceil: "glowstrip", wall: "metal",
+         secret: true),
+        // The depot office (the Blue key in the dispatch nook: channel 1).
+        (id: "parts_office_door", rect: (58.0, -8.0, 60.5, -5.0), ceil_z: 3.5, floor: "metal", wall: "metal", face: "door",
+         mover: (kind: Door)),
+        (id: "office", rect: (60.5, -14.0, 74.0, 12.0),
+         holes: [[(64.0, 2.0), (68.0, 2.0), (68.0, 3.2), (64.0, 3.2)],
+                 [(70.0, -6.0), (73.0, -6.0), (73.0, -5.0), (70.0, -5.0)]],
+         ceil_z: 3.5, floor: "carpet", ceil: "ceiling_tile", wall: "wood"),
+        (id: "office_desk", rect: (64.0, 2.0, 68.0, 3.2), floor_z: 0.9, ceil_z: 3.5, floor: "wood", ceil: "ceiling_tile",
+         face: "wood"),
+        (id: "office_files", rect: (70.0, -6.0, 73.0, -5.0), floor_z: 1.8, ceil_z: 3.5, floor: "metal", ceil: "ceiling_tile",
+         face: "metal"),
+        (id: "dispatch", rect: (74.0, -6.0, 78.0, 0.0), ceil_z: 3.0, floor: "tile", ceil: "glowstrip", wall: "screen"),
+        (id: "office_front", rect: (60.0, 6.0, 60.5, 9.0), ceil_z: 3.5, floor: "metal", wall: "metal", face: "door",
+         mover: (kind: Door, channel: Some(1))),
+        (id: "blue_door", rect: (60.0, 18.0, 60.5, 22.0), ceil_z: 4.0, floor: "metal", wall: "metal", face: "door",
+         mover: (kind: Door, lock: Some(Blue))),
+
+        // ---- The street under the line (open sky at 14 m) ----
+        (id: "street", poly: [(60.5, 16.0), (98.3, 16.0), (98.3, 2.0), (129.7, 2.0), (129.7, 26.5), (124.5, 26.5),
+                              (124.5, 5.5), (103.5, 5.5), (103.5, 26.5), (98.3, 26.5), (98.3, 24.0), (60.5, 24.0)],
+         holes: [[(72.0, 18.5), (77.0, 18.5), (77.0, 21.0), (72.0, 21.0)],
+                 [(100.0, 10.0), (102.0, 10.0), (102.0, 12.0), (100.0, 12.0)],
+                 [(126.0, 10.0), (128.0, 10.0), (128.0, 12.0), (126.0, 12.0)]],
+         ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "storefront"),
+        (id: "van", rect: (72.0, 18.5, 77.0, 21.0), floor_z: 2.4, ceil_z: 14.0, floor: "metal", ceil: "sky", face: "metal"),
+        // Under the walkways: west of the south beam, the strip under the line, east of the beam.
+        (id: "under_w", poly: [(98.3, 26.5), (113.5, 26.5), (113.5, 47.0), (112.0, 47.0), (112.0, 52.0), (98.3, 52.0)],
+         holes: [[(104.0, 38.0), (106.0, 38.0), (106.0, 40.0), (104.0, 40.0)]],
+         ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "storefront"),
+        (id: "under_n", rect: (98.3, 55.0, 112.0, 60.0), ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "storefront"),
+        (id: "under_c", rect: (112.0, 58.0, 118.0, 60.0), ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "storefront"),
+        (id: "under_e", poly: [(116.5, 26.5), (129.7, 26.5), (129.7, 60.0), (118.0, 60.0), (118.0, 47.0), (116.5, 47.0)],
+         holes: [[(122.0, 50.0), (125.0, 50.0), (125.0, 53.0), (122.0, 53.0)]],
+         ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "storefront"),
+        // Secret 3: the signal gantry on its pylon, jetpack only.
+        (id: "gantry", rect: (122.0, 50.0, 125.0, 53.0), floor_z: 11.5, ceil_z: 14.0, floor: "grate", ceil: "sky",
+         face: "rail", secret: true),
+
+        // ---- The signal tower ----
+        (id: "base_door", rect: (103.5, 8.0, 104.0, 11.0), ceil_z: 3.5, floor: "metal", wall: "metal", face: "door",
+         mover: (kind: Door)),
+        (id: "tower_base", rect: (104.0, 6.0, 124.0, 12.0), ceil_z: 5.0, floor: "concrete", ceil: "metal", wall: "pipe"),
+        (id: "base_lift", rect: (113.0, 12.0, 116.0, 15.0), ceil_z: 12.0, floor: "metal", wall: "pipe", face: "metal",
+         mover: (kind: Lift(to: 8.0), speed: 3.0)),
+        (id: "relay", rect: (110.0, 15.0, 124.0, 26.0),
+         holes: [[(116.0, 18.0), (118.0, 18.0), (118.0, 23.0), (116.0, 23.0)],
+                 [(120.0, 16.5), (122.0, 16.5), (122.0, 20.0), (120.0, 20.0)],
+                 [(119.5, 22.0), (123.0, 22.0), (123.0, 25.0), (119.5, 25.0)]],
+         floor_z: 8.0, ceil_z: 12.0, floor: "grate", ceil: "metal", wall: "screen"),
+        (id: "rack_1", rect: (116.0, 18.0, 118.0, 23.0), floor_z: 10.4, ceil_z: 12.0, floor: "metal", face: "screen"),
+        (id: "rack_2", rect: (120.0, 16.5, 122.0, 20.0), floor_z: 10.4, ceil_z: 12.0, floor: "metal", face: "screen"),
+        // The fuse bay: live floor, the Red key at the back.
+        (id: "fuse_bay", rect: (119.5, 22.0, 123.0, 25.0), floor_z: 8.0, ceil_z: 12.0, floor: "electric", wall: "screen",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "red_door", rect: (109.5, 19.0, 110.0, 22.0), floor_z: 8.0, ceil_z: 11.0, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Red))),
+        (id: "cab_lift", rect: (106.5, 19.0, 109.5, 22.0), floor_z: 8.0, ceil_z: 15.0, floor: "metal", wall: "pipe",
+         face: "metal", mover: (kind: Lift(to: 12.0), speed: 2.5)),
+        // The signal cab (z 12): the line switch, the jetpack.
+        (id: "cab", poly: [(104.0, 15.0), (109.5, 15.0), (109.5, 19.0), (106.5, 19.0), (106.5, 22.0), (109.5, 22.0),
+                           (109.5, 26.0), (104.0, 26.0)],
+         floor_z: 12.0, ceil_z: 15.0, floor: "grate", ceil: "glowstrip", wall: "screen"),
+        // The walkway door north, on channel 4.
+        (id: "relay_n_door", rect: (113.8, 26.0, 116.2, 26.5), floor_z: 8.0, ceil_z: 11.0, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(4))),
+
+        // ---- Rail beam walkways (z 8) with railings over the street ----
+        (id: "walk_s", rect: (113.8, 26.5, 116.2, 47.3), floor_z: 8.0, ceil_z: 14.0, floor: "rail", ceil: "sky", wall: "rail"),
+        (id: "rail_sw", rect: (113.5, 26.5, 113.8, 47.0), floor_z: 9.6, ceil_z: 14.0, floor: "rail", ceil: "sky", face: "rail"),
+        (id: "rail_se", rect: (116.2, 26.5, 116.5, 47.0), floor_z: 9.6, ceil_z: 14.0, floor: "rail", ceil: "sky", face: "rail"),
+        // The junction deck on its pylon, railed all round.
+        (id: "deck", rect: (112.3, 47.3, 117.7, 57.7), floor_z: 8.0, ceil_z: 14.0, floor: "grate", ceil: "sky", wall: "rail"),
+        (id: "rail_j1", poly: [(112.0, 47.0), (113.8, 47.0), (113.8, 47.3), (112.3, 47.3), (112.3, 52.3), (112.0, 52.3)],
+         floor_z: 9.6, ceil_z: 14.0, floor: "rail", ceil: "sky", face: "rail"),
+        (id: "rail_j2", poly: [(112.0, 54.7), (112.3, 54.7), (112.3, 57.7), (117.7, 57.7), (117.7, 47.3), (116.2, 47.3),
+                               (116.2, 47.0), (118.0, 47.0), (118.0, 58.0), (112.0, 58.0)],
+         floor_z: 9.6, ceil_z: 14.0, floor: "rail", ceil: "sky", face: "rail"),
+        (id: "walk_w", rect: (98.0, 52.3, 112.3, 54.7), floor_z: 8.0, ceil_z: 14.0, floor: "rail", ceil: "sky", wall: "rail"),
+        (id: "rail_ws", rect: (98.0, 52.0, 112.0, 52.3), floor_z: 9.6, ceil_z: 14.0, floor: "rail", ceil: "sky", face: "rail"),
+        (id: "rail_wn", rect: (98.0, 54.7, 112.0, 55.0), floor_z: 9.6, ceil_z: 14.0, floor: "rail", ceil: "sky", face: "rail"),
+
+        // ---- Station A ----
+        // The street entrance, shuttered until the line is live (channel 4).
+        (id: "shutter_a", rect: (62.0, 24.0, 67.0, 24.5), ceil_z: 4.0, floor: "metal", wall: "metal", face: "door",
+         mover: (kind: Door, channel: Some(4))),
+        (id: "vestibule", rect: (61.0, 24.5, 68.0, 30.0), ceil_z: 5.0, floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        // The ticket hall (z 4): the ticket booth, the turnstile line, the crouch vent (secret 1).
+        (id: "ticket", rect: (56.0, 40.5, 74.0, 56.0),
+         holes: [[(57.5, 51.0), (61.0, 51.0), (61.0, 54.5), (57.5, 54.5)],
+                 [(69.0, 45.0), (70.0, 45.0), (70.0, 46.5), (69.0, 46.5)],
+                 [(69.0, 48.5), (70.0, 48.5), (70.0, 50.0), (69.0, 50.0)]],
+         floor_z: 4.0, ceil_z: 8.0, floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        (id: "booth", rect: (57.5, 51.0, 61.0, 54.5), floor_z: 5.2, ceil_z: 8.0, floor: "wood", face: "screen"),
+        (id: "turnstile_2", rect: (69.0, 45.0, 70.0, 46.5), floor_z: 5.0, ceil_z: 8.0, floor: "metal", face: "metal"),
+        (id: "turnstile_3", rect: (69.0, 48.5, 70.0, 50.0), floor_z: 5.0, ceil_z: 8.0, floor: "metal", face: "metal"),
+        (id: "vent", rect: (53.5, 44.0, 56.0, 46.0), floor_z: 4.0, ceil_z: 5.2, floor: "grate", ceil: "metal", wall: "grate"),
+        (id: "vent_room", rect: (48.0, 42.0, 53.5, 48.0), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "glowstrip",
+         wall: "pipe", secret: true),
+        // Platform A (z 8): screen doors of glass; the boarding gate on channel 4.
+        (id: "platform_a", poly: [(80.0, 50.0), (98.0, 50.0), (98.0, 60.0), (87.0, 60.0), (87.0, 59.7), (84.0, 59.7), (84.0, 60.0), (80.0, 60.0)],
+         holes: [[(83.0, 53.0), (84.0, 53.0), (84.0, 54.0), (83.0, 54.0)],
+                 [(92.0, 52.0), (95.0, 52.0), (95.0, 53.0), (92.0, 53.0)],
+                 [(94.0, 56.5), (95.0, 56.5), (95.0, 57.5), (94.0, 57.5)]],
+         floor_z: 8.0, ceil_z: 12.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "pa_bench", rect: (92.0, 52.0, 95.0, 53.0), floor_z: 8.6, ceil_z: 12.0, floor: "wood", face: "metal"),
+        (id: "gate_a", rect: (84.0, 59.7, 87.0, 60.0), floor_z: 8.0, ceil_z: 10.9, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(4))),
+
+        // ---- The line: the guideway (live rail) and the car ----
+        (id: "track", rect: (80.0, 60.0, 148.0, 63.2), holes: [[(80.1, 60.1), (92.1, 60.1), (92.1, 63.1), (80.1, 63.1)]],
+         floor_z: 7.5, ceil_z: 11.2, floor: "rail", ceil: "metal", wall: "concrete", face: "concrete",
+         hazard: Some((damage: 4, interval: 0.5, kind: Electric))),
+        // The car: docked 0.1 m off the guideway's west end and walls, it runs 55.8 m east to
+        // 0.1 m off the east end; channel 6 (stepping aboard, or the call button on platform A).
+        (id: "car", rect: (80.1, 60.1, 92.1, 63.1), floor_z: 8.0, ceil_z: 10.9, floor: "carpet", ceil: "metal",
+         wall: "hull", face: "hull", mover: (kind: Slide(by: (55.8, 0.0)), channel: Some(6), speed: 3.5)),
+
+        // ---- Station B (downtown) ----
+        (id: "pb_door", rect: (140.0, 59.7, 143.0, 60.0), floor_z: 8.0, ceil_z: 10.9, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "platform_b", poly: [(130.0, 50.0), (152.0, 50.0), (152.0, 60.0), (143.0, 60.0), (143.0, 59.7), (140.0, 59.7), (140.0, 60.0), (130.0, 60.0)],
+         holes: [[(134.0, 53.0), (135.0, 53.0), (135.0, 54.0), (134.0, 54.0)],
+                 [(136.0, 55.5), (139.0, 55.5), (139.0, 56.5), (136.0, 56.5)]],
+         floor_z: 8.0, ceil_z: 12.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "pb_bench", rect: (136.0, 55.5, 139.0, 56.5), floor_z: 8.6, ceil_z: 12.0, floor: "wood", face: "metal"),
+        // The maintenance closet off the platform's east end: channel 7, as the car leaves A.
+        (id: "pb_cl_door", rect: (152.0, 53.0, 152.5, 56.0), floor_z: 8.0, ceil_z: 11.0, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(7))),
+        (id: "pb_closet", rect: (152.5, 52.0, 156.0, 57.0), floor_z: 8.0, ceil_z: 11.0, floor: "metal", ceil: "glowstrip",
+         wall: "pipe"),
+        // The concourse (z 4): shops, the security office, the way to the mall.
+        (id: "concourse", rect: (130.0, 22.0, 165.0, 42.0),
+         holes: [[(145.0, 30.0), (148.0, 30.0), (148.0, 33.0), (145.0, 33.0)],
+                 [(136.0, 30.0), (139.0, 30.0), (139.0, 32.0), (136.0, 32.0)]],
+         floor_z: 4.0, ceil_z: 9.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "info_kiosk", rect: (145.0, 30.0, 148.0, 33.0), floor_z: 5.2, ceil_z: 9.0, floor: "metal", face: "screen"),
+        (id: "planter", rect: (136.0, 30.0, 139.0, 32.0), floor_z: 4.8, ceil_z: 9.0, floor: "gravel", face: "concrete"),
+        (id: "cafe", rect: (132.0, 14.0, 142.0, 22.0), holes: [[(134.0, 16.0), (140.0, 16.0), (140.0, 17.0), (134.0, 17.0)]],
+         floor_z: 4.0, ceil_z: 7.0, floor: "wood", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "cafe_counter", rect: (134.0, 16.0, 140.0, 17.0), floor_z: 5.1, ceil_z: 7.0, floor: "wood", face: "wood"),
+        (id: "electronics", rect: (145.0, 14.0, 156.0, 22.0), holes: [[(148.0, 17.0), (153.0, 17.0), (153.0, 18.5), (148.0, 18.5)]],
+         floor_z: 4.0, ceil_z: 7.0, floor: "tile", ceil: "ceiling_tile", wall: "screen"),
+        (id: "display", rect: (148.0, 17.0, 153.0, 18.5), floor_z: 5.0, ceil_z: 7.0, floor: "metal", face: "screen"),
+        (id: "sec_door", rect: (133.0, 42.0, 136.0, 42.5), floor_z: 4.0, ceil_z: 7.0, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "sec_office", rect: (131.0, 42.5, 141.0, 48.5), floor_z: 4.0, ceil_z: 7.0, floor: "carpet", ceil: "ceiling_tile",
+         wall: "screen"),
+        // The mall gate: a security shutter that slides up into its pocket on channel 8.
+        (id: "mall_corr", rect: (165.0, 29.0, 170.0, 35.0), floor_z: 4.0, ceil_z: 7.0, floor: "tile", ceil: "metal",
+         wall: "storefront"),
+        (id: "shutter_track", rect: (170.0, 29.0, 171.0, 41.0), holes: [[(170.1, 29.1), (170.9, 29.1), (170.9, 34.9), (170.1, 34.9)]],
+         floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "metal", wall: "metal"),
+        (id: "mall_shutter", rect: (170.1, 29.1, 170.9, 34.9), floor_z: 6.9, ceil_z: 7.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "metal", mover: (kind: Slide(by: (0.0, 6.0)), channel: Some(8), speed: 1.5)),
+        (id: "skybridge", rect: (171.0, 29.0, 190.0, 35.0), floor_z: 4.0, ceil_z: 7.0, floor: "carpet", ceil: "glowstrip",
+         wall: "storefront"),
+        (id: "sky_cl_door", rect: (178.0, 35.0, 181.0, 35.5), floor_z: 4.0, ceil_z: 7.0, floor: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(8))),
+        (id: "sky_closet", rect: (177.0, 35.5, 182.0, 39.0), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "glowstrip",
+         wall: "pipe"),
+    ],
+    stairs: [
+        // From the vestibule up to the ticket hall (z 4).
+        (id: "stair_a1", rect: (61.0, 30.0, 67.0, 40.5), dir: N, steps: 7, from_z: 0.5, to_z: 3.5, ceil_z: 8.0,
+         floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        // From the ticket hall up to platform A (z 8).
+        (id: "stair_a2", rect: (74.0, 50.0, 80.0, 56.0), dir: E, steps: 7, from_z: 4.5, to_z: 7.5, ceil_z: 12.0,
+         floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        // From platform B down to the concourse (z 4).
+        (id: "stair_b", rect: (144.0, 42.0, 150.0, 50.0), dir: S, steps: 7, from_z: 7.5, to_z: 4.5, ceil_z: 12.0,
+         floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+    ],
+    switches: [
+        (wall: ((104.0, 26.0), (104.0, 15.0)), sector: "cab", action: Channel(4)),
+        (wall: ((80.0, 60.0), (80.0, 56.0)), sector: "platform_a", action: Channel(6)),
+        (wall: ((131.0, 48.5), (131.0, 42.5)), sector: "sec_office", action: Channel(8)),
+        (wall: ((190.0, 29.0), (190.0, 35.0)), sector: "skybridge", action: Exit),
+    ],
+    triggers: [
+        (sector: "dispatch", action: Channel(1)),
+        (sector: "car", action: Channel(6), once: false),
+        (sector: "car", action: Channel(7)),
+    ],
+    glass: [
+        ((80.0, 60.0), (84.0, 60.0)), ((87.0, 60.0), (98.0, 60.0)),
+        ((98.3, 60.0), (112.0, 60.0)), ((112.0, 60.0), (118.0, 60.0)), ((118.0, 60.0), (129.7, 60.0)),
+        ((130.0, 60.0), (140.0, 60.0)), ((143.0, 60.0), (148.0, 60.0)),
+    ],
+    quakes: [
+        // The car pulls out of Station A; the mall shutter grinds open.
+        (channel: 7, duration: 1.5, strength: 0.3),
+        (channel: 8, duration: 1.0, strength: 0.25),
+    ],
+    props: [
+        // Ticket hall: the vending machine on the west wall, the payphone on the north wall.
+        (kind: Vending, pos: (56.45, 48.5), angle_deg: 0.0, stock: 3),
+        (kind: Payphone, pos: (64.0, 55.84), angle_deg: 270.0),
+        // Platform B: a vending machine against the east wall.
+        (kind: Vending, pos: (151.55, 58.0), angle_deg: 180.0, stock: 2),
+        // The concourse: an arcade cabinet on the east wall; the cafe's jukebox.
+        (kind: Arcade, pos: (164.55, 40.0), angle_deg: 180.0),
+        (kind: Jukebox, pos: (141.65, 20.0), angle_deg: 180.0),
+    ],
+    lights: [
+        // Shadowed: one key light per big space.
+        (pos: (30.0, 20.0, 13.0), color: (1.0, 0.85, 0.65), intensity: 4000000.0, range: 40.0),
+        (pos: (14.0, -8.0, 12.0), color: (0.7, 0.85, 1.0), intensity: 800000.0, range: 22.0),
+        (pos: (44.0, -9.0, 5.2), color: (1.0, 0.9, 0.7), intensity: 250000.0, range: 18.0),
+        (pos: (100.0, 15.0, 13.0), color: (1.0, 0.75, 0.5), intensity: 2000000.0, range: 35.0),
+        (pos: (115.0, 45.0, 13.0), color: (1.0, 0.8, 0.55), intensity: 1500000.0, range: 30.0),
+        (pos: (117.0, 21.0, 11.6), color: (0.55, 0.85, 1.0), intensity: 200000.0, range: 14.0),
+        (pos: (65.0, 48.0, 7.6), color: (1.0, 0.95, 0.85), intensity: 300000.0, range: 18.0),
+        (pos: (89.0, 55.0, 11.6), color: (1.0, 0.92, 0.8), intensity: 300000.0, range: 18.0),
+        (pos: (114.0, 63.0, 11.0), color: (0.8, 0.9, 1.0), intensity: 200000.0, range: 30.0),
+        (pos: (141.0, 55.0, 11.6), color: (1.0, 0.92, 0.8), intensity: 300000.0, range: 18.0),
+        (pos: (148.0, 32.0, 8.6), color: (1.0, 0.9, 0.75), intensity: 600000.0, range: 25.0),
+        (pos: (180.0, 32.0, 6.7), color: (0.9, 0.8, 1.0), intensity: 150000.0, range: 14.0),
+        // Fills (no shadows).
+        (pos: (11.0, 47.0, 5.5), color: (1.0, 0.9, 0.7), intensity: 60000.0, range: 12.0, shadows: false),
+        (pos: (32.0, 47.0, 5.5), color: (0.7, 0.9, 1.0), intensity: 50000.0, range: 12.0, shadows: false),
+        (pos: (12.0, -9.5, 0.5), color: (0.45, 0.6, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (22.5, -14.0, 0.5), color: (0.45, 0.6, 1.0), intensity: 20000.0, range: 5.0, shadows: false),
+        (pos: (22.5, -18.0, 2.7), color: (0.5, 1.0, 0.7), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (28.0, -10.5, 2.7), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (67.0, -1.0, 3.2), color: (1.0, 0.9, 0.75), intensity: 50000.0, range: 14.0, shadows: false),
+        (pos: (76.0, -3.0, 2.7), color: (0.4, 0.6, 1.0), intensity: 20000.0, range: 5.0, shadows: false),
+        (pos: (64.5, 27.0, 4.6), color: (1.0, 0.95, 0.85), intensity: 20000.0, range: 8.0, shadows: false),
+        (pos: (64.0, 35.0, 6.5), color: (1.0, 0.95, 0.85), intensity: 25000.0, range: 10.0, shadows: false),
+        (pos: (50.5, 45.0, 6.7), color: (0.4, 1.0, 0.6), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (77.0, 53.0, 9.0), color: (1.0, 0.95, 0.85), intensity: 25000.0, range: 8.0, shadows: false),
+        (pos: (114.0, 9.0, 4.6), color: (1.0, 0.7, 0.4), intensity: 40000.0, range: 12.0, shadows: false),
+        (pos: (121.2, 23.5, 9.0), color: (1.0, 0.3, 0.25), intensity: 25000.0, range: 6.0, shadows: false),
+        (pos: (106.5, 24.0, 14.7), color: (0.5, 1.0, 0.6), intensity: 30000.0, range: 9.0, shadows: false),
+        (pos: (115.0, 36.0, 12.0), color: (1.0, 0.8, 0.55), intensity: 60000.0, range: 14.0, shadows: false),
+        (pos: (105.0, 53.5, 12.0), color: (1.0, 0.8, 0.55), intensity: 50000.0, range: 12.0, shadows: false),
+        (pos: (123.5, 51.5, 13.5), color: (1.0, 0.3, 0.2), intensity: 25000.0, range: 6.0, shadows: false),
+        (pos: (147.0, 46.0, 9.0), color: (1.0, 0.95, 0.85), intensity: 25000.0, range: 8.0, shadows: false),
+        (pos: (154.2, 54.5, 10.7), color: (1.0, 0.5, 0.3), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (137.0, 18.0, 6.6), color: (1.0, 0.8, 0.55), intensity: 30000.0, range: 9.0, shadows: false),
+        (pos: (150.5, 18.0, 6.6), color: (0.4, 0.8, 1.0), intensity: 30000.0, range: 9.0, shadows: false),
+        (pos: (136.0, 45.5, 6.6), color: (0.6, 0.8, 1.0), intensity: 20000.0, range: 8.0, shadows: false),
+        (pos: (167.5, 32.0, 6.6), color: (1.0, 0.4, 0.3), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (179.5, 37.0, 6.7), color: (1.0, 0.5, 0.7), intensity: 15000.0, range: 5.0, shadows: false),
+    ],
+    items: [
+        // Depot yard; the shotgun in the shed; armour in the wash bay.
+        (kind: PistolAmmo, pos: (10.0, 5.0)),
+        (kind: HealthSmall, pos: (2.0, 38.0)),
+        (kind: ShotgunShells, pos: (30.0, 36.0)),
+        (kind: Shotgun, pos: (12.0, 50.0)),
+        (kind: ShotgunShells, pos: (18.0, 42.0)),
+        (kind: Armour, pos: (38.0, 52.0)),
+        // Substation: the chaingun in the control kiosk.
+        (kind: Chaingun, pos: (22.5, -18.5)),
+        (kind: PistolAmmo, pos: (24.0, -17.0)),
+        // Parts store; secret 2's atom and rockets in the stash behind the crack.
+        (kind: ShotgunShells, pos: (40.0, -3.0)),
+        (kind: PipeBombs, pos: (55.0, -3.0)),
+        (kind: HealthSmall, pos: (31.0, -17.0)),
+        (kind: Atom, pos: (28.0, -10.5)),
+        (kind: Rockets, pos: (28.0, -8.0)),
+        // The depot office: the Blue key in the dispatch nook.
+        (kind: Medkit, pos: (72.0, 10.0)),
+        (kind: PistolAmmo, pos: (62.0, -12.0)),
+        (kind: Key(Blue), pos: (76.5, -3.0)),
+        // The street under the line.
+        (kind: ShotgunShells, pos: (85.0, 22.0)),
+        (kind: HealthSmall, pos: (100.0, 4.0)),
+        (kind: PistolAmmo, pos: (128.0, 25.0)),
+        (kind: Armour, pos: (100.0, 45.0)),
+        // The signal tower: the Red key in the fuse bay; the cab's rocket launcher and jetpack.
+        (kind: ShotgunShells, pos: (122.0, 7.0)),
+        (kind: PistolAmmo, pos: (111.0, 25.0)),
+        (kind: Key(Red), pos: (121.5, 23.5)),
+        (kind: Jetpack, pos: (105.5, 20.5)),
+        (kind: RocketLauncher, pos: (107.5, 24.5)),
+        (kind: Rockets, pos: (107.5, 16.0)),
+        // The walkways; secret 3's atom and rockets on the signal gantry.
+        (kind: HealthSmall, pos: (115.0, 40.0)),
+        (kind: ShotgunShells, pos: (115.0, 50.0)),
+        (kind: Atom, pos: (122.8, 51.0)),
+        (kind: Rockets, pos: (124.2, 52.0)),
+        // Station A; secret 1's armour and pipe bombs behind the vent.
+        (kind: PistolAmmo, pos: (90.0, 51.0)),
+        (kind: Medkit, pos: (97.0, 51.0)),
+        (kind: Rockets, pos: (58.0, 42.0)),
+        (kind: ShotgunShells, pos: (72.0, 41.5)),
+        (kind: Armour, pos: (50.0, 45.0)),
+        (kind: PipeBombs, pos: (51.5, 46.5)),
+        // Station B and the concourse.
+        (kind: HealthSmall, pos: (151.0, 51.0)),
+        (kind: ShotgunShells, pos: (160.0, 24.0)),
+        (kind: Medkit, pos: (141.0, 20.0)),
+        (kind: Rockets, pos: (155.0, 20.5)),
+        (kind: PistolAmmo, pos: (131.0, 40.0)),
+        (kind: Armour, pos: (139.0, 47.0)),
+        (kind: HealthSmall, pos: (185.0, 30.0)),
+    ],
+    actors: [
+        // Depot yard, shed and wash bay.
+        (kind: Grunt, pos: (24.0, 16.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (36.0, 30.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (52.0, 30.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (45.0, 12.0), angle_deg: 180.0, skill: Hard),
+        (kind: Grunt, pos: (15.0, 50.0), angle_deg: 270.0),
+        (kind: Slasher, pos: (36.0, 51.0), angle_deg: 270.0, skill: Normal),
+        (kind: Barrel, pos: (55.0, 38.0)),
+        (kind: Barrel, pos: (38.5, 24.0)),
+        // Substation.
+        (kind: Grunt, pos: (8.0, -4.0), angle_deg: 90.0),
+        (kind: Drone, pos: (14.0, -3.0), angle_deg: 90.0, skill: Hard),
+        // Parts store: one barrel beside the crack wall.
+        (kind: Grunt, pos: (40.0, -10.0), angle_deg: 90.0),
+        (kind: Enforcer, pos: (53.0, -11.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (46.0, -3.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (39.0, -3.0), angle_deg: 90.0, skill: Hard),
+        (kind: Barrel, pos: (31.0, -10.5)),
+        (kind: Barrel, pos: (56.5, -12.0)),
+        // Depot office.
+        (kind: Grunt, pos: (66.0, -8.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (70.0, 8.0), angle_deg: 180.0, skill: Normal),
+        // The street; Drones under the walkways.
+        (kind: Enforcer, pos: (88.0, 20.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (101.0, 18.0), angle_deg: 180.0),
+        (kind: Drone, pos: (110.0, 40.0), angle_deg: 270.0),
+        (kind: Drone, pos: (124.0, 40.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (115.0, 3.5), angle_deg: 90.0),
+        (kind: Enforcer, pos: (127.0, 20.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (128.0, 3.5)),
+        // The signal tower.
+        (kind: Grunt, pos: (120.0, 9.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (110.0, 7.5), angle_deg: 90.0, skill: Normal),
+        (kind: Grunt, pos: (112.0, 24.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (111.5, 17.5), angle_deg: 90.0, skill: Normal),
+        (kind: Grunt, pos: (105.0, 24.5), angle_deg: 270.0),
+        (kind: Enforcer, pos: (105.0, 16.5), angle_deg: 90.0, skill: Hard),
+        // The walkways.
+        (kind: Grunt, pos: (116.0, 55.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (113.5, 49.0), angle_deg: 270.0, skill: Normal),
+        // Platform A and the ticket hall.
+        (kind: Grunt, pos: (90.0, 55.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (96.0, 58.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (82.0, 51.5), angle_deg: 0.0, skill: Hard),
+        (kind: Grunt, pos: (63.0, 47.0), angle_deg: 0.0),
+        (kind: Enforcer, pos: (60.0, 44.0), angle_deg: 0.0),
+        (kind: Slasher, pos: (72.0, 54.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (65.0, 55.0), angle_deg: 270.0, skill: Hard),
+        // Platform B waits for the car; its closet (channel 7) opens as the car leaves A, awake.
+        (kind: Enforcer, pos: (137.0, 53.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (149.0, 57.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (132.0, 58.0), angle_deg: 0.0, skill: Normal),
+        (kind: Slasher, pos: (154.0, 54.0), angle_deg: 180.0, asleep: false),
+        (kind: Slasher, pos: (154.0, 55.8), angle_deg: 180.0, asleep: false, skill: Normal),
+        // The concourse, its shops and the security office.
+        (kind: Grunt, pos: (140.0, 36.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (155.0, 28.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (160.0, 38.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (137.0, 19.5), angle_deg: 90.0, skill: Normal),
+        (kind: Enforcer, pos: (150.0, 15.5), angle_deg: 90.0, skill: Hard),
+        (kind: Drone, pos: (152.0, 36.0), angle_deg: 180.0, skill: Hard),
+        (kind: Grunt, pos: (138.0, 46.0), angle_deg: 180.0),
+        // The skybridge closet (channel 8), awake.
+        (kind: Slasher, pos: (179.0, 37.0), angle_deg: 270.0, asleep: false),
+        (kind: Grunt, pos: (180.5, 37.5), angle_deg: 270.0, asleep: false, skill: Normal),
+    ],
+)

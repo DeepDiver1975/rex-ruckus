@@ -8,8 +8,9 @@
         ),
         (
             name: "Aftershock",
-            // Levels 4-7 land in later PRs.
-            levels: ["container_crush.ron", "dead_air.ron", "undertow.ron"],
+            // Level 7 (the boss) lands in a later PR.
+            levels: ["container_crush.ron", "dead_air.ron", "undertow.ron", "express_line.ron",
+                     "mall_brawl.ron", "hot_zone.ron"],
         ),
     ],
 )

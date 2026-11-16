@@ -94,3 +94,18 @@ fn dead_air_route_completes() {
 fn undertow_route_completes() {
     route_completes("undertow.ron", 700);
 }
+
+#[test]
+fn express_line_route_completes() {
+    route_completes("express_line.ron", 700);
+}
+
+#[test]
+fn mall_brawl_route_completes() {
+    route_completes("mall_brawl.ron", 700);
+}
+
+#[test]
+fn hot_zone_route_completes() {
+    route_completes("hot_zone.ron", 700);
+}

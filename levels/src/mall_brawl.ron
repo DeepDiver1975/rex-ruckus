@@ -1,0 +1,533 @@
+// Episode 2, level 5. Coordinates in metres, x = east, y = north, z = up.
+// Setting: the Sunspire Galleria, a sprawling downtown shopping mall, where the hive's servants
+// have dug in among the shoppers' wreckage. The rooftop car park is at z 8, the atrium's upper
+// galleries and the Halloway & Finch department store at z 4, the ground floor at z 0 and the
+// loading dock's platform at z 1.2.
+// Route: the rooftop car park (start west, facing east; parked cars, lamp posts, a ramp up to the
+// top deck; the shotgun in the pay booth in the north wall) → the stairwell south, down to the
+// atrium's north gallery → the overlook balcony into the atrium: stepping onto it fires channel
+// 1: a rumble, the skylight bursts and the balcony collapses into the plaza for good → the plaza
+// (the fountain under the skylight) → west along the shop row: Fuzzbucket Pets (the chaingun),
+// Gutsy Gear Sporting Goods (the jetpack on the back wall; its back aisle fires channel 2: a gas
+// charge the hive servants rigged blows out the shutter of Ohm Sweet Ohm electronics across the
+// concourse) → through the blown storefront into the electronics store (screen walls) → the
+// back door north into the mall security office (monitor bank, the rocket launcher, the Blue
+// key in the evidence locker: channel 3 opens the holding cell, awake, and the back door into
+// Tumbleweed Toys, the shortcut back to the concourse) → back to the plaza, up the escalator to
+// the south gallery → the blue door into Halloway & Finch (mannequin plinths, a clothing rack,
+// the perfume counter) → up the steps to the manager's office: the Red key (channel 4: the
+// fitting rooms open, awake, and the freight lift door in the stockroom unlocks) → the staff
+// door east into the stockroom → the freight lift down to the food-hall kitchen (the shortcut
+// back to the ground floor) → the Greasy Comet diner (a jukebox) → the Sunspire food hall
+// (Joystick Junction arcade off its north wall) → the red door in the food hall's east wall →
+// the service corridors east and south → up the steps onto the loading dock → the dock office:
+// the Yellow key (channel 5: the cold store opens, awake) → the yellow dock shutter → the truck
+// yard → the exit switch in the gatehouse.
+// Shortcuts: the toy store's back door (channel 3) from security to the concourse; the freight
+// lift (channel 4) from the department store down to the kitchen.
+// Secrets: (1) a crouch vent low in Tumbleweed Toys' west wall behind the counter (0.2-1.35 m)
+// into the toy stash (armour, pipe bombs, an atom); (2) the stockroom's south wall cracks open
+// on a blast (a barrel beside it): the shoplifted-goods stash (atom, rockets); (3) the skylight
+// frame's maintenance ledge at z 10 in the atrium's north-east corner, jetpack only (atom,
+// rockets). Validate warns that the stash's and the ledge's items "cannot be reached from the
+// start": a crack-wall stash and a jetpack ledge, by design.
+(
+    name: "Mall Brawl",
+    defaults: (floor_z: 0.0, ceil_z: 4.0, floor: "tile", ceil: "ceiling_tile", wall: "concrete"),
+    music: Some("mall_brawl"),
+    player_start: (pos: (44.0, 105.0), angle_deg: 0.0),
+    sectors: [
+        // ---- Rooftop car park (z 8, open sky) ----
+        (id: "carpark", poly: [(40.0, 89.0), (120.0, 89.0), (120.0, 111.0), (104.0, 111.0), (104.0, 113.0), (98.0, 113.0),
+                               (98.0, 119.0), (104.0, 119.0), (104.0, 121.0), (40.0, 121.0)],
+         holes: [[(54.0, 96.0), (56.0, 96.0), (56.0, 100.5), (54.0, 100.5)],
+                 [(72.0, 96.0), (74.0, 96.0), (74.0, 100.5), (72.0, 100.5)],
+                 [(86.0, 96.0), (88.0, 96.0), (88.0, 100.5), (86.0, 100.5)],
+                 [(62.0, 108.0), (64.0, 108.0), (64.0, 112.5), (62.0, 112.5)],
+                 [(88.0, 108.0), (90.0, 108.0), (90.0, 112.5), (88.0, 112.5)],
+                 [(66.8, 103.8), (67.2, 103.8), (67.2, 104.2), (66.8, 104.2)],
+                 [(82.8, 103.8), (83.2, 103.8), (83.2, 104.2), (82.8, 104.2)],
+                 [(100.8, 103.8), (101.2, 103.8), (101.2, 104.2), (100.8, 104.2)]],
+         floor_z: 8.0, ceil_z: 16.0, floor: "asphalt", ceil: "sky", wall: "concrete"),
+        // Parked cars (the lamp posts are the small solid holes).
+        (id: "car_1", rect: (54.0, 96.0, 56.0, 100.5), floor_z: 9.4, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "car_2", rect: (72.0, 96.0, 74.0, 100.5), floor_z: 9.4, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "car_3", rect: (86.0, 96.0, 88.0, 100.5), floor_z: 9.4, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "car_4", rect: (62.0, 108.0, 64.0, 112.5), floor_z: 9.4, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        (id: "car_5", rect: (88.0, 108.0, 90.0, 112.5), floor_z: 9.4, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        // The top deck (z 9.5) in the north-east corner, up the ramp; one car parked on it.
+        (id: "top_deck", rect: (104.0, 111.0, 120.0, 121.0), holes: [[(110.0, 115.0), (114.5, 115.0), (114.5, 117.0), (110.0, 117.0)]],
+         floor_z: 9.5, ceil_z: 16.0, floor: "asphalt", ceil: "sky", wall: "concrete", face: "concrete"),
+        (id: "car_6", rect: (110.0, 115.0, 114.5, 117.0), floor_z: 10.9, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        // The pay booth, a recess in the north wall (the shotgun, a payphone).
+        (id: "pay_booth", rect: (44.0, 121.0, 50.0, 124.0), floor_z: 8.0, ceil_z: 11.0, floor: "tile", ceil: "metal", wall: "storefront"),
+        // The stairwell down to the north gallery: a door at the foot.
+        (id: "stair_door", rect: (76.0, 80.0, 80.0, 80.5), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Atrium: the plaza (z 0) under the skylight, galleries north and south (z 4) ----
+        (id: "plaza", poly: [(60.0, 52.0), (100.0, 52.0), (100.0, 64.0), (96.0, 64.0), (96.0, 68.0), (82.0, 68.0), (82.0, 61.0),
+                             (78.0, 61.0), (78.0, 68.0), (60.0, 68.0)],
+         holes: [[(75.0, 53.5), (85.0, 53.5), (85.0, 59.5), (75.0, 59.5)],
+                 [(67.5, 62.5), (68.5, 62.5), (68.5, 63.5), (67.5, 63.5)],
+                 [(91.5, 62.5), (92.5, 62.5), (92.5, 63.5), (91.5, 63.5)]],
+         ceil_z: 18.0, floor: "tile", ceil: "sky", wall: "storefront"),
+        // The fountain (the hive has crusted its column).
+        (id: "fountain", rect: (75.0, 53.5, 85.0, 59.5), holes: [[(79.3, 55.8), (80.7, 55.8), (80.7, 57.2), (79.3, 57.2)]],
+         floor_z: -0.3, ceil_z: 18.0, floor: "water", ceil: "sky", face: "tile"),
+        (id: "fountain_column", rect: (79.3, 55.8, 80.7, 57.2), floor_z: 2.6, ceil_z: 18.0, floor: "hive", ceil: "sky", wall: "hive",
+         face: "hive"),
+        // The overlook balcony: channel 1, the skylight collapse drops it into the plaza for good.
+        (id: "overlook", rect: (78.0, 61.0, 82.0, 68.0), floor_z: 4.0, ceil_z: 18.0, floor: "tile", ceil: "sky", wall: "rail",
+         face: "rail", mover: (kind: Lift(to: 0.5), channel: Some(1), speed: 3.0, one_shot: true)),
+        // Secret 3: the skylight frame's maintenance ledge, jetpack only.
+        (id: "frame_ledge", rect: (96.0, 64.0, 100.0, 68.0), floor_z: 10.0, ceil_z: 18.0, floor: "grate", ceil: "sky", wall: "rail",
+         face: "metal", secret: true),
+        // The north gallery: closed shopfronts along its back wall, two columns.
+        (id: "north_gallery", poly: [(60.0, 68.3), (78.0, 68.3), (78.0, 68.0), (82.0, 68.0), (82.0, 68.3), (100.0, 68.3), (100.0, 80.0),
+                                     (60.0, 80.0)],
+         holes: [[(64.0, 74.0), (65.0, 74.0), (65.0, 75.0), (64.0, 75.0)],
+                 [(95.0, 74.0), (96.0, 74.0), (96.0, 75.0), (95.0, 75.0)]],
+         floor_z: 4.0, ceil_z: 8.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront", face: "storefront"),
+        (id: "rail_nw", rect: (60.0, 68.0, 78.0, 68.3), floor_z: 5.2, ceil_z: 18.0, floor: "rail", ceil: "sky", wall: "rail", face: "rail"),
+        (id: "rail_ne", rect: (82.0, 68.0, 96.0, 68.3), floor_z: 5.2, ceil_z: 18.0, floor: "rail", ceil: "sky", wall: "rail", face: "rail"),
+        (id: "rail_ne2", rect: (96.0, 68.0, 100.0, 68.3), floor_z: 5.2, ceil_z: 18.0, floor: "rail", ceil: "sky", wall: "rail", face: "rail"),
+        // The south gallery: the escalator comes up through it, the blue door in its back wall.
+        (id: "south_gallery", poly: [(60.0, 40.0), (100.0, 40.0), (100.0, 51.7), (69.0, 51.7), (69.0, 44.0), (66.0, 44.0), (66.0, 51.7),
+                                     (60.0, 51.7)],
+         holes: [[(62.0, 45.0), (63.0, 45.0), (63.0, 46.0), (62.0, 46.0)],
+                 [(96.0, 45.0), (97.0, 45.0), (97.0, 46.0), (96.0, 46.0)]],
+         floor_z: 4.0, ceil_z: 8.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront", face: "storefront"),
+        (id: "rail_sw", rect: (60.0, 51.7, 66.0, 52.0), floor_z: 5.2, ceil_z: 18.0, floor: "rail", ceil: "sky", wall: "rail", face: "rail"),
+        (id: "rail_se", rect: (69.0, 51.7, 100.0, 52.0), floor_z: 5.2, ceil_z: 18.0, floor: "rail", ceil: "sky", wall: "rail", face: "rail"),
+        (id: "blue_door", rect: (76.0, 39.5, 84.0, 40.0), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Blue))),
+
+        // ---- The shop row: the concourse west of the plaza ----
+        (id: "concourse", rect: (20.0, 54.0, 60.0, 66.0),
+         holes: [[(28.0, 59.0), (31.0, 59.0), (31.0, 61.0), (28.0, 61.0)],
+                 [(44.0, 58.5), (48.0, 58.5), (48.0, 61.5), (44.0, 61.5)],
+                 [(37.0, 59.5), (38.0, 59.5), (38.0, 60.5), (37.0, 60.5)],
+                 [(54.0, 59.5), (55.0, 59.5), (55.0, 60.5), (54.0, 60.5)]],
+         ceil_z: 7.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "planter", rect: (28.0, 59.0, 31.0, 61.0), floor_z: 0.9, ceil_z: 7.0, floor: "gravel", face: "tile"),
+        // The phone-case kiosk in the middle of the concourse.
+        (id: "kiosk", rect: (44.0, 58.5, 48.0, 61.5), floor_z: 1.1, ceil_z: 7.0, floor: "wood", wall: "wood", face: "screen"),
+
+        // Tumbleweed Toys (north side): a marquee sign over the door, the counter by the west
+        // wall; secret 1 is the crouch vent behind it. Its back door (channel 3) comes from security.
+        (id: "toy_entry", rect: (26.0, 66.0, 32.0, 66.5), ceil_z: 3.5, floor: "tile", ceil: "metal", wall: "storefront", face: "marquee"),
+        (id: "toys", rect: (22.0, 66.5, 38.0, 80.0),
+         holes: [[(23.5, 69.0), (25.0, 69.0), (25.0, 75.0), (23.5, 75.0)],
+                 [(29.0, 72.0), (36.0, 72.0), (36.0, 73.0), (29.0, 73.0)],
+                 [(29.0, 76.0), (36.0, 76.0), (36.0, 77.0), (29.0, 77.0)]],
+         ceil_z: 4.0, floor: "carpet", ceil: "ceiling_tile", wall: "marquee"),
+        (id: "toy_counter", rect: (23.5, 69.0, 25.0, 75.0), floor_z: 1.1, floor: "wood", wall: "wood", face: "wood"),
+        (id: "toy_vent", rect: (19.6, 71.0, 22.0, 72.4), floor_z: 0.2, ceil_z: 1.35, floor: "grate", ceil: "metal", wall: "grate"),
+        (id: "toy_stash", rect: (15.0, 68.0, 19.6, 76.0), floor_z: 0.2, ceil_z: 2.6, floor: "concrete", ceil: "metal", wall: "container",
+         secret: true),
+        (id: "toy_back_door", rect: (33.0, 80.0, 36.0, 80.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(3))),
+
+        // Ohm Sweet Ohm electronics (north side): its shutter is a crack wall that the channel 2
+        // blast opens. Screen walls, a display table.
+        (id: "elec_shutter", rect: (45.0, 66.0, 53.0, 66.5), ceil_z: 3.5, floor: "tile", ceil: "metal", wall: "metal",
+         face: "storefront", mover: (kind: Crack)),
+        (id: "electronics", rect: (40.0, 66.5, 58.0, 80.0),
+         holes: [[(46.0, 71.0), (52.0, 71.0), (52.0, 73.0), (46.0, 73.0)],
+                 [(43.0, 76.0), (44.0, 76.0), (44.0, 77.0), (43.0, 77.0)],
+                 [(54.0, 76.0), (55.0, 76.0), (55.0, 77.0), (54.0, 77.0)]],
+         ceil_z: 4.0, floor: "tile", ceil: "glowstrip", wall: "screen"),
+        (id: "elec_table", rect: (46.0, 71.0, 52.0, 73.0), floor_z: 1.0, floor: "metal", ceil: "glowstrip", wall: "screen", face: "screen"),
+        (id: "elec_back_door", rect: (46.0, 80.0, 49.0, 80.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Mall security: the monitor bank, the evidence locker (the Blue key, channel 3) ----
+        (id: "security", rect: (30.0, 80.5, 56.0, 88.0), holes: [[(38.0, 83.0), (46.0, 83.0), (46.0, 84.2), (38.0, 84.2)]],
+         ceil_z: 3.2, floor: "carpet", ceil: "ceiling_tile", wall: "concrete"),
+        (id: "sec_desk", rect: (38.0, 83.0, 46.0, 84.2), floor_z: 0.9, ceil_z: 3.2, floor: "metal", wall: "metal", face: "screen"),
+        (id: "monitor_bank", rect: (34.0, 88.0, 50.0, 88.4), floor_z: 1.0, ceil_z: 2.8, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "evidence", rect: (26.5, 83.0, 30.0, 86.5), ceil_z: 2.8, floor: "glowstrip", ceil: "metal", wall: "metal"),
+        // The holding cell in the east wall, on channel 3, awake.
+        (id: "cell_door", rect: (56.0, 83.0, 56.5, 85.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(3))),
+        (id: "cell", rect: (56.5, 82.0, 60.0, 86.5), ceil_z: 3.0, floor: "concrete", ceil: "concrete", wall: "hive"),
+
+        // Gutsy Gear Sporting Goods (south side): racks, the jetpack in the back aisle (channel 2).
+        (id: "sports_entry", rect: (27.0, 53.5, 33.0, 54.0), ceil_z: 3.5, floor: "tile", ceil: "metal", wall: "storefront", face: "neon"),
+        (id: "sports", rect: (22.0, 44.0, 38.0, 53.5),
+         holes: [[(25.0, 47.0), (26.0, 47.0), (26.0, 51.0), (25.0, 51.0)],
+                 [(34.0, 47.0), (35.0, 47.0), (35.0, 51.0), (34.0, 51.0)]],
+         ceil_z: 4.5, floor: "wood", ceil: "ceiling_tile", wall: "concrete"),
+        (id: "sports_back", rect: (22.0, 40.0, 38.0, 44.0), ceil_z: 4.5, floor: "carpet", ceil: "ceiling_tile", wall: "neon"),
+
+        // Fuzzbucket Pets (south side): the aquarium, the till counter (the chaingun).
+        (id: "pet_entry", rect: (46.0, 53.5, 52.0, 54.0), ceil_z: 3.5, floor: "tile", ceil: "metal", wall: "storefront", face: "neon"),
+        (id: "pets", rect: (40.0, 40.0, 58.0, 53.5),
+         holes: [[(41.0, 44.0), (44.0, 44.0), (44.0, 50.0), (41.0, 50.0)],
+                 [(50.0, 43.0), (56.0, 43.0), (56.0, 44.2), (50.0, 44.2)]],
+         ceil_z: 4.0, floor: "tile", ceil: "ceiling_tile", wall: "hive"),
+        (id: "aquarium", rect: (41.0, 44.0, 44.0, 50.0), floor_z: 1.0, floor: "water", wall: "tile", face: "screen"),
+        (id: "pet_counter", rect: (50.0, 43.0, 56.0, 44.2), floor_z: 1.1, floor: "wood", wall: "wood", face: "wood"),
+
+        // ---- Halloway & Finch department store (z 4) ----
+        (id: "dept", rect: (56.0, 16.0, 104.0, 39.5),
+         holes: [[(64.0, 30.0), (66.0, 30.0), (66.0, 32.0), (64.0, 32.0)],
+                 [(92.0, 22.0), (94.0, 22.0), (94.0, 24.0), (92.0, 24.0)],
+                 [(70.0, 22.0), (80.0, 22.0), (80.0, 23.0), (70.0, 23.0)],
+                 [(84.0, 29.0), (90.0, 29.0), (90.0, 33.0), (84.0, 33.0)],
+                 [(72.0, 33.0), (73.0, 33.0), (73.0, 34.0), (72.0, 34.0)],
+                 [(88.0, 19.0), (89.0, 19.0), (89.0, 20.0), (88.0, 20.0)],
+                 [(60.0, 20.0), (61.0, 20.0), (61.0, 21.0), (60.0, 21.0)]],
+         floor_z: 4.0, ceil_z: 9.0, floor: "carpet", ceil: "ceiling_tile", wall: "wood"),
+        // Mannequin plinths, a clothing rack, the perfume counter.
+        (id: "plinth_w", rect: (64.0, 30.0, 66.0, 32.0), floor_z: 5.8, ceil_z: 9.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "plinth_e", rect: (92.0, 22.0, 94.0, 24.0), floor_z: 5.8, ceil_z: 9.0, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "rack", rect: (70.0, 22.0, 80.0, 23.0), floor_z: 5.3, ceil_z: 9.0, floor: "rail", wall: "rail", face: "rail"),
+        (id: "perfume", rect: (84.0, 29.0, 90.0, 33.0), floor_z: 5.0, ceil_z: 9.0, floor: "glowstrip", wall: "wood", face: "screen"),
+        // The fitting rooms in the south wall, on channel 4, awake.
+        (id: "fit_door", rect: (66.0, 15.5, 70.0, 16.0), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(4))),
+        (id: "fitting", rect: (64.0, 11.0, 72.0, 15.5), floor_z: 4.0, ceil_z: 7.0, floor: "carpet", ceil: "wood", wall: "velvet"),
+        // The manager's office up the steps (z 6): the Red key, channel 4.
+        (id: "mgr_office", rect: (42.0, 22.0, 52.0, 34.0), holes: [[(45.0, 27.0), (46.2, 27.0), (46.2, 31.0), (45.0, 31.0)]],
+         floor_z: 6.0, ceil_z: 9.0, floor: "carpet", ceil: "wood", wall: "wood"),
+        (id: "mgr_desk", rect: (45.0, 27.0, 46.2, 31.0), floor_z: 6.9, ceil_z: 9.0, floor: "wood", wall: "wood", face: "wood"),
+        // The staff door east into the stockroom.
+        (id: "staff_door", rect: (104.0, 24.0, 104.5, 28.0), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "stockroom", rect: (104.5, 14.0, 120.0, 35.5),
+         holes: [[(108.0, 18.0), (116.0, 18.0), (116.0, 19.0), (108.0, 19.0)],
+                 [(108.0, 26.0), (113.0, 26.0), (113.0, 27.0), (108.0, 27.0)]],
+         floor_z: 4.0, ceil_z: 7.0, floor: "concrete", ceil: "metal", wall: "container"),
+        // Secret 2: the cracked south wall (a barrel beside it) and the stash behind it.
+        (id: "stock_crack", rect: (110.0, 13.4, 114.0, 14.0), floor_z: 4.0, ceil_z: 6.5, floor: "concrete", ceil: "concrete",
+         wall: "container", face: "cracked", mover: (kind: Crack)),
+        (id: "stock_stash", rect: (108.0, 9.0, 116.0, 13.4), floor_z: 4.0, ceil_z: 6.5, floor: "concrete", ceil: "metal", wall: "brick",
+         secret: true),
+        // The freight lift (channel 4 unlocks its door): down to the kitchen.
+        (id: "freight_door", rect: (116.0, 35.5, 120.0, 36.0), floor_z: 4.0, ceil_z: 7.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(4))),
+        (id: "freight_lift", rect: (116.0, 36.0, 120.0, 40.0), floor_z: 4.0, ceil_z: 8.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "metal", mover: (kind: Lift(to: 0.0), speed: 2.5)),
+
+        // ---- The Sunspire food hall (east of the plaza) ----
+        (id: "fc_way", rect: (100.0, 55.0, 106.0, 63.0), ceil_z: 6.0, floor: "tile", ceil: "glowstrip", wall: "storefront"),
+        (id: "food_hall", rect: (106.0, 54.0, 138.0, 74.0),
+         holes: [[(112.0, 58.0), (118.0, 58.0), (118.0, 60.0), (112.0, 60.0)],
+                 [(124.0, 64.0), (130.0, 64.0), (130.0, 66.0), (124.0, 66.0)],
+                 [(108.0, 71.5), (116.0, 71.5), (116.0, 72.5), (108.0, 72.5)],
+                 [(120.0, 60.0), (121.0, 60.0), (121.0, 61.0), (120.0, 61.0)],
+                 [(110.0, 66.0), (111.0, 66.0), (111.0, 67.0), (110.0, 67.0)],
+                 [(132.0, 58.0), (133.0, 58.0), (133.0, 59.0), (132.0, 59.0)]],
+         ceil_z: 8.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "table_w", rect: (112.0, 58.0, 118.0, 60.0), floor_z: 0.8, ceil_z: 8.0, floor: "wood", wall: "wood", face: "metal"),
+        (id: "table_e", rect: (124.0, 64.0, 130.0, 66.0), floor_z: 0.8, ceil_z: 8.0, floor: "wood", wall: "wood", face: "metal"),
+        // The noodle stall's counter along the north wall.
+        (id: "stall_counter", rect: (108.0, 71.5, 116.0, 72.5), floor_z: 1.1, ceil_z: 8.0, floor: "metal", wall: "metal", face: "neon"),
+        // Joystick Junction arcade, off the north wall.
+        (id: "arcade_entry", rect: (118.0, 74.0, 124.0, 74.5), ceil_z: 3.5, floor: "dancefloor", ceil: "metal", wall: "storefront",
+         face: "marquee"),
+        (id: "arcade", rect: (112.0, 74.5, 132.0, 84.0), holes: [[(125.0, 81.0), (130.0, 81.0), (130.0, 82.0), (125.0, 82.0)]],
+         ceil_z: 4.0, floor: "dancefloor", ceil: "metal", wall: "neon"),
+        (id: "prize_counter", rect: (125.0, 81.0, 130.0, 82.0), floor_z: 1.1, floor: "glowstrip", wall: "neon", face: "marquee"),
+        // The Greasy Comet diner, south of the hall: the counter, a booth, the jukebox.
+        (id: "diner_entry", rect: (126.0, 53.5, 130.0, 54.0), ceil_z: 3.5, floor: "tile", ceil: "metal", wall: "storefront", face: "neon"),
+        (id: "diner", rect: (118.0, 44.0, 138.0, 53.5),
+         holes: [[(122.0, 47.5), (132.0, 47.5), (132.0, 48.5), (122.0, 48.5)],
+                 [(134.0, 50.0), (137.5, 50.0), (137.5, 51.5), (134.0, 51.5)]],
+         ceil_z: 3.5, floor: "tile", ceil: "neon", wall: "velvet"),
+        (id: "diner_counter", rect: (122.0, 47.5, 132.0, 48.5), floor_z: 1.1, ceil_z: 3.5, floor: "metal", wall: "metal", face: "neon"),
+        (id: "booth", rect: (134.0, 50.0, 137.5, 51.5), floor_z: 0.5, ceil_z: 3.5, floor: "velvet", wall: "velvet", face: "velvet"),
+        (id: "kitchen_door", rect: (124.0, 43.5, 127.0, 44.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "kitchen", rect: (120.0, 36.0, 136.0, 43.5), holes: [[(128.0, 38.5), (134.0, 38.5), (134.0, 40.0), (128.0, 40.0)]],
+         ceil_z: 3.5, floor: "tile", ceil: "metal", wall: "tile"),
+        (id: "stoves", rect: (128.0, 38.5, 134.0, 40.0), floor_z: 1.0, ceil_z: 3.5, floor: "metal", wall: "metal", face: "metal"),
+
+        // ---- Service corridors and the loading dock ----
+        (id: "red_door", rect: (138.0, 62.0, 138.5, 66.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Red))),
+        (id: "svc_east", rect: (138.5, 61.0, 148.0, 67.0), ceil_z: 3.5, floor: "concrete", ceil: "pipe", wall: "pipe"),
+        (id: "svc_south", rect: (144.0, 31.0, 148.0, 61.0), ceil_z: 3.5, floor: "concrete", ceil: "pipe", wall: "hive"),
+        // The loading dock's platform (z 1.2): a crate stack, two columns.
+        (id: "dock", rect: (136.0, 10.0, 176.0, 28.0),
+         holes: [[(142.0, 14.0), (146.0, 14.0), (146.0, 18.0), (142.0, 18.0)],
+                 [(152.0, 18.0), (153.0, 18.0), (153.0, 19.0), (152.0, 19.0)],
+                 [(162.0, 18.0), (163.0, 18.0), (163.0, 19.0), (162.0, 19.0)]],
+         floor_z: 1.2, ceil_z: 8.0, floor: "concrete", ceil: "metal", wall: "container"),
+        (id: "crates", rect: (142.0, 14.0, 146.0, 18.0), floor_z: 3.6, ceil_z: 8.0, floor: "container", wall: "container", face: "container"),
+        // The dock office: the Yellow key, channel 5.
+        (id: "office_door", rect: (168.0, 28.0, 171.0, 28.5), floor_z: 1.2, ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "dock_office", rect: (164.0, 28.5, 174.0, 35.0), floor_z: 1.2, ceil_z: 3.8, floor: "carpet", ceil: "ceiling_tile", wall: "screen"),
+        // The cold store in the east wall, on channel 5, awake.
+        (id: "cold_door", rect: (176.0, 14.0, 176.5, 18.0), floor_z: 1.2, ceil_z: 4.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(5))),
+        (id: "cold_store", rect: (176.5, 12.0, 182.0, 20.0), floor_z: 1.2, ceil_z: 4.0, floor: "tile", ceil: "metal", wall: "tile"),
+        // The yellow dock shutter, out to the truck yard.
+        (id: "yellow_shutter", rect: (154.0, 9.5, 160.0, 10.0), floor_z: 1.2, ceil_z: 5.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Yellow))),
+
+        // ---- The truck yard (open sky): a parked box truck, the gatehouse ----
+        (id: "yard", rect: (128.0, -16.0, 180.0, 9.5), holes: [[(138.0, -8.0), (144.0, -8.0), (144.0, 6.0), (138.0, 6.0)]],
+         ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "brick", face: "concrete"),
+        (id: "truck", rect: (138.0, -8.0, 144.0, 6.0), floor_z: 3.6, ceil_z: 14.0, floor: "container", ceil: "sky", wall: "container",
+         face: "container"),
+        // The gatehouse: the exit switch on its south wall opens the gate.
+        (id: "gatehouse", rect: (154.0, -22.0, 160.0, -16.0), ceil_z: 3.2, floor: "concrete", ceil: "metal", wall: "brick"),
+    ],
+    stairs: [
+        // The stairwell from the car park (z 8) down to the north gallery (z 4).
+        (id: "stairwell", rect: (76.0, 80.5, 80.0, 89.0), dir: N, steps: 7, from_z: 4.5, to_z: 7.5, ceil_z: 11.0,
+         floor: "concrete", ceil: "concrete", wall: "concrete"),
+        // The ramp up to the car park's top deck.
+        (id: "deck_ramp", rect: (98.0, 113.0, 104.0, 119.0), dir: E, steps: 2, from_z: 8.5, to_z: 9.0, ceil_z: 16.0,
+         floor: "concrete", ceil: "sky", wall: "concrete"),
+        // The escalator from the plaza up to the south gallery.
+        (id: "escalator", rect: (66.0, 44.0, 69.0, 52.0), dir: S, steps: 7, from_z: 0.5, to_z: 3.5, ceil_z: 8.0,
+         floor: "metal", ceil: "ceiling_tile", wall: "metal"),
+        // Up to the manager's office (z 6).
+        (id: "mgr_steps", rect: (52.0, 26.0, 56.0, 30.0), dir: W, steps: 3, from_z: 4.5, to_z: 5.5, ceil_z: 9.0,
+         floor: "wood", ceil: "wood", wall: "wood"),
+        // From the service corridor (z 0) up onto the dock platform (z 1.2).
+        (id: "dock_steps", rect: (144.0, 28.0, 148.0, 31.0), dir: S, steps: 2, from_z: 0.4, to_z: 0.8, ceil_z: 3.5,
+         floor: "concrete", ceil: "pipe", wall: "pipe"),
+    ],
+    switches: [
+        (wall: ((154.0, -22.0), (160.0, -22.0)), sector: "gatehouse", action: Exit),
+    ],
+    triggers: [
+        (sector: "overlook", action: Channel(1)),
+        (sector: "sports_back", action: Channel(2)),
+        (sector: "evidence", action: Channel(3)),
+        (sector: "mgr_office", action: Channel(4)),
+        (sector: "dock_office", action: Channel(5)),
+    ],
+    quakes: [
+        (channel: 1, duration: 3.0, strength: 0.7),
+        (channel: 2, duration: 1.2, strength: 0.45),
+        (channel: 4, duration: 1.0, strength: 0.25),
+    ],
+    blasts: [
+        // The skylight bursts over the overlook (no damage: the show).
+        (channel: 1, at: (76.0, 62.0, 16.5), radius: 2.5, damage: 0, delay: 0.2),
+        // Inside the electronics store, 2 m behind its shutter: the closed crack shields the
+        // concourse, and the player is across it in the sports store.
+        (channel: 2, at: (49.0, 68.5, 1.0), radius: 3.0, damage: 40, delay: 0.6),
+    ],
+    props: [
+        // The car park's pay booth: a payphone on its west wall.
+        (kind: Payphone, pos: (44.16, 122.5), angle_deg: 0.0),
+        // The concourse: a vending machine on the west end wall, a payphone beside it.
+        (kind: Vending, pos: (20.42, 62.0), angle_deg: 0.0, stock: 3),
+        (kind: Payphone, pos: (20.16, 57.0), angle_deg: 0.0),
+        // Joystick Junction: cabinets along the north and west walls.
+        (kind: Arcade, pos: (114.0, 83.55), angle_deg: 270.0),
+        (kind: Arcade, pos: (115.5, 83.55), angle_deg: 270.0),
+        (kind: Arcade, pos: (117.0, 83.55), angle_deg: 270.0),
+        (kind: Arcade, pos: (112.45, 79.0), angle_deg: 0.0),
+        (kind: Arcade, pos: (112.45, 77.0), angle_deg: 0.0),
+        (kind: PoolTable, pos: (121.0, 79.5), angle_deg: 0.0),
+        // The Greasy Comet diner's jukebox on its west wall.
+        (kind: Jukebox, pos: (118.35, 50.5), angle_deg: 0.0),
+        // A vending machine in the service corridor.
+        (kind: Vending, pos: (147.58, 50.0), angle_deg: 180.0, stock: 2),
+    ],
+    lights: [
+        // Shadowed: one key light per big space.
+        (pos: (80.0, 105.0, 15.0), color: (0.75, 0.8, 1.0), intensity: 4000000.0, range: 40.0),
+        (pos: (80.0, 60.0, 17.0), color: (0.95, 0.95, 1.0), intensity: 3000000.0, range: 35.0),
+        (pos: (40.0, 60.0, 6.5), color: (1.0, 0.9, 0.75), intensity: 400000.0, range: 22.0),
+        (pos: (49.0, 75.0, 3.7), color: (0.5, 0.8, 1.0), intensity: 200000.0, range: 14.0, breakable: true),
+        (pos: (43.0, 86.0, 3.0), color: (0.6, 0.8, 1.0), intensity: 150000.0, range: 14.0),
+        (pos: (80.0, 28.0, 8.5), color: (1.0, 0.9, 0.8), intensity: 800000.0, range: 30.0),
+        (pos: (112.0, 25.0, 6.6), color: (1.0, 0.85, 0.6), intensity: 200000.0, range: 16.0, breakable: true),
+        (pos: (122.0, 64.0, 7.5), color: (1.0, 0.85, 0.65), intensity: 800000.0, range: 25.0),
+        (pos: (122.0, 79.0, 3.7), color: (1.0, 0.4, 0.9), intensity: 150000.0, range: 14.0),
+        (pos: (128.0, 49.0, 3.2), color: (1.0, 0.6, 0.4), intensity: 100000.0, range: 12.0),
+        (pos: (156.0, 19.0, 7.5), color: (1.0, 0.85, 0.6), intensity: 800000.0, range: 26.0),
+        (pos: (154.0, -4.0, 13.0), color: (0.75, 0.8, 1.0), intensity: 2000000.0, range: 30.0),
+        // Fills (no shadows).
+        (pos: (47.0, 122.5, 10.7), color: (1.0, 0.9, 0.7), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (67.0, 104.0, 13.0), color: (1.0, 0.85, 0.55), intensity: 150000.0, range: 14.0, shadows: false),
+        (pos: (101.0, 104.0, 13.0), color: (1.0, 0.85, 0.55), intensity: 150000.0, range: 14.0, shadows: false),
+        (pos: (78.0, 85.0, 10.0), color: (1.0, 0.9, 0.75), intensity: 30000.0, range: 9.0, shadows: false),
+        (pos: (70.0, 75.0, 7.6), color: (1.0, 0.92, 0.8), intensity: 80000.0, range: 14.0, shadows: false),
+        (pos: (90.0, 75.0, 7.6), color: (1.0, 0.92, 0.8), intensity: 80000.0, range: 14.0, shadows: false),
+        (pos: (70.0, 45.0, 7.6), color: (1.0, 0.92, 0.8), intensity: 80000.0, range: 14.0, shadows: false),
+        (pos: (90.0, 45.0, 7.6), color: (1.0, 0.92, 0.8), intensity: 80000.0, range: 14.0, shadows: false),
+        (pos: (80.0, 56.5, 0.4), color: (0.3, 0.7, 1.0), intensity: 50000.0, range: 9.0, shadows: false),
+        (pos: (98.0, 66.0, 12.5), color: (1.0, 0.8, 0.4), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (29.0, 66.8, 3.2), color: (1.0, 0.5, 0.8), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (30.0, 73.0, 3.7), color: (1.0, 0.85, 0.6), intensity: 40000.0, range: 12.0, shadows: false),
+        (pos: (17.3, 72.0, 2.3), color: (1.0, 0.8, 0.4), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (28.2, 84.7, 2.5), color: (0.4, 0.6, 1.0), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (58.2, 84.2, 2.7), color: (0.5, 1.0, 0.4), intensity: 12000.0, range: 5.0, shadows: false),
+        (pos: (30.0, 48.0, 4.2), color: (1.0, 0.95, 0.85), intensity: 50000.0, range: 12.0, shadows: false),
+        (pos: (30.0, 42.0, 4.0), color: (0.4, 1.0, 0.6), intensity: 20000.0, range: 7.0, shadows: false),
+        (pos: (49.0, 47.0, 3.7), color: (0.8, 1.0, 0.7), intensity: 50000.0, range: 12.0, shadows: false),
+        (pos: (42.5, 47.0, 1.5), color: (0.3, 0.6, 1.0), intensity: 20000.0, range: 5.0, shadows: false),
+        (pos: (47.0, 28.0, 8.6), color: (1.0, 0.85, 0.6), intensity: 40000.0, range: 10.0, shadows: false),
+        (pos: (68.0, 13.0, 6.7), color: (1.0, 0.6, 0.7), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (87.0, 31.0, 6.0), color: (1.0, 0.7, 0.9), intensity: 30000.0, range: 8.0, shadows: false),
+        (pos: (112.0, 11.2, 6.2), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (118.0, 38.0, 7.6), color: (1.0, 0.6, 0.3), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (103.0, 59.0, 5.6), color: (1.0, 0.9, 0.75), intensity: 30000.0, range: 8.0, shadows: false),
+        (pos: (112.0, 72.0, 3.0), color: (1.0, 0.4, 0.3), intensity: 25000.0, range: 7.0, shadows: false),
+        (pos: (115.0, 80.0, 3.0), color: (0.3, 0.8, 1.0), intensity: 25000.0, range: 7.0, shadows: false),
+        (pos: (128.0, 40.0, 3.2), color: (1.0, 0.9, 0.8), intensity: 30000.0, range: 10.0, shadows: false),
+        (pos: (143.0, 64.0, 3.2), color: (1.0, 0.7, 0.4), intensity: 15000.0, range: 7.0, shadows: false),
+        (pos: (146.0, 52.0, 3.2), color: (0.7, 1.0, 0.45), intensity: 15000.0, range: 8.0, shadows: false),
+        (pos: (146.0, 38.0, 3.2), color: (0.7, 1.0, 0.45), intensity: 15000.0, range: 8.0, shadows: false),
+        (pos: (169.0, 32.0, 3.5), color: (0.5, 0.8, 1.0), intensity: 25000.0, range: 7.0, shadows: false),
+        (pos: (179.0, 16.0, 3.7), color: (0.6, 0.85, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (157.0, 9.0, 4.5), color: (1.0, 0.8, 0.2), intensity: 25000.0, range: 7.0, shadows: false),
+        (pos: (157.0, -19.0, 2.9), color: (1.0, 0.9, 0.7), intensity: 20000.0, range: 6.0, shadows: false),
+    ],
+    items: [
+        // Car park: the shotgun in the pay booth; armour on the top deck.
+        (kind: Shotgun, pos: (47.0, 123.0)),
+        (kind: ShotgunShells, pos: (60.0, 104.0)),
+        (kind: PistolAmmo, pos: (90.0, 92.0)),
+        (kind: HealthSmall, pos: (42.0, 92.0)),
+        (kind: Armour, pos: (117.0, 119.0)),
+        (kind: ShotgunShells, pos: (107.0, 113.0)),
+        (kind: PistolAmmo, pos: (78.0, 84.0)),
+        // North gallery, plaza; secret 3's atom and rockets on the frame ledge.
+        (kind: ShotgunShells, pos: (70.0, 76.0)),
+        (kind: HealthSmall, pos: (92.0, 77.5)),
+        (kind: Armour, pos: (70.0, 58.0)),
+        (kind: PistolAmmo, pos: (90.0, 55.0)),
+        (kind: ShotgunShells, pos: (64.0, 65.0)),
+        (kind: Atom, pos: (98.0, 66.5)),
+        (kind: Rockets, pos: (97.0, 65.0)),
+        // Concourse.
+        (kind: HealthSmall, pos: (22.0, 64.5)),
+        (kind: ShotgunShells, pos: (58.0, 64.5)),
+        (kind: PistolAmmo, pos: (40.0, 56.0)),
+        // Pets: the chaingun by the till. Sports: the jetpack, pipe bombs.
+        (kind: Chaingun, pos: (49.0, 47.0)),
+        (kind: PistolAmmo, pos: (56.0, 51.5)),
+        (kind: Jetpack, pos: (30.0, 41.5)),
+        (kind: PipeBombs, pos: (24.0, 41.5)),
+        (kind: ShotgunShells, pos: (36.5, 52.0)),
+        // Toys; secret 1's armour, pipe bombs and atom in the stash.
+        (kind: Medkit, pos: (36.5, 79.0)),
+        (kind: Armour, pos: (16.5, 70.0)),
+        (kind: PipeBombs, pos: (16.5, 74.0)),
+        (kind: Atom, pos: (18.0, 72.0)),
+        // Electronics, security: the rocket launcher, the Blue key in the evidence locker.
+        (kind: PistolAmmo, pos: (42.0, 78.5)),
+        (kind: ShotgunShells, pos: (56.5, 68.0)),
+        (kind: Key(Blue), pos: (28.0, 84.75)),
+        (kind: RocketLauncher, pos: (53.5, 86.5)),
+        (kind: Rockets, pos: (31.5, 82.0)),
+        (kind: HealthSmall, pos: (52.0, 82.0)),
+        // South gallery.
+        (kind: PistolAmmo, pos: (98.0, 42.0)),
+        (kind: HealthSmall, pos: (61.5, 42.0)),
+        // Department store: the Red key behind the manager's desk; secret 2 in the stash.
+        (kind: ShotgunShells, pos: (60.0, 18.0)),
+        (kind: Rockets, pos: (100.0, 37.0)),
+        (kind: Armour, pos: (86.0, 18.0)),
+        (kind: Medkit, pos: (58.0, 37.5)),
+        (kind: Key(Red), pos: (43.5, 29.0)),
+        (kind: PistolAmmo, pos: (50.5, 33.0)),
+        (kind: ShotgunShells, pos: (68.0, 12.0)),
+        (kind: PistolAmmo, pos: (106.0, 34.0)),
+        (kind: ShotgunShells, pos: (118.5, 16.0)),
+        (kind: Atom, pos: (110.0, 11.0)),
+        (kind: Rockets, pos: (114.0, 11.0)),
+        // Food hall, arcade, diner, kitchen.
+        (kind: Armour, pos: (135.0, 72.0)),
+        (kind: PistolAmmo, pos: (110.0, 56.0)),
+        (kind: ShotgunShells, pos: (128.0, 69.0)),
+        (kind: Rockets, pos: (114.0, 76.0)),
+        (kind: HealthSmall, pos: (130.5, 76.0)),
+        (kind: HealthSmall, pos: (120.0, 45.0)),
+        (kind: ShotgunShells, pos: (136.5, 45.5)),
+        (kind: PistolAmmo, pos: (122.0, 42.0)),
+        // Service corridors, the dock: the Yellow key in the dock office.
+        (kind: ShotgunShells, pos: (146.0, 55.0)),
+        (kind: HealthSmall, pos: (140.0, 65.5)),
+        (kind: Rockets, pos: (138.0, 12.0)),
+        (kind: Armour, pos: (174.0, 12.0)),
+        (kind: Medkit, pos: (150.0, 26.5)),
+        (kind: Key(Yellow), pos: (166.0, 33.5)),
+        (kind: PistolAmmo, pos: (172.5, 30.0)),
+        (kind: ShotgunShells, pos: (180.5, 18.5)),
+        // Truck yard.
+        (kind: HealthSmall, pos: (130.0, -14.0)),
+        (kind: ShotgunShells, pos: (170.0, -2.0)),
+    ],
+    actors: [
+        // Car park: Grunts among the cars, a Drone overhead, an Enforcer on the top deck.
+        (kind: Grunt, pos: (70.0, 104.0), angle_deg: 180.0),
+        (kind: Drone, pos: (84.0, 112.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (96.0, 104.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (116.0, 113.0), angle_deg: 180.0, skill: Normal),
+        (kind: Barrel, pos: (57.0, 101.5)),
+        (kind: Barrel, pos: (92.0, 106.0)),
+        // North gallery.
+        (kind: Grunt, pos: (90.0, 76.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (66.0, 73.0), angle_deg: 0.0),
+        (kind: Drone, pos: (88.0, 72.0), angle_deg: 180.0, skill: Normal),
+        // Plaza.
+        (kind: Enforcer, pos: (90.0, 57.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (64.0, 56.0), angle_deg: 0.0),
+        (kind: Drone, pos: (70.0, 64.0), angle_deg: 0.0, skill: Hard),
+        // Concourse.
+        (kind: Grunt, pos: (34.0, 63.0), angle_deg: 0.0),
+        (kind: Drone, pos: (50.0, 63.5), angle_deg: 0.0),
+        (kind: Slasher, pos: (24.0, 57.0), angle_deg: 0.0, skill: Normal),
+        // Pets, sports, toys.
+        (kind: Slasher, pos: (46.0, 50.5), angle_deg: 90.0),
+        (kind: Grunt, pos: (55.0, 41.5), angle_deg: 90.0, skill: Normal),
+        (kind: Grunt, pos: (36.0, 42.0), angle_deg: 90.0),
+        (kind: Enforcer, pos: (23.5, 45.0), angle_deg: 0.0, skill: Hard),
+        (kind: Slasher, pos: (34.0, 70.0), angle_deg: 270.0, skill: Hard),
+        // Electronics; security (the holding cell on channel 3, awake).
+        (kind: Grunt, pos: (42.0, 70.0), angle_deg: 270.0),
+        (kind: Drone, pos: (55.0, 74.0), angle_deg: 270.0, skill: Normal),
+        (kind: Enforcer, pos: (50.0, 86.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (33.0, 86.5), angle_deg: 0.0, skill: Normal),
+        (kind: Slasher, pos: (58.2, 83.5), angle_deg: 180.0, asleep: false),
+        (kind: Slasher, pos: (58.2, 85.2), angle_deg: 180.0, asleep: false, skill: Hard),
+        // South gallery.
+        (kind: Grunt, pos: (90.0, 44.0), angle_deg: 180.0),
+        // Department store (the fitting rooms on channel 4, awake); the stockroom.
+        (kind: Enforcer, pos: (92.0, 34.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (64.0, 24.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (98.0, 18.0), angle_deg: 90.0, skill: Hard),
+        (kind: Drone, pos: (72.0, 30.0), angle_deg: 90.0, skill: Hard),
+        (kind: Enforcer, pos: (48.5, 24.0), angle_deg: 0.0, skill: Normal),
+        (kind: Slasher, pos: (66.0, 13.0), angle_deg: 90.0, asleep: false),
+        (kind: Slasher, pos: (70.0, 13.0), angle_deg: 90.0, asleep: false, skill: Normal),
+        (kind: Grunt, pos: (110.0, 30.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (117.0, 22.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (112.0, 15.3)),
+        // Food hall, diner, arcade, kitchen.
+        (kind: Grunt, pos: (116.0, 68.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (132.0, 62.0), angle_deg: 180.0),
+        (kind: Drone, pos: (124.0, 70.0), angle_deg: 180.0, skill: Hard),
+        (kind: Slasher, pos: (135.5, 46.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (116.0, 80.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (126.0, 79.0), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (132.0, 42.0), angle_deg: 180.0, skill: Normal),
+        (kind: Barrel, pos: (134.8, 37.2)),
+        // Service corridors and the dock (the cold store on channel 5, awake).
+        (kind: Slasher, pos: (146.0, 45.0), angle_deg: 90.0),
+        (kind: Enforcer, pos: (150.0, 22.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (166.0, 14.0), angle_deg: 180.0, skill: Normal),
+        (kind: Drone, pos: (140.0, 22.0), angle_deg: 90.0, skill: Hard),
+        (kind: Slasher, pos: (179.0, 14.0), angle_deg: 180.0, asleep: false),
+        (kind: Grunt, pos: (179.0, 17.5), angle_deg: 180.0, asleep: false, skill: Normal),
+        (kind: Slasher, pos: (181.0, 16.0), angle_deg: 180.0, asleep: false, skill: Hard),
+        (kind: Barrel, pos: (171.0, 12.0)),
+        (kind: Barrel, pos: (141.0, 12.0)),
+        // Truck yard.
+        (kind: Grunt, pos: (148.0, -6.0), angle_deg: 90.0),
+        (kind: Drone, pos: (166.0, -10.0), angle_deg: 90.0, skill: Normal),
+    ],
+)
