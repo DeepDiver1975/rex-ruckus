@@ -630,3 +630,44 @@ fn the_hive_queen_wakes_on_entry_and_her_death_opens_the_stash() {
     );
     assert_eq!(state(&app), PlayState::Playing, "the level goes on");
 }
+
+/// The material gallery in engine_lab: the hall's west doorway leads into it, and its magma pit
+/// (sector 36) is a Burn hazard floored with `magma` that the player can step out of.
+#[test]
+fn the_gallery_is_open_from_the_hall_and_its_magma_pit_burns() {
+    const DOORWAY: usize = 29;
+    const PIT: usize = 36;
+    let mut app = app(load_map("engine_lab.ron"));
+    teleport(&mut app, 2.0, 2.5, 180.0);
+    assert_eq!(walk_to(&mut app, DOORWAY, 60).sector, DOORWAY);
+    {
+        let map = &app.world().resource::<CurrentMap>().0;
+        assert_eq!(map.materials[map.sectors[PIT].floor_mat], "magma");
+    }
+    teleport(&mut app, -17.5, 2.5, 0.0);
+    assert_eq!(body(&mut app).sector, PIT);
+    let hp = vitals(&mut app).0.health.hp;
+    ticks(&mut app, 2);
+    let burns = app
+        .world()
+        .resource::<FxQueue>()
+        .combat
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                CombatEvent::HazardBurn {
+                    kind: rr_core::hazard::HazardKind::Burn
+                }
+            )
+        })
+        .count();
+    assert_eq!(burns, 1, "burns at once on contact");
+    assert!(vitals(&mut app).0.health.hp < hp);
+    // Out over the east rim, back onto the hive floor.
+    assert_eq!(
+        walk_to(&mut app, 35, 120).sector,
+        35,
+        "steps out of the pit"
+    );
+}
