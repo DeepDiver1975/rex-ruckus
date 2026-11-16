@@ -1,0 +1,387 @@
+// Episode 2, level 7: the finale. Coordinates in metres, x = east, y = north, z = up.
+// Setting: below the plant's bore, the heart of the alien hive: organic caverns, egg chambers,
+// slime and water pools, glowing pores. The Hive Queen waits in her chamber at the end.
+// Route: the bore landing (start west, facing east; the broken casing stub, the shotgun) → the
+// burrow tunnel east → the fork (a hive column) → steps down east into the egg nursery (the
+// chaingun by the steps, egg pods, a brood pool; entering fires channel 2, a rumble) → the neck
+// south → the egg chamber: the Blue key on the egg dais (channel 1: the hive closet in the east
+// wall bursts open, awake, and the brood door in the west wall opens on the brood run back to
+// the fork, the shortcut) → back through the nursery, the blue membrane door in its north wall →
+// the gut → the gut's end: entering fires channel 3, a quake, and a scripted blast blows the
+// cracked membrane ahead open → the lake cavern's south shore (the rocket launcher, the
+// jetpack; a hive lip walls the shore off from the water but for the dock) → onto the membrane
+// raft: the switch on the stalk beside the dock (channel 6) floats it 13.8 m north across the
+// lake, and the stalk on the far dock sends it back → the north shore → the pore tunnel west →
+// the hatchery (egg clusters, a slime pool): up the brood mound for the Red key (channel 4: a
+// quake, the hive closet in the west wall bursts open, awake, and the hatch door in the south
+// wall opens on the west run back to the south shore, the shortcut past the lake) → the red door
+// north → the neck → the staging chamber (armour, an atom, rockets, pipe bombs, a chaingun, a
+// medkit) → east through the lip hall to the lip (channel 5: a quake as the Queen stirs) → the
+// 4 m drop into the Queen's chamber (36 x 30 m, 21 m high, four hive mounds for cover, five
+// burrow points). She sleeps at the far end facing the lip and wakes when she sees Rex; her
+// death ends the episode. The drop is one way: nothing in the chamber climbs back out, and the
+// level has no other exit. Steps in the lake's south-east corner climb out of the water.
+// Secrets: (1) the nursery's east wall cracks open on a blast (a barrel beside it): the old egg
+// cache (atom, armour); (2) a crouch vent (1.3 m) in the burrow tunnel's south wall into a pocket
+// (atom, armour, rockets); (3) a jetpack-only ledge at z 4 high in the lake's east wall (atom,
+// rockets). Validate warns that the cache's and the ledge's items "cannot be reached from the
+// start": a crack-wall stash and a jetpack ledge, by design.
+(
+    name: "Hive Heart",
+    defaults: (floor_z: 0.0, ceil_z: 4.0, floor: "hive", ceil: "hive", wall: "hive"),
+    music: Some("hive_heart"),
+    player_start: (pos: (3.0, 5.0), angle_deg: 0.0),
+    sectors: [
+        // ---- The bore landing (16 m: the bore casing above) ----
+        (id: "landing", rect: (0.0, 0.0, 12.0, 10.0), holes: [[(7.0, 6.5), (9.0, 6.5), (9.0, 8.5), (7.0, 8.5)]],
+         ceil_z: 16.0, floor: "grate", ceil: "pipe", wall: "hive"),
+        // The broken end of the drill string, standing in the floor.
+        (id: "casing", rect: (7.0, 6.5, 9.0, 8.5), floor_z: 2.5, ceil_z: 16.0, floor: "pipe", ceil: "pipe", face: "pipe"),
+
+        // ---- The burrow tunnel and the fork ----
+        (id: "tunnel_a", rect: (12.0, 4.0, 20.0, 8.0), ceil_z: 3.5),
+        (id: "tunnel_b", rect: (20.0, 4.0, 28.0, 8.0), ceil_z: 3.0),
+        // Secret 2: the crouch vent in the tunnel's south wall, and the pocket behind it.
+        (id: "vent", rect: (18.0, 2.5, 19.6, 4.0), ceil_z: 1.3, floor: "hive", ceil: "flesh"),
+        (id: "pocket", rect: (15.0, -3.0, 23.0, 2.5), ceil_z: 2.6, ceil: "flesh", secret: true),
+        (id: "fork", rect: (28.0, 0.0, 36.0, 12.0), holes: [[(31.0, 5.0), (33.0, 5.0), (33.0, 7.0), (31.0, 7.0)]],
+         ceil_z: 5.0),
+        (id: "fork_column", rect: (31.0, 5.0, 33.0, 7.0), floor_z: 4.8, ceil_z: 5.0, floor: "flesh", face: "hive"),
+
+        // ---- The egg nursery (10 m) ----
+        (id: "nursery", rect: (42.0, -6.0, 66.0, 20.0),
+         holes: [[(46.0, 10.0), (50.0, 10.0), (50.0, 14.0), (46.0, 14.0)],
+                 [(58.0, 2.0), (62.0, 2.0), (62.0, 6.0), (58.0, 6.0)],
+                 [(56.0, 13.0), (59.0, 13.0), (59.0, 16.0), (56.0, 16.0)],
+                 [(44.0, 1.0), (46.5, 1.0), (46.5, 3.5), (44.0, 3.5)],
+                 [(48.0, -2.0), (54.0, -2.0), (54.0, 3.0), (48.0, 3.0)]],
+         floor_z: -2.0, ceil_z: 8.0, ceil: "flesh"),
+        (id: "pod_a", rect: (46.0, 10.0, 50.0, 14.0), floor_z: -0.8, ceil_z: 8.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "pod_b", rect: (58.0, 2.0, 62.0, 6.0), floor_z: -0.8, ceil_z: 8.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "pod_c", rect: (56.0, 13.0, 59.0, 16.0), floor_z: -0.6, ceil_z: 8.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "pod_d", rect: (44.0, 1.0, 46.5, 3.5), floor_z: -1.0, ceil_z: 8.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "brood_pool", rect: (48.0, -2.0, 54.0, 3.0), floor_z: -2.4, ceil_z: 8.0, floor: "slime", ceil: "flesh",
+         face: "hive", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // Secret 1: the cracked east wall (the barrel beside it) and the old egg cache.
+        (id: "nursery_crack", rect: (66.0, 10.0, 66.75, 13.0), floor_z: -2.0, ceil_z: 1.0, ceil: "hive",
+         face: "cracked", mover: (kind: Crack)),
+        (id: "cache", rect: (66.75, 8.0, 72.0, 15.0), floor_z: -2.0, ceil_z: 0.8, ceil: "flesh", secret: true),
+
+        // ---- The egg chamber (the Blue key) ----
+        (id: "egg_neck", rect: (49.0, -10.0, 53.0, -6.0), floor_z: -2.0, ceil_z: 1.5),
+        (id: "egg_chamber", rect: (44.0, -20.0, 58.0, -10.0),
+         holes: [[(49.0, -18.0), (53.0, -18.0), (53.0, -15.0), (49.0, -15.0)],
+                 [(54.5, -14.0), (56.5, -14.0), (56.5, -12.0), (54.5, -12.0)]],
+         floor_z: -2.0, ceil_z: 3.0, ceil: "flesh"),
+        // The egg dais (the Blue key): channel 1.
+        (id: "egg_dais", rect: (49.0, -18.0, 53.0, -15.0), floor_z: -1.5, ceil_z: 3.0, floor: "flesh", ceil: "flesh",
+         face: "slime"),
+        (id: "egg_cluster", rect: (54.5, -14.0, 56.5, -12.0), floor_z: -0.8, ceil_z: 3.0, floor: "flesh", ceil: "flesh",
+         face: "flesh"),
+        // The hive closet in the east wall, burst on channel 1, awake.
+        (id: "egg_cl_door", rect: (58.0, -17.0, 58.5, -14.0), floor_z: -2.0, ceil_z: 0.5, face: "flesh",
+         mover: (kind: Door, channel: Some(1))),
+        (id: "egg_cl", rect: (58.5, -18.0, 62.0, -13.0), floor_z: -2.0, ceil_z: 0.8),
+        // The brood door in the west wall: channel 1, the shortcut back to the fork.
+        (id: "brood_door", rect: (43.5, -16.0, 44.0, -13.0), floor_z: -2.0, ceil_z: 0.8, face: "flesh",
+         mover: (kind: Door, channel: Some(1))),
+        (id: "brood_run", rect: (30.0, -17.0, 43.5, -12.0), floor_z: -2.0, ceil_z: 1.5),
+        (id: "run_top", rect: (30.0, -6.0, 34.0, 0.0), ceil_z: 3.0),
+
+        // ---- The gut and the breach ----
+        (id: "blue_door", rect: (52.0, 20.0, 56.0, 20.5), floor_z: -2.0, ceil_z: 1.5, face: "flesh",
+         mover: (kind: Door, lock: Some(Blue))),
+        (id: "gut", rect: (52.0, 20.5, 56.0, 34.0), floor_z: -2.0, ceil_z: 2.0, ceil: "flesh"),
+        // Entering it fires channel 3: the quake, and the blast beyond the membrane.
+        (id: "gut_end", rect: (50.0, 34.0, 58.0, 38.0), floor_z: -2.0, ceil_z: 2.5, ceil: "flesh"),
+        (id: "gut_crack", rect: (52.0, 38.0, 56.0, 38.75), floor_z: -2.0, ceil_z: 1.5, face: "cracked",
+         mover: (kind: Crack)),
+
+        // ---- The lake cavern (14 m) ----
+        // The shores are walled off from the water by a hive lip, open only at the dock; the
+        // raft's switch stalk stands in the lip beside the dock.
+        (id: "s_shore", poly: [(40.0, 38.75), (66.0, 38.75), (66.0, 45.6), (56.2, 45.6), (56.2, 44.8), (55.2, 44.8),
+                               (55.2, 46.0), (50.0, 46.0), (50.0, 45.6), (40.0, 45.6)],
+         holes: [[(44.0, 40.5), (47.0, 40.5), (47.0, 43.0), (44.0, 43.0)],
+                 [(59.0, 40.0), (62.0, 40.0), (62.0, 42.0), (59.0, 42.0)]],
+         floor_z: -2.0, ceil_z: 12.0),
+        (id: "s_lip_w", rect: (40.0, 45.6, 50.0, 46.0), floor_z: -0.5, ceil_z: 12.0, face: "hive"),
+        (id: "s_lip_e", rect: (56.2, 45.6, 66.0, 46.0), floor_z: -0.5, ceil_z: 12.0, face: "hive"),
+        (id: "s_rock", rect: (44.0, 40.5, 47.0, 43.0), floor_z: -0.8, ceil_z: 12.0, face: "hive"),
+        // A glowing pore in the shore.
+        (id: "s_pore", rect: (59.0, 40.0, 62.0, 42.0), floor_z: -2.3, ceil_z: 12.0, floor: "slime", face: "hive",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // The lake: 2.5 m below the shores, too deep to climb out of but by the steps.
+        (id: "lake", rect: (36.0, 46.0, 70.0, 64.0), holes: [[(50.1, 46.1), (54.9, 46.1), (54.9, 50.1), (50.1, 50.1)]],
+         floor_z: -4.5, ceil_z: 12.0, floor: "water", face: "hive"),
+        // The membrane raft: docked 0.1 m off the south shore, floats 13.8 m north to 0.1 m off the
+        // north shore on channel 6.
+        (id: "raft", rect: (50.1, 46.1, 54.9, 50.1), floor_z: -2.0, ceil_z: 12.0, floor: "flesh", face: "flesh",
+         mover: (kind: Slide(by: (0.0, 13.8)), channel: Some(6), speed: 2.0)),
+        // Secret 3: the ledge high in the lake's east wall, jetpack only.
+        (id: "jet_ledge", rect: (70.0, 52.0, 74.0, 58.0), floor_z: 4.0, ceil_z: 12.0, floor: "flesh", face: "hive",
+         secret: true),
+        (id: "n_shore", poly: [(40.0, 64.4), (50.0, 64.4), (50.0, 64.0), (55.2, 64.0), (55.2, 65.2), (56.2, 65.2),
+                               (56.2, 64.4), (66.0, 64.4), (66.0, 72.0), (40.0, 72.0)],
+         holes: [[(60.0, 67.0), (63.0, 67.0), (63.0, 70.0), (60.0, 70.0)]],
+         floor_z: -2.0, ceil_z: 12.0),
+        (id: "n_lip_w", rect: (40.0, 64.0, 50.0, 64.4), floor_z: -0.5, ceil_z: 12.0, face: "hive"),
+        (id: "n_lip_e", rect: (56.2, 64.0, 66.0, 64.4), floor_z: -0.5, ceil_z: 12.0, face: "hive"),
+        (id: "n_rock", rect: (60.0, 67.0, 63.0, 70.0), floor_z: -0.9, ceil_z: 12.0, face: "hive"),
+        (id: "pore_tunnel", rect: (34.0, 66.0, 40.0, 70.0), floor_z: -2.0, ceil_z: 1.5, ceil: "flesh"),
+
+        // ---- The hatchery (the Red key) ----
+        (id: "hatchery", rect: (16.0, 58.0, 34.0, 76.0),
+         holes: [[(22.0, 66.0), (23.0, 66.0), (23.0, 65.0), (27.0, 65.0), (27.0, 66.0), (28.0, 66.0), (28.0, 70.0), (22.0, 70.0)],
+                 [(18.0, 60.0), (21.0, 60.0), (21.0, 63.0), (18.0, 63.0)],
+                 [(29.0, 71.0), (32.0, 71.0), (32.0, 74.0), (29.0, 74.0)],
+                 [(28.5, 60.0), (32.0, 60.0), (32.0, 64.0), (28.5, 64.0)]],
+         floor_z: -2.0, ceil_z: 9.0, ceil: "flesh"),
+        // The brood mound (the Red key): channel 4.
+        (id: "mound", rect: (22.0, 66.0, 28.0, 70.0), floor_z: -1.0, ceil_z: 9.0, floor: "flesh", ceil: "flesh", face: "slime"),
+        (id: "mound_step", rect: (23.0, 65.0, 27.0, 66.0), floor_z: -1.5, ceil_z: 9.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "h_eggs_a", rect: (18.0, 60.0, 21.0, 63.0), floor_z: -0.8, ceil_z: 9.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "h_eggs_b", rect: (29.0, 71.0, 32.0, 74.0), floor_z: -0.8, ceil_z: 9.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "h_pool", rect: (28.5, 60.0, 32.0, 64.0), floor_z: -2.4, ceil_z: 9.0, floor: "slime", ceil: "flesh", face: "hive",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // The hive closet in the west wall, burst on channel 4, awake.
+        (id: "h_cl_door", rect: (15.5, 66.0, 16.0, 69.0), floor_z: -2.0, ceil_z: 0.5, face: "flesh",
+         mover: (kind: Door, channel: Some(4))),
+        (id: "h_cl", rect: (12.0, 65.0, 15.5, 70.0), floor_z: -2.0, ceil_z: 0.8),
+        // The hatch door in the south wall: channel 4, the shortcut back to the south shore.
+        (id: "hatch_door", rect: (24.0, 57.5, 28.0, 58.0), floor_z: -2.0, ceil_z: 1.0, face: "flesh",
+         mover: (kind: Door, channel: Some(4))),
+        (id: "west_run", poly: [(24.0, 40.0), (40.0, 40.0), (40.0, 44.0), (28.0, 44.0), (28.0, 57.5), (24.0, 57.5)],
+         floor_z: -2.0, ceil_z: 1.5),
+        (id: "red_door", rect: (20.0, 76.0, 24.0, 76.5), floor_z: -2.0, ceil_z: 1.5, face: "flesh",
+         mover: (kind: Door, lock: Some(Red))),
+
+        // ---- The staging chamber and the lip ----
+        (id: "neck", rect: (20.0, 76.5, 24.0, 82.0), floor_z: -2.0, ceil_z: 1.5),
+        (id: "staging", rect: (8.0, 82.0, 24.0, 92.0), holes: [[(14.0, 86.0), (17.0, 86.0), (17.0, 88.0), (14.0, 88.0)]],
+         floor_z: -2.0, ceil_z: 3.0, floor: "flesh", ceil: "flesh"),
+        // An egg sac in the middle of the chamber.
+        (id: "staging_sac", rect: (14.0, 86.0, 17.0, 88.0), floor_z: -1.0, ceil_z: 3.0, floor: "flesh", ceil: "flesh", face: "flesh"),
+        (id: "lip_hall", rect: (24.0, 84.0, 32.0, 88.0), floor_z: -2.0, ceil_z: 1.5),
+        // Entering it fires channel 5: a quake as the Queen stirs.
+        (id: "lip", rect: (26.0, 88.0, 32.0, 94.0), floor_z: -2.0, ceil_z: 2.0, ceil: "flesh"),
+
+        // ---- The Queen's chamber (z -6, 21 m high): four hive mounds for cover ----
+        (id: "queen_chamber", poly: [(4.0, 98.0), (8.0, 94.0), (40.0, 94.0), (40.0, 116.0), (34.0, 124.0), (12.0, 124.0),
+                                     (4.0, 116.0)],
+         holes: [[(11.0, 99.0), (15.0, 99.0), (15.0, 103.0), (11.0, 103.0)],
+                 [(21.0, 103.0), (25.0, 103.0), (25.0, 107.0), (21.0, 107.0)],
+                 [(31.0, 110.0), (35.0, 110.0), (35.0, 114.0), (31.0, 114.0)],
+                 [(10.0, 112.0), (14.0, 112.0), (14.0, 116.0), (10.0, 116.0)]],
+         floor_z: -6.0, ceil_z: 15.0, floor: "hive", ceil: "flesh"),
+        (id: "mound_sw", rect: (11.0, 99.0, 15.0, 103.0), floor_z: -2.5, ceil_z: 15.0, floor: "flesh", ceil: "flesh", face: "hive"),
+        (id: "mound_mid", rect: (21.0, 103.0, 25.0, 107.0), floor_z: -2.0, ceil_z: 15.0, floor: "flesh", ceil: "flesh", face: "hive"),
+        (id: "mound_ne", rect: (31.0, 110.0, 35.0, 114.0), floor_z: -2.5, ceil_z: 15.0, floor: "flesh", ceil: "flesh", face: "hive"),
+        (id: "mound_nw", rect: (10.0, 112.0, 14.0, 116.0), floor_z: -1.5, ceil_z: 15.0, floor: "flesh", ceil: "flesh", face: "hive"),
+    ],
+    stairs: [
+        // From the fork down east into the nursery (z -2).
+        (id: "nursery_steps", rect: (36.0, 3.0, 42.0, 9.0), dir: W, steps: 4, from_z: -1.6, to_z: -0.4, ceil_z: 5.0),
+        // From the brood run up north to the fork (z 0).
+        (id: "run_steps", rect: (30.0, -12.0, 34.0, -6.0), dir: N, steps: 4, from_z: -1.6, to_z: -0.4, ceil_z: 2.0),
+        // Out of the lake, up south onto the south shore.
+        (id: "lake_steps", rect: (66.0, 40.0, 70.0, 46.0), dir: S, steps: 4, from_z: -4.0, to_z: -2.5, ceil_z: 3.0,
+         floor: "hive"),
+    ],
+    switches: [
+        // The raft: the stalk on each shore, in reach from the docked raft.
+        (wall: ((55.2, 46.0), (55.2, 44.8)), sector: "s_shore", action: Channel(6)),
+        (wall: ((55.2, 65.2), (55.2, 64.0)), sector: "n_shore", action: Channel(6)),
+    ],
+    triggers: [
+        (sector: "egg_dais", action: Channel(1)),
+        (sector: "nursery", action: Channel(2)),
+        (sector: "gut_end", action: Channel(3)),
+        (sector: "mound", action: Channel(4)),
+        (sector: "lip", action: Channel(5)),
+    ],
+    quakes: [
+        (channel: 2, duration: 1.5, strength: 0.35),
+        (channel: 3, duration: 2.5, strength: 0.8),
+        (channel: 4, duration: 1.8, strength: 0.5),
+        (channel: 5, duration: 2.5, strength: 0.7),
+    ],
+    // On the south shore, 1.75 m beyond the membrane: the closed crack shields the gut.
+    blasts: [(channel: 3, at: (54.0, 40.5, -0.5), radius: 3.0, damage: 40, delay: 0.8)],
+    lights: [
+        // Shadowed: one key light per big space.
+        (pos: (6.0, 5.0, 12.0), color: (1.0, 0.75, 0.5), intensity: 600000.0, range: 22.0),
+        (pos: (32.0, 9.0, 4.5), color: (0.6, 1.0, 0.45), intensity: 120000.0, range: 14.0),
+        (pos: (54.0, 7.0, 7.0), color: (0.75, 1.0, 0.5), intensity: 900000.0, range: 28.0),
+        (pos: (51.0, -13.0, 2.6), color: (1.0, 0.5, 0.6), intensity: 150000.0, range: 15.0),
+        (pos: (53.0, 46.0, 10.0), color: (0.5, 0.85, 1.0), intensity: 1500000.0, range: 30.0),
+        (pos: (53.0, 66.0, 10.0), color: (0.5, 0.85, 1.0), intensity: 900000.0, range: 24.0),
+        (pos: (25.0, 67.0, 8.0), color: (0.8, 1.0, 0.45), intensity: 900000.0, range: 26.0),
+        (pos: (16.0, 87.0, 2.6), color: (1.0, 0.8, 0.55), intensity: 150000.0, range: 15.0),
+        (pos: (22.0, 109.0, 13.0), color: (0.7, 1.0, 0.45), intensity: 4500000.0, range: 42.0),
+        (pos: (22.0, 120.0, 0.0), color: (1.0, 0.4, 0.55), intensity: 600000.0, range: 20.0),
+        // Fills (no shadows): the glowing pores, the pools, the tunnels.
+        (pos: (16.0, 6.0, 3.0), color: (0.6, 1.0, 0.4), intensity: 20000.0, range: 7.0, shadows: false),
+        (pos: (24.0, 6.0, 2.6), color: (0.6, 1.0, 0.4), intensity: 20000.0, range: 7.0, shadows: false),
+        (pos: (19.0, -0.5, 2.2), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (32.0, -9.0, 1.5), color: (0.6, 1.0, 0.4), intensity: 20000.0, range: 8.0, shadows: false),
+        (pos: (37.0, -14.5, 1.0), color: (0.6, 1.0, 0.4), intensity: 20000.0, range: 9.0, shadows: false),
+        (pos: (51.0, 0.5, -1.6), color: (0.4, 1.0, 0.3), intensity: 60000.0, range: 9.0, shadows: false),
+        (pos: (48.0, 12.0, 0.5), color: (1.0, 0.5, 0.6), intensity: 25000.0, range: 6.0, shadows: false),
+        (pos: (60.0, 4.0, 0.5), color: (1.0, 0.5, 0.6), intensity: 25000.0, range: 6.0, shadows: false),
+        (pos: (69.0, 11.5, 0.5), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (60.2, -15.5, 0.5), color: (0.6, 1.0, 0.4), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (51.0, -16.5, 1.5), color: (0.4, 1.0, 0.3), intensity: 40000.0, range: 7.0, shadows: false),
+        (pos: (54.0, 27.0, 1.7), color: (0.6, 1.0, 0.4), intensity: 25000.0, range: 9.0, shadows: false),
+        (pos: (54.0, 36.0, 2.2), color: (1.0, 0.6, 0.4), intensity: 20000.0, range: 7.0, shadows: false),
+        (pos: (60.5, 41.0, -1.8), color: (0.4, 1.0, 0.3), intensity: 50000.0, range: 8.0, shadows: false),
+        (pos: (53.0, 55.0, -3.0), color: (0.3, 0.7, 1.0), intensity: 120000.0, range: 16.0, shadows: false),
+        (pos: (72.0, 55.0, 5.5), color: (1.0, 0.8, 0.5), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (68.0, 43.0, -1.0), color: (0.3, 0.7, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (37.0, 68.0, 1.2), color: (0.6, 1.0, 0.4), intensity: 20000.0, range: 7.0, shadows: false),
+        (pos: (30.2, 62.0, -1.7), color: (0.4, 1.0, 0.3), intensity: 50000.0, range: 8.0, shadows: false),
+        (pos: (25.0, 68.0, 0.5), color: (1.0, 0.45, 0.5), intensity: 40000.0, range: 7.0, shadows: false),
+        (pos: (13.7, 67.5, 0.5), color: (0.6, 1.0, 0.4), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (26.0, 50.0, 1.0), color: (0.6, 1.0, 0.4), intensity: 15000.0, range: 10.0, shadows: false),
+        (pos: (34.0, 42.0, 1.0), color: (0.6, 1.0, 0.4), intensity: 15000.0, range: 8.0, shadows: false),
+        (pos: (22.0, 79.0, 1.0), color: (1.0, 0.45, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (29.0, 90.0, 1.5), color: (1.0, 0.45, 0.5), intensity: 25000.0, range: 8.0, shadows: false),
+        (pos: (13.0, 101.0, -1.5), color: (0.6, 1.0, 0.4), intensity: 80000.0, range: 10.0, shadows: false),
+        (pos: (33.0, 112.0, -1.5), color: (0.6, 1.0, 0.4), intensity: 80000.0, range: 10.0, shadows: false),
+        (pos: (12.0, 114.0, -0.5), color: (0.6, 1.0, 0.4), intensity: 80000.0, range: 10.0, shadows: false),
+        (pos: (23.0, 105.0, -1.0), color: (0.6, 1.0, 0.4), intensity: 80000.0, range: 10.0, shadows: false),
+    ],
+    items: [
+        // The bore landing: the shotgun.
+        (kind: Shotgun, pos: (10.0, 2.0)),
+        (kind: ShotgunShells, pos: (10.5, 9.0)),
+        (kind: PistolAmmo, pos: (1.5, 1.5)),
+        // The tunnel and secret 2's pocket.
+        (kind: HealthSmall, pos: (26.5, 5.0)),
+        (kind: ShotgunShells, pos: (14.0, 7.0)),
+        (kind: Atom, pos: (19.0, -1.0)),
+        (kind: Armour, pos: (16.5, 0.0)),
+        (kind: Rockets, pos: (21.5, 0.0)),
+        // The fork and the brood run.
+        (kind: ShotgunShells, pos: (35.0, 11.0)),
+        (kind: ShotgunShells, pos: (38.5, 7.5)),
+        (kind: Armour, pos: (29.0, 1.0)),
+        (kind: PipeBombs, pos: (31.0, -3.0)),
+        (kind: Medkit, pos: (32.0, -15.0)),
+        // The nursery: the chaingun by the steps; secret 1's atom and armour in the cache.
+        (kind: Chaingun, pos: (43.5, 9.5)),
+        (kind: ShotgunShells, pos: (44.0, 18.0)),
+        (kind: Medkit, pos: (64.0, -4.0)),
+        (kind: PistolAmmo, pos: (60.0, 18.0)),
+        (kind: HealthSmall, pos: (44.0, -4.0)),
+        (kind: PistolAmmo, pos: (43.5, -0.5)),
+        (kind: ShotgunShells, pos: (51.0, -7.0)),
+        (kind: Atom, pos: (70.0, 11.5)),
+        (kind: Armour, pos: (68.5, 13.5)),
+        // The egg chamber: the Blue key on the dais.
+        (kind: Key(Blue), pos: (51.0, -16.5)),
+        (kind: ShotgunShells, pos: (46.0, -12.0)),
+        (kind: PistolAmmo, pos: (46.0, -14.0)),
+        // A dead soldier's chaingun, dragged down here by the hive.
+        (kind: Chaingun, pos: (56.0, -10.8)),
+        (kind: Armour, pos: (56.5, -19.0)),
+        (kind: HealthSmall, pos: (61.0, -17.0)),
+        // The gut.
+        (kind: PistolAmmo, pos: (54.0, 27.0)),
+        (kind: PistolAmmo, pos: (53.0, 22.0)),
+        (kind: Chaingun, pos: (57.0, 35.0)),
+        // The south shore: the rocket launcher, the jetpack.
+        (kind: RocketLauncher, pos: (48.5, 44.5)),
+        (kind: Jetpack, pos: (41.5, 44.5)),
+        (kind: Rockets, pos: (63.5, 40.0)),
+        (kind: HealthSmall, pos: (41.0, 39.5)),
+        (kind: PistolAmmo, pos: (64.5, 45.0)),
+        // Secret 3: the jetpack ledge.
+        (kind: Atom, pos: (72.0, 54.0)),
+        (kind: Rockets, pos: (72.0, 56.0)),
+        // The north shore.
+        (kind: Medkit, pos: (42.0, 70.5)),
+        (kind: Chaingun, pos: (50.0, 66.0)),
+        (kind: ShotgunShells, pos: (64.5, 71.0)),
+        (kind: Rockets, pos: (58.0, 70.5)),
+        // The hatchery: the Red key on the mound; the west run.
+        (kind: Key(Red), pos: (25.0, 68.0)),
+        (kind: Armour, pos: (17.5, 75.0)),
+        (kind: Rockets, pos: (33.0, 59.0)),
+        (kind: PistolAmmo, pos: (17.0, 59.0)),
+        (kind: HealthSmall, pos: (26.0, 50.0)),
+        (kind: ShotgunShells, pos: (38.0, 41.0)),
+        // The staging chamber: armour, an atom, rockets, pipe bombs, a chaingun, a medkit.
+        (kind: Armour, pos: (10.0, 90.5)),
+        (kind: Atom, pos: (12.5, 90.5)),
+        (kind: Rockets, pos: (10.0, 83.5)),
+        (kind: Rockets, pos: (12.5, 83.5)),
+        (kind: Rockets, pos: (19.0, 90.5)),
+        (kind: PipeBombs, pos: (16.0, 90.5)),
+        (kind: Chaingun, pos: (21.0, 87.0)),
+        (kind: Medkit, pos: (9.5, 87.0)),
+        // The Queen's chamber: health and ammo round the edge.
+        (kind: Rockets, pos: (38.0, 97.0)),
+        (kind: HealthSmall, pos: (38.0, 110.0)),
+        (kind: HealthSmall, pos: (6.5, 110.0)),
+        (kind: Medkit, pos: (23.0, 122.0)),
+        (kind: Rockets, pos: (7.0, 101.0)),
+        (kind: PistolAmmo, pos: (36.0, 120.0)),
+    ],
+    actors: [
+        // The landing and the tunnel.
+        (kind: Slasher, pos: (24.0, 6.0), angle_deg: 180.0),
+        (kind: Drone, pos: (16.0, 6.0), angle_deg: 180.0, skill: Normal),
+        // The fork.
+        (kind: Drone, pos: (34.0, 9.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (34.5, 2.0), angle_deg: 150.0),
+        (kind: Slasher, pos: (29.5, 10.5), angle_deg: 270.0, skill: Hard),
+        (kind: Barrel, pos: (35.2, 0.8)),
+        // The brood run.
+        (kind: Slasher, pos: (37.0, -14.5), angle_deg: 180.0),
+        (kind: Drone, pos: (32.0, -4.0), angle_deg: 90.0, skill: Hard),
+        // The nursery.
+        (kind: Slasher, pos: (52.0, 8.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (62.0, 14.0), angle_deg: 180.0),
+        (kind: Drone, pos: (56.0, 0.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (63.0, 9.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (45.0, 16.0), angle_deg: 270.0, skill: Normal),
+        (kind: Drone, pos: (60.0, -3.0), angle_deg: 135.0, skill: Normal),
+        (kind: Slasher, pos: (56.0, 18.5), angle_deg: 270.0, skill: Hard),
+        (kind: Drone, pos: (50.0, 17.0), angle_deg: 270.0, skill: Hard),
+        (kind: Barrel, pos: (64.8, 14.5)),
+        // The egg chamber and its closet (channel 1, awake).
+        (kind: Enforcer, pos: (46.0, -18.5), angle_deg: 45.0),
+        (kind: Slasher, pos: (56.0, -16.5), angle_deg: 135.0, skill: Normal),
+        (kind: Slasher, pos: (60.2, -14.5), angle_deg: 180.0, asleep: false),
+        (kind: Slasher, pos: (60.2, -16.8), angle_deg: 180.0, asleep: false, skill: Normal),
+        // The gut.
+        (kind: Slasher, pos: (54.0, 31.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (51.0, 36.5), angle_deg: 270.0, skill: Normal),
+        // The south shore: they wait beyond the membrane.
+        (kind: Drone, pos: (50.0, 42.0), angle_deg: 270.0, asleep: false),
+        (kind: Slasher, pos: (58.0, 43.0), angle_deg: 270.0, asleep: false),
+        (kind: Drone, pos: (63.0, 44.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (42.0, 42.0), angle_deg: 0.0, skill: Hard),
+        // The north shore.
+        (kind: Drone, pos: (46.0, 68.0), angle_deg: 270.0),
+        (kind: Drone, pos: (60.0, 71.0), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (64.0, 66.0), angle_deg: 180.0, skill: Hard),
+        // The hatchery and its closet (channel 4, awake); the west run.
+        (kind: Enforcer, pos: (19.0, 72.0), angle_deg: 0.0),
+        (kind: Slasher, pos: (31.0, 67.0), angle_deg: 180.0),
+        (kind: Drone, pos: (20.0, 66.0), angle_deg: 0.0, skill: Normal),
+        (kind: Slasher, pos: (26.0, 74.0), angle_deg: 270.0, skill: Normal),
+        (kind: Slasher, pos: (32.8, 75.0), angle_deg: 225.0, skill: Normal),
+        (kind: Drone, pos: (27.0, 61.0), angle_deg: 90.0, skill: Hard),
+        (kind: Slasher, pos: (13.7, 66.5), angle_deg: 0.0, asleep: false),
+        (kind: Slasher, pos: (13.7, 68.7), angle_deg: 0.0, asleep: false, skill: Hard),
+        (kind: Slasher, pos: (26.0, 55.0), angle_deg: 270.0, skill: Normal),
+        // The neck.
+        (kind: Drone, pos: (22.0, 80.0), angle_deg: 270.0),
+        // The Hive Queen: asleep at the far end, facing the lip. Her death ends the episode.
+        (kind: HiveQueen, pos: (22.0, 118.0), angle_deg: 280.0, on_death: Some(Exit)),
+    ],
+    // Spread round the chamber, clear of the walls and the mounds.
+    burrow_points: [(7.0, 107.0), (19.0, 97.5), (36.5, 101.0), (26.0, 119.0), (18.0, 110.0)],
+)

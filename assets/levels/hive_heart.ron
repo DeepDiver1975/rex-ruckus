@@ -1,0 +1,473 @@
+// Episode 2, level 7: the finale. Coordinates in metres, x = east, y = north, z = up.
+// Setting: below the plant's bore, the heart of the alien hive: organic caverns, egg chambers,
+// slime and water pools, glowing pores. The Hive Queen waits in her chamber at the end.
+// Route: the bore landing (start west, facing east; the broken casing stub, the shotgun) → the
+// burrow tunnel east → the fork (a hive column) → steps down east into the egg nursery (the
+// chaingun by the steps, egg pods, a brood pool; entering fires channel 2, a rumble) → the neck
+// south → the egg chamber: the Blue key on the egg dais (channel 1: the hive closet in the east
+// wall bursts open, awake, and the brood door in the west wall opens on the brood run back to
+// the fork, the shortcut) → back through the nursery, the blue membrane door in its north wall →
+// the gut → the gut's end: entering fires channel 3, a quake, and a scripted blast blows the
+// cracked membrane ahead open → the lake cavern's south shore (the rocket launcher, the
+// jetpack; a hive lip walls the shore off from the water but for the dock) → onto the membrane
+// raft: the switch on the stalk beside the dock (channel 6) floats it 13.8 m north across the
+// lake, and the stalk on the far dock sends it back → the north shore → the pore tunnel west →
+// the hatchery (egg clusters, a slime pool): up the brood mound for the Red key (channel 4: a
+// quake, the hive closet in the west wall bursts open, awake, and the hatch door in the south
+// wall opens on the west run back to the south shore, the shortcut past the lake) → the red door
+// north → the neck → the staging chamber (armour, an atom, rockets, pipe bombs, a chaingun, a
+// medkit) → east through the lip hall to the lip (channel 5: a quake as the Queen stirs) → the
+// 4 m drop into the Queen's chamber (36 x 30 m, 21 m high, four hive mounds for cover, five
+// burrow points). She sleeps at the far end facing the lip and wakes when she sees Rex; her
+// death ends the episode. The drop is one way: nothing in the chamber climbs back out, and the
+// level has no other exit. Steps in the lake's south-east corner climb out of the water.
+// Secrets: (1) the nursery's east wall cracks open on a blast (a barrel beside it): the old egg
+// cache (atom, armour); (2) a crouch vent (1.3 m) in the burrow tunnel's south wall into a pocket
+// (atom, armour, rockets); (3) a jetpack-only ledge at z 4 high in the lake's east wall (atom,
+// rockets). Validate warns that the cache's and the ledge's items "cannot be reached from the
+// start": a crack-wall stash and a jetpack ledge, by design.
+// Built by `rr-tools build` from levels/src/hive_heart.ron. Do not edit; edit the source and rebuild.
+(
+    name: "Hive Heart",
+    materials: ["grate", "pipe", "hive", "flesh", "slime", "cracked", "water"],
+    vertices: [
+        (0.0, 0.0), // 0
+        (12.0, 0.0), // 1
+        (12.0, 10.0), // 2
+        (0.0, 10.0), // 3
+        (7.0, 8.5), // 4
+        (9.0, 8.5), // 5
+        (9.0, 6.5), // 6
+        (7.0, 6.5), // 7
+        (12.0, 4.0), // 8
+        (20.0, 4.0), // 9
+        (20.0, 8.0), // 10
+        (12.0, 8.0), // 11
+        (28.0, 4.0), // 12
+        (28.0, 8.0), // 13
+        (18.0, 2.5), // 14
+        (19.6, 2.5), // 15
+        (19.6, 4.0), // 16
+        (18.0, 4.0), // 17
+        (15.0, -3.0), // 18
+        (23.0, -3.0), // 19
+        (23.0, 2.5), // 20
+        (15.0, 2.5), // 21
+        (28.0, 0.0), // 22
+        (36.0, 0.0), // 23
+        (36.0, 12.0), // 24
+        (28.0, 12.0), // 25
+        (31.0, 7.0), // 26
+        (33.0, 7.0), // 27
+        (33.0, 5.0), // 28
+        (31.0, 5.0), // 29
+        (42.0, -6.0), // 30
+        (66.0, -6.0), // 31
+        (66.0, 20.0), // 32
+        (42.0, 20.0), // 33
+        (46.0, 14.0), // 34
+        (50.0, 14.0), // 35
+        (50.0, 10.0), // 36
+        (46.0, 10.0), // 37
+        (58.0, 6.0), // 38
+        (62.0, 6.0), // 39
+        (62.0, 2.0), // 40
+        (58.0, 2.0), // 41
+        (56.0, 16.0), // 42
+        (59.0, 16.0), // 43
+        (59.0, 13.0), // 44
+        (56.0, 13.0), // 45
+        (44.0, 3.5), // 46
+        (46.5, 3.5), // 47
+        (46.5, 1.0), // 48
+        (44.0, 1.0), // 49
+        (48.0, 3.0), // 50
+        (54.0, 3.0), // 51
+        (54.0, -2.0), // 52
+        (48.0, -2.0), // 53
+        (66.0, 10.0), // 54
+        (66.75, 10.0), // 55
+        (66.75, 13.0), // 56
+        (66.0, 13.0), // 57
+        (66.75, 8.0), // 58
+        (72.0, 8.0), // 59
+        (72.0, 15.0), // 60
+        (66.75, 15.0), // 61
+        (49.0, -10.0), // 62
+        (53.0, -10.0), // 63
+        (53.0, -6.0), // 64
+        (49.0, -6.0), // 65
+        (44.0, -20.0), // 66
+        (58.0, -20.0), // 67
+        (58.0, -10.0), // 68
+        (44.0, -10.0), // 69
+        (49.0, -15.0), // 70
+        (53.0, -15.0), // 71
+        (53.0, -18.0), // 72
+        (49.0, -18.0), // 73
+        (54.5, -12.0), // 74
+        (56.5, -12.0), // 75
+        (56.5, -14.0), // 76
+        (54.5, -14.0), // 77
+        (58.0, -17.0), // 78
+        (58.5, -17.0), // 79
+        (58.5, -14.0), // 80
+        (58.0, -14.0), // 81
+        (58.5, -18.0), // 82
+        (62.0, -18.0), // 83
+        (62.0, -13.0), // 84
+        (58.5, -13.0), // 85
+        (43.5, -16.0), // 86
+        (44.0, -16.0), // 87
+        (44.0, -13.0), // 88
+        (43.5, -13.0), // 89
+        (30.0, -17.0), // 90
+        (43.5, -17.0), // 91
+        (43.5, -12.0), // 92
+        (30.0, -12.0), // 93
+        (30.0, -6.0), // 94
+        (34.0, -6.0), // 95
+        (34.0, 0.0), // 96
+        (30.0, 0.0), // 97
+        (52.0, 20.0), // 98
+        (56.0, 20.0), // 99
+        (56.0, 20.5), // 100
+        (52.0, 20.5), // 101
+        (56.0, 34.0), // 102
+        (52.0, 34.0), // 103
+        (50.0, 34.0), // 104
+        (58.0, 34.0), // 105
+        (58.0, 38.0), // 106
+        (50.0, 38.0), // 107
+        (52.0, 38.0), // 108
+        (56.0, 38.0), // 109
+        (56.0, 38.75), // 110
+        (52.0, 38.75), // 111
+        (40.0, 38.75), // 112
+        (66.0, 38.75), // 113
+        (66.0, 45.6), // 114
+        (56.2, 45.6), // 115
+        (56.2, 44.8), // 116
+        (55.2, 44.8), // 117
+        (55.2, 46.0), // 118
+        (50.0, 46.0), // 119
+        (50.0, 45.6), // 120
+        (40.0, 45.6), // 121
+        (44.0, 43.0), // 122
+        (47.0, 43.0), // 123
+        (47.0, 40.5), // 124
+        (44.0, 40.5), // 125
+        (59.0, 42.0), // 126
+        (62.0, 42.0), // 127
+        (62.0, 40.0), // 128
+        (59.0, 40.0), // 129
+        (40.0, 46.0), // 130
+        (66.0, 46.0), // 131
+        (56.2, 46.0), // 132
+        (36.0, 46.0), // 133
+        (70.0, 46.0), // 134
+        (70.0, 64.0), // 135
+        (36.0, 64.0), // 136
+        (50.1, 50.1), // 137
+        (54.9, 50.1), // 138
+        (54.9, 46.1), // 139
+        (50.1, 46.1), // 140
+        (70.0, 52.0), // 141
+        (74.0, 52.0), // 142
+        (74.0, 58.0), // 143
+        (70.0, 58.0), // 144
+        (40.0, 64.4), // 145
+        (50.0, 64.4), // 146
+        (50.0, 64.0), // 147
+        (55.2, 64.0), // 148
+        (55.2, 65.2), // 149
+        (56.2, 65.2), // 150
+        (56.2, 64.4), // 151
+        (66.0, 64.4), // 152
+        (66.0, 72.0), // 153
+        (40.0, 72.0), // 154
+        (60.0, 70.0), // 155
+        (63.0, 70.0), // 156
+        (63.0, 67.0), // 157
+        (60.0, 67.0), // 158
+        (40.0, 64.0), // 159
+        (56.2, 64.0), // 160
+        (66.0, 64.0), // 161
+        (34.0, 66.0), // 162
+        (40.0, 66.0), // 163
+        (40.0, 70.0), // 164
+        (34.0, 70.0), // 165
+        (16.0, 58.0), // 166
+        (34.0, 58.0), // 167
+        (34.0, 76.0), // 168
+        (16.0, 76.0), // 169
+        (22.0, 70.0), // 170
+        (28.0, 70.0), // 171
+        (28.0, 66.0), // 172
+        (27.0, 66.0), // 173
+        (27.0, 65.0), // 174
+        (23.0, 65.0), // 175
+        (23.0, 66.0), // 176
+        (22.0, 66.0), // 177
+        (18.0, 63.0), // 178
+        (21.0, 63.0), // 179
+        (21.0, 60.0), // 180
+        (18.0, 60.0), // 181
+        (29.0, 74.0), // 182
+        (32.0, 74.0), // 183
+        (32.0, 71.0), // 184
+        (29.0, 71.0), // 185
+        (28.5, 64.0), // 186
+        (32.0, 64.0), // 187
+        (32.0, 60.0), // 188
+        (28.5, 60.0), // 189
+        (15.5, 66.0), // 190
+        (16.0, 66.0), // 191
+        (16.0, 69.0), // 192
+        (15.5, 69.0), // 193
+        (12.0, 65.0), // 194
+        (15.5, 65.0), // 195
+        (15.5, 70.0), // 196
+        (12.0, 70.0), // 197
+        (24.0, 57.5), // 198
+        (28.0, 57.5), // 199
+        (28.0, 58.0), // 200
+        (24.0, 58.0), // 201
+        (24.0, 40.0), // 202
+        (40.0, 40.0), // 203
+        (40.0, 44.0), // 204
+        (28.0, 44.0), // 205
+        (20.0, 76.0), // 206
+        (24.0, 76.0), // 207
+        (24.0, 76.5), // 208
+        (20.0, 76.5), // 209
+        (24.0, 82.0), // 210
+        (20.0, 82.0), // 211
+        (8.0, 82.0), // 212
+        (24.0, 92.0), // 213
+        (8.0, 92.0), // 214
+        (14.0, 88.0), // 215
+        (17.0, 88.0), // 216
+        (17.0, 86.0), // 217
+        (14.0, 86.0), // 218
+        (24.0, 84.0), // 219
+        (32.0, 84.0), // 220
+        (32.0, 88.0), // 221
+        (24.0, 88.0), // 222
+        (26.0, 88.0), // 223
+        (32.0, 94.0), // 224
+        (26.0, 94.0), // 225
+        (4.0, 98.0), // 226
+        (8.0, 94.0), // 227
+        (40.0, 94.0), // 228
+        (40.0, 116.0), // 229
+        (34.0, 124.0), // 230
+        (12.0, 124.0), // 231
+        (4.0, 116.0), // 232
+        (11.0, 103.0), // 233
+        (15.0, 103.0), // 234
+        (15.0, 99.0), // 235
+        (11.0, 99.0), // 236
+        (21.0, 107.0), // 237
+        (25.0, 107.0), // 238
+        (25.0, 103.0), // 239
+        (21.0, 103.0), // 240
+        (31.0, 114.0), // 241
+        (35.0, 114.0), // 242
+        (35.0, 110.0), // 243
+        (31.0, 110.0), // 244
+        (10.0, 116.0), // 245
+        (14.0, 116.0), // 246
+        (14.0, 112.0), // 247
+        (10.0, 112.0), // 248
+        (40.5, 3.0), // 249
+        (42.0, 3.0), // 250
+        (42.0, 9.0), // 251
+        (40.5, 9.0), // 252
+        (39.0, 3.0), // 253
+        (39.0, 9.0), // 254
+        (37.5, 3.0), // 255
+        (37.5, 9.0), // 256
+        (36.0, 3.0), // 257
+        (36.0, 9.0), // 258
+        (34.0, -12.0), // 259
+        (34.0, -10.5), // 260
+        (30.0, -10.5), // 261
+        (34.0, -9.0), // 262
+        (30.0, -9.0), // 263
+        (34.0, -7.5), // 264
+        (30.0, -7.5), // 265
+        (66.0, 44.5), // 266
+        (70.0, 44.5), // 267
+        (66.0, 43.0), // 268
+        (70.0, 43.0), // 269
+        (66.0, 41.5), // 270
+        (70.0, 41.5), // 271
+        (66.0, 40.0), // 272
+        (70.0, 40.0), // 273
+    ],
+    sectors: [
+        // 0 landing
+        (loops: [[0, 1, 8, 11, 2, 3], [4, 5, 6, 7]], floor_z: 0.0, ceil_z: 16.0, floor_mat: 0, ceil_mat: 1, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 1 casing
+        (loops: [[7, 6, 5, 4]], floor_z: 2.5, ceil_z: 16.0, floor_mat: 1, ceil_mat: 1, wall_mat: 2, face_mat: Some(1), mover: None, secret: false, hazard: None),
+        // 2 tunnel_a
+        (loops: [[8, 17, 16, 9, 10, 11]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 3 tunnel_b
+        (loops: [[9, 12, 13, 10]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 4 vent
+        (loops: [[14, 15, 16, 17]], floor_z: 0.0, ceil_z: 1.3, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 5 pocket
+        (loops: [[18, 19, 20, 15, 14, 21]], floor_z: 0.0, ceil_z: 2.6, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: true, hazard: None),
+        // 6 fork
+        (loops: [[22, 97, 96, 23, 257, 258, 24, 25, 13, 12], [26, 27, 28, 29]], floor_z: 0.0, ceil_z: 5.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 7 fork_column
+        (loops: [[29, 28, 27, 26]], floor_z: 4.8, ceil_z: 5.0, floor_mat: 3, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 8 nursery
+        (loops: [[30, 65, 64, 31, 54, 57, 32, 99, 98, 33, 251, 250], [34, 35, 36, 37], [38, 39, 40, 41], [42, 43, 44, 45], [46, 47, 48, 49], [50, 51, 52, 53]], floor_z: -2.0, ceil_z: 8.0, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 9 pod_a
+        (loops: [[37, 36, 35, 34]], floor_z: -0.8, ceil_z: 8.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 10 pod_b
+        (loops: [[41, 40, 39, 38]], floor_z: -0.8, ceil_z: 8.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 11 pod_c
+        (loops: [[45, 44, 43, 42]], floor_z: -0.6, ceil_z: 8.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 12 pod_d
+        (loops: [[49, 48, 47, 46]], floor_z: -1.0, ceil_z: 8.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 13 brood_pool
+        (loops: [[53, 52, 51, 50]], floor_z: -2.4, ceil_z: 8.0, floor_mat: 4, ceil_mat: 3, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: Some((damage:4,interval:0.75,kind:Slime))),
+        // 14 nursery_crack
+        (loops: [[54, 55, 56, 57]], floor_z: -2.0, ceil_z: 1.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(5), mover: Some((kind:Crack,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 15 cache
+        (loops: [[58, 59, 60, 61, 56, 55]], floor_z: -2.0, ceil_z: 0.8, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: true, hazard: None),
+        // 16 egg_neck
+        (loops: [[62, 63, 64, 65]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 17 egg_chamber
+        (loops: [[66, 67, 78, 81, 68, 63, 62, 69, 88, 87], [70, 71, 72, 73], [74, 75, 76, 77]], floor_z: -2.0, ceil_z: 3.0, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 18 egg_dais
+        (loops: [[73, 72, 71, 70]], floor_z: -1.5, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(4), mover: None, secret: false, hazard: None),
+        // 19 egg_cluster
+        (loops: [[77, 76, 75, 74]], floor_z: -0.8, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 20 egg_cl_door
+        (loops: [[78, 79, 80, 81]], floor_z: -2.0, ceil_z: 0.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(1),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 21 egg_cl
+        (loops: [[82, 83, 84, 85, 80, 79]], floor_z: -2.0, ceil_z: 0.8, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 22 brood_door
+        (loops: [[86, 87, 88, 89]], floor_z: -2.0, ceil_z: 0.8, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(1),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 23 brood_run
+        (loops: [[90, 91, 86, 89, 92, 259, 93]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 24 run_top
+        (loops: [[94, 95, 96, 97]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 25 blue_door
+        (loops: [[98, 99, 100, 101]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Door,speed:2.5,lock:Some(Blue),channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 26 gut
+        (loops: [[101, 100, 102, 103]], floor_z: -2.0, ceil_z: 2.0, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 27 gut_end
+        (loops: [[104, 103, 102, 105, 106, 109, 108, 107]], floor_z: -2.0, ceil_z: 2.5, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 28 gut_crack
+        (loops: [[108, 109, 110, 111]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(5), mover: Some((kind:Crack,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 29 s_shore
+        (loops: [[112, 111, 110, 113, 272, 270, 268, 266, 114, 115, 116, 117, 118, 119, 120, 121, 204, 203], [122, 123, 124, 125], [126, 127, 128, 129]], floor_z: -2.0, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 30 s_lip_w
+        (loops: [[121, 120, 119, 130]], floor_z: -0.5, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 31 s_lip_e
+        (loops: [[115, 114, 131, 132]], floor_z: -0.5, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 32 s_rock
+        (loops: [[125, 124, 123, 122]], floor_z: -0.8, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 33 s_pore
+        (loops: [[129, 128, 127, 126]], floor_z: -2.3, ceil_z: 12.0, floor_mat: 4, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: Some((damage:4,interval:0.75,kind:Slime))),
+        // 34 lake
+        (loops: [[133, 130, 119, 118, 132, 131, 134, 141, 144, 135, 161, 160, 148, 147, 159, 136], [137, 138, 139, 140]], floor_z: -4.5, ceil_z: 12.0, floor_mat: 6, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 35 raft
+        (loops: [[140, 139, 138, 137]], floor_z: -2.0, ceil_z: 12.0, floor_mat: 3, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Slide(by:(0.0,13.8)),speed:2.0,lock:None,channel:Some(6),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 36 jet_ledge
+        (loops: [[141, 142, 143, 144]], floor_z: 4.0, ceil_z: 12.0, floor_mat: 3, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: true, hazard: None),
+        // 37 n_shore
+        (loops: [[145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 164, 163], [155, 156, 157, 158]], floor_z: -2.0, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 38 n_lip_w
+        (loops: [[159, 147, 146, 145]], floor_z: -0.5, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 39 n_lip_e
+        (loops: [[160, 161, 152, 151]], floor_z: -0.5, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 40 n_rock
+        (loops: [[158, 157, 156, 155]], floor_z: -0.9, ceil_z: 12.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 41 pore_tunnel
+        (loops: [[162, 163, 164, 165]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 42 hatchery
+        (loops: [[166, 201, 200, 167, 162, 165, 168, 207, 206, 169, 192, 191], [170, 171, 172, 173, 174, 175, 176, 177], [178, 179, 180, 181], [182, 183, 184, 185], [186, 187, 188, 189]], floor_z: -2.0, ceil_z: 9.0, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 43 mound
+        (loops: [[177, 176, 173, 172, 171, 170]], floor_z: -1.0, ceil_z: 9.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(4), mover: None, secret: false, hazard: None),
+        // 44 mound_step
+        (loops: [[175, 174, 173, 176]], floor_z: -1.5, ceil_z: 9.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 45 h_eggs_a
+        (loops: [[181, 180, 179, 178]], floor_z: -0.8, ceil_z: 9.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 46 h_eggs_b
+        (loops: [[185, 184, 183, 182]], floor_z: -0.8, ceil_z: 9.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 47 h_pool
+        (loops: [[189, 188, 187, 186]], floor_z: -2.4, ceil_z: 9.0, floor_mat: 4, ceil_mat: 3, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: Some((damage:4,interval:0.75,kind:Slime))),
+        // 48 h_cl_door
+        (loops: [[190, 191, 192, 193]], floor_z: -2.0, ceil_z: 0.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(4),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 49 h_cl
+        (loops: [[194, 195, 190, 193, 196, 197]], floor_z: -2.0, ceil_z: 0.8, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 50 hatch_door
+        (loops: [[198, 199, 200, 201]], floor_z: -2.0, ceil_z: 1.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(4),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 51 west_run
+        (loops: [[202, 203, 204, 205, 199, 198]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 52 red_door
+        (loops: [[206, 207, 208, 209]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: Some(3), mover: Some((kind:Door,speed:2.5,lock:Some(Red),channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 53 neck
+        (loops: [[209, 208, 210, 211]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 54 staging
+        (loops: [[212, 211, 210, 219, 222, 213, 214], [215, 216, 217, 218]], floor_z: -2.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 55 staging_sac
+        (loops: [[218, 217, 216, 215]], floor_z: -1.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 56 lip_hall
+        (loops: [[219, 220, 221, 223, 222]], floor_z: -2.0, ceil_z: 1.5, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 57 lip
+        (loops: [[223, 221, 224, 225]], floor_z: -2.0, ceil_z: 2.0, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 58 queen_chamber
+        (loops: [[226, 227, 225, 224, 228, 229, 230, 231, 232], [233, 234, 235, 236], [237, 238, 239, 240], [241, 242, 243, 244], [245, 246, 247, 248]], floor_z: -6.0, ceil_z: 15.0, floor_mat: 2, ceil_mat: 3, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 59 mound_sw
+        (loops: [[236, 235, 234, 233]], floor_z: -2.5, ceil_z: 15.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 60 mound_mid
+        (loops: [[240, 239, 238, 237]], floor_z: -2.0, ceil_z: 15.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 61 mound_ne
+        (loops: [[244, 243, 242, 241]], floor_z: -2.5, ceil_z: 15.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 62 mound_nw
+        (loops: [[248, 247, 246, 245]], floor_z: -1.5, ceil_z: 15.0, floor_mat: 3, ceil_mat: 3, wall_mat: 2, face_mat: Some(2), mover: None, secret: false, hazard: None),
+        // 63 nursery_steps#0
+        (loops: [[249, 250, 251, 252]], floor_z: -1.6, ceil_z: 5.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 64 nursery_steps#1
+        (loops: [[253, 249, 252, 254]], floor_z: -1.2, ceil_z: 5.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 65 nursery_steps#2
+        (loops: [[255, 253, 254, 256]], floor_z: -0.8, ceil_z: 5.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 66 nursery_steps#3
+        (loops: [[257, 255, 256, 258]], floor_z: -0.39999998, ceil_z: 5.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 67 run_steps#0
+        (loops: [[93, 259, 260, 261]], floor_z: -1.6, ceil_z: 2.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 68 run_steps#1
+        (loops: [[261, 260, 262, 263]], floor_z: -1.2, ceil_z: 2.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 69 run_steps#2
+        (loops: [[263, 262, 264, 265]], floor_z: -0.8, ceil_z: 2.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 70 run_steps#3
+        (loops: [[265, 264, 95, 94]], floor_z: -0.39999998, ceil_z: 2.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 71 lake_steps#0
+        (loops: [[266, 267, 134, 131, 114]], floor_z: -4.0, ceil_z: 3.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 72 lake_steps#1
+        (loops: [[268, 269, 267, 266]], floor_z: -3.5, ceil_z: 3.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 73 lake_steps#2
+        (loops: [[270, 271, 269, 268]], floor_z: -3.0, ceil_z: 3.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 74 lake_steps#3
+        (loops: [[272, 273, 271, 270]], floor_z: -2.5, ceil_z: 3.0, floor_mat: 2, ceil_mat: 2, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+    ],
+    player_start: (pos:(3.0,5.0),angle_deg:0.0),
+    lights: [(pos:(6.0,5.0,12.0),color:(1.0,0.75,0.5),intensity:600000.0,range:22.0,breakable:false,shadows:true), (pos:(32.0,9.0,4.5),color:(0.6,1.0,0.45),intensity:120000.0,range:14.0,breakable:false,shadows:true), (pos:(54.0,7.0,7.0),color:(0.75,1.0,0.5),intensity:900000.0,range:28.0,breakable:false,shadows:true), (pos:(51.0,-13.0,2.6),color:(1.0,0.5,0.6),intensity:150000.0,range:15.0,breakable:false,shadows:true), (pos:(53.0,46.0,10.0),color:(0.5,0.85,1.0),intensity:1500000.0,range:30.0,breakable:false,shadows:true), (pos:(53.0,66.0,10.0),color:(0.5,0.85,1.0),intensity:900000.0,range:24.0,breakable:false,shadows:true), (pos:(25.0,67.0,8.0),color:(0.8,1.0,0.45),intensity:900000.0,range:26.0,breakable:false,shadows:true), (pos:(16.0,87.0,2.6),color:(1.0,0.8,0.55),intensity:150000.0,range:15.0,breakable:false,shadows:true), (pos:(22.0,109.0,13.0),color:(0.7,1.0,0.45),intensity:4500000.0,range:42.0,breakable:false,shadows:true), (pos:(22.0,120.0,0.0),color:(1.0,0.4,0.55),intensity:600000.0,range:20.0,breakable:false,shadows:true), (pos:(16.0,6.0,3.0),color:(0.6,1.0,0.4),intensity:20000.0,range:7.0,breakable:false,shadows:false), (pos:(24.0,6.0,2.6),color:(0.6,1.0,0.4),intensity:20000.0,range:7.0,breakable:false,shadows:false), (pos:(19.0,-0.5,2.2),color:(1.0,0.8,0.5),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(32.0,-9.0,1.5),color:(0.6,1.0,0.4),intensity:20000.0,range:8.0,breakable:false,shadows:false), (pos:(37.0,-14.5,1.0),color:(0.6,1.0,0.4),intensity:20000.0,range:9.0,breakable:false,shadows:false), (pos:(51.0,0.5,-1.6),color:(0.4,1.0,0.3),intensity:60000.0,range:9.0,breakable:false,shadows:false), (pos:(48.0,12.0,0.5),color:(1.0,0.5,0.6),intensity:25000.0,range:6.0,breakable:false,shadows:false), (pos:(60.0,4.0,0.5),color:(1.0,0.5,0.6),intensity:25000.0,range:6.0,breakable:false,shadows:false), (pos:(69.0,11.5,0.5),color:(1.0,0.8,0.5),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(60.2,-15.5,0.5),color:(0.6,1.0,0.4),intensity:15000.0,range:5.0,breakable:false,shadows:false), (pos:(51.0,-16.5,1.5),color:(0.4,1.0,0.3),intensity:40000.0,range:7.0,breakable:false,shadows:false), (pos:(54.0,27.0,1.7),color:(0.6,1.0,0.4),intensity:25000.0,range:9.0,breakable:false,shadows:false), (pos:(54.0,36.0,2.2),color:(1.0,0.6,0.4),intensity:20000.0,range:7.0,breakable:false,shadows:false), (pos:(60.5,41.0,-1.8),color:(0.4,1.0,0.3),intensity:50000.0,range:8.0,breakable:false,shadows:false), (pos:(53.0,55.0,-3.0),color:(0.3,0.7,1.0),intensity:120000.0,range:16.0,breakable:false,shadows:false), (pos:(72.0,55.0,5.5),color:(1.0,0.8,0.5),intensity:20000.0,range:6.0,breakable:false,shadows:false), (pos:(68.0,43.0,-1.0),color:(0.3,0.7,1.0),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(37.0,68.0,1.2),color:(0.6,1.0,0.4),intensity:20000.0,range:7.0,breakable:false,shadows:false), (pos:(30.2,62.0,-1.7),color:(0.4,1.0,0.3),intensity:50000.0,range:8.0,breakable:false,shadows:false), (pos:(25.0,68.0,0.5),color:(1.0,0.45,0.5),intensity:40000.0,range:7.0,breakable:false,shadows:false), (pos:(13.7,67.5,0.5),color:(0.6,1.0,0.4),intensity:15000.0,range:5.0,breakable:false,shadows:false), (pos:(26.0,50.0,1.0),color:(0.6,1.0,0.4),intensity:15000.0,range:10.0,breakable:false,shadows:false), (pos:(34.0,42.0,1.0),color:(0.6,1.0,0.4),intensity:15000.0,range:8.0,breakable:false,shadows:false), (pos:(22.0,79.0,1.0),color:(1.0,0.45,0.5),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(29.0,90.0,1.5),color:(1.0,0.45,0.5),intensity:25000.0,range:8.0,breakable:false,shadows:false), (pos:(13.0,101.0,-1.5),color:(0.6,1.0,0.4),intensity:80000.0,range:10.0,breakable:false,shadows:false), (pos:(33.0,112.0,-1.5),color:(0.6,1.0,0.4),intensity:80000.0,range:10.0,breakable:false,shadows:false), (pos:(12.0,114.0,-0.5),color:(0.6,1.0,0.4),intensity:80000.0,range:10.0,breakable:false,shadows:false), (pos:(23.0,105.0,-1.0),color:(0.6,1.0,0.4),intensity:80000.0,range:10.0,breakable:false,shadows:false)],
+    switches: [(wall: (117, 118), action: Channel(6), key: None), (wall: (148, 149), action: Channel(6), key: None)],
+    items: [(kind:Shotgun,pos:(10.0,2.0),skill:Easy), (kind:ShotgunShells,pos:(10.5,9.0),skill:Easy), (kind:PistolAmmo,pos:(1.5,1.5),skill:Easy), (kind:HealthSmall,pos:(26.5,5.0),skill:Easy), (kind:ShotgunShells,pos:(14.0,7.0),skill:Easy), (kind:Atom,pos:(19.0,-1.0),skill:Easy), (kind:Armour,pos:(16.5,0.0),skill:Easy), (kind:Rockets,pos:(21.5,0.0),skill:Easy), (kind:ShotgunShells,pos:(35.0,11.0),skill:Easy), (kind:ShotgunShells,pos:(38.5,7.5),skill:Easy), (kind:Armour,pos:(29.0,1.0),skill:Easy), (kind:PipeBombs,pos:(31.0,-3.0),skill:Easy), (kind:Medkit,pos:(32.0,-15.0),skill:Easy), (kind:Chaingun,pos:(43.5,9.5),skill:Easy), (kind:ShotgunShells,pos:(44.0,18.0),skill:Easy), (kind:Medkit,pos:(64.0,-4.0),skill:Easy), (kind:PistolAmmo,pos:(60.0,18.0),skill:Easy), (kind:HealthSmall,pos:(44.0,-4.0),skill:Easy), (kind:PistolAmmo,pos:(43.5,-0.5),skill:Easy), (kind:ShotgunShells,pos:(51.0,-7.0),skill:Easy), (kind:Atom,pos:(70.0,11.5),skill:Easy), (kind:Armour,pos:(68.5,13.5),skill:Easy), (kind:Key(Blue),pos:(51.0,-16.5),skill:Easy), (kind:ShotgunShells,pos:(46.0,-12.0),skill:Easy), (kind:PistolAmmo,pos:(46.0,-14.0),skill:Easy), (kind:Chaingun,pos:(56.0,-10.8),skill:Easy), (kind:Armour,pos:(56.5,-19.0),skill:Easy), (kind:HealthSmall,pos:(61.0,-17.0),skill:Easy), (kind:PistolAmmo,pos:(54.0,27.0),skill:Easy), (kind:PistolAmmo,pos:(53.0,22.0),skill:Easy), (kind:Chaingun,pos:(57.0,35.0),skill:Easy), (kind:RocketLauncher,pos:(48.5,44.5),skill:Easy), (kind:Jetpack,pos:(41.5,44.5),skill:Easy), (kind:Rockets,pos:(63.5,40.0),skill:Easy), (kind:HealthSmall,pos:(41.0,39.5),skill:Easy), (kind:PistolAmmo,pos:(64.5,45.0),skill:Easy), (kind:Atom,pos:(72.0,54.0),skill:Easy), (kind:Rockets,pos:(72.0,56.0),skill:Easy), (kind:Medkit,pos:(42.0,70.5),skill:Easy), (kind:Chaingun,pos:(50.0,66.0),skill:Easy), (kind:ShotgunShells,pos:(64.5,71.0),skill:Easy), (kind:Rockets,pos:(58.0,70.5),skill:Easy), (kind:Key(Red),pos:(25.0,68.0),skill:Easy), (kind:Armour,pos:(17.5,75.0),skill:Easy), (kind:Rockets,pos:(33.0,59.0),skill:Easy), (kind:PistolAmmo,pos:(17.0,59.0),skill:Easy), (kind:HealthSmall,pos:(26.0,50.0),skill:Easy), (kind:ShotgunShells,pos:(38.0,41.0),skill:Easy), (kind:Armour,pos:(10.0,90.5),skill:Easy), (kind:Atom,pos:(12.5,90.5),skill:Easy), (kind:Rockets,pos:(10.0,83.5),skill:Easy), (kind:Rockets,pos:(12.5,83.5),skill:Easy), (kind:Rockets,pos:(19.0,90.5),skill:Easy), (kind:PipeBombs,pos:(16.0,90.5),skill:Easy), (kind:Chaingun,pos:(21.0,87.0),skill:Easy), (kind:Medkit,pos:(9.5,87.0),skill:Easy), (kind:Rockets,pos:(38.0,97.0),skill:Easy), (kind:HealthSmall,pos:(38.0,110.0),skill:Easy), (kind:HealthSmall,pos:(6.5,110.0),skill:Easy), (kind:Medkit,pos:(23.0,122.0),skill:Easy), (kind:Rockets,pos:(7.0,101.0),skill:Easy), (kind:PistolAmmo,pos:(36.0,120.0),skill:Easy)],
+    actors: [(kind:Slasher,pos:(24.0,6.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(16.0,6.0),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Drone,pos:(34.0,9.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(34.5,2.0),angle_deg:150.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(29.5,10.5),angle_deg:270.0,asleep:true,skill:Hard,on_death:None), (kind:Barrel,pos:(35.2,0.8),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(37.0,-14.5),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(32.0,-4.0),angle_deg:90.0,asleep:true,skill:Hard,on_death:None), (kind:Slasher,pos:(52.0,8.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(62.0,14.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(56.0,0.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(63.0,9.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(45.0,16.0),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Drone,pos:(60.0,-3.0),angle_deg:135.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(56.0,18.5),angle_deg:270.0,asleep:true,skill:Hard,on_death:None), (kind:Drone,pos:(50.0,17.0),angle_deg:270.0,asleep:true,skill:Hard,on_death:None), (kind:Barrel,pos:(64.8,14.5),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(46.0,-18.5),angle_deg:45.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(56.0,-16.5),angle_deg:135.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(60.2,-14.5),angle_deg:180.0,asleep:false,skill:Easy,on_death:None), (kind:Slasher,pos:(60.2,-16.8),angle_deg:180.0,asleep:false,skill:Normal,on_death:None), (kind:Slasher,pos:(54.0,31.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(51.0,36.5),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Drone,pos:(50.0,42.0),angle_deg:270.0,asleep:false,skill:Easy,on_death:None), (kind:Slasher,pos:(58.0,43.0),angle_deg:270.0,asleep:false,skill:Easy,on_death:None), (kind:Drone,pos:(63.0,44.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(42.0,42.0),angle_deg:0.0,asleep:true,skill:Hard,on_death:None), (kind:Drone,pos:(46.0,68.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(60.0,71.0),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Grunt,pos:(64.0,66.0),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Enforcer,pos:(19.0,72.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(31.0,67.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(20.0,66.0),angle_deg:0.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(26.0,74.0),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(32.8,75.0),angle_deg:225.0,asleep:true,skill:Normal,on_death:None), (kind:Drone,pos:(27.0,61.0),angle_deg:90.0,asleep:true,skill:Hard,on_death:None), (kind:Slasher,pos:(13.7,66.5),angle_deg:0.0,asleep:false,skill:Easy,on_death:None), (kind:Slasher,pos:(13.7,68.7),angle_deg:0.0,asleep:false,skill:Hard,on_death:None), (kind:Slasher,pos:(26.0,55.0),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Drone,pos:(22.0,80.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:HiveQueen,pos:(22.0,118.0),angle_deg:280.0,asleep:true,skill:Easy,on_death:Some(Exit))],
+    glass: [],
+    music: Some("hive_heart"),
+    triggers: [(sector: 18, action: Channel(1), once: true), (sector: 8, action: Channel(2), once: true), (sector: 27, action: Channel(3), once: true), (sector: 43, action: Channel(4), once: true), (sector: 57, action: Channel(5), once: true)],
+    quakes: [(channel:2,duration:1.5,strength:0.35), (channel:3,duration:2.5,strength:0.8), (channel:4,duration:1.8,strength:0.5), (channel:5,duration:2.5,strength:0.7)],
+    blasts: [(channel:3,at:(54.0,40.5,-0.5),radius:3.0,damage:40,delay:0.8)],
+    props: [],
+    burrow_points: [(7.0,107.0), (19.0,97.5), (36.5,101.0), (26.0,119.0), (18.0,110.0)],
+)

@@ -8,9 +8,9 @@
         ),
         (
             name: "Aftershock",
-            // Level 7 (the boss) lands in a later PR.
+            // Level 7, Hive Heart, is the finale: the Hive Queen's death ends the episode.
             levels: ["container_crush.ron", "dead_air.ron", "undertow.ron", "express_line.ron",
-                     "mall_brawl.ron", "hot_zone.ron"],
+                     "mall_brawl.ron", "hot_zone.ron", "hive_heart.ron"],
         ),
     ],
 )
