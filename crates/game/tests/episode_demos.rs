@@ -109,3 +109,8 @@ fn mall_brawl_route_completes() {
 fn hot_zone_route_completes() {
     route_completes("hot_zone.ron", 700);
 }
+
+#[test]
+fn hive_heart_route_completes() {
+    route_completes("hive_heart.ron", 900);
+}
