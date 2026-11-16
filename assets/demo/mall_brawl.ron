@@ -8,7 +8,7 @@
         // Car park: the shotgun in the pay booth, then clear the cars east of the start.
         (secs: 3.0, goto: Some((47.0, 118.0))),
         (secs: 1.5, goto: Some((47.0, 122.8))),
-        (secs: 2.0, goto: Some((58.0, 106.0))),
+        (secs: 3.0, goto: Some((58.0, 106.0))),
         (secs: 0.4, face_deg: Some(0.0)),
         (secs: 2.0, fire: true),
         // East along the lamp row, then south to the stairwell and down to its door.
