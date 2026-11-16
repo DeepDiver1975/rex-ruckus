@@ -79,3 +79,18 @@ fn neon_nights_route_completes() {
 fn mothership_down_route_completes() {
     route_completes("mothership_down.ron", 900);
 }
+
+#[test]
+fn container_crush_route_completes() {
+    route_completes("container_crush.ron", 700);
+}
+
+#[test]
+fn dead_air_route_completes() {
+    route_completes("dead_air.ron", 700);
+}
+
+#[test]
+fn undertow_route_completes() {
+    route_completes("undertow.ron", 700);
+}

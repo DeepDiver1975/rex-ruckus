@@ -1,0 +1,536 @@
+// Episode 2 level 2. Coordinates in metres, x = east, y = north, z = up.
+// Setting: the Beacon 12 broadcast centre (a fictional local channel, "Beacon 12 - The City's
+// Light"), taken over by the hive's servants to jam the emergency broadcast.
+// Route: the street plaza (start on the road at the west end, facing east; the outside-broadcast
+// van, the fountain, planters, the station's video billboard on the facade; the shotgun in the
+// newsstand recess in the south wall) → the front doors → the lobby (reception desk, sofa,
+// payphone and vending on the west wall) → the guard office through the south door (CCTV wall;
+// the chaingun and the Blue security keycard) → the blue door in the lobby's north wall → the
+// newsroom (cubicle crosses, the assignment desk, a news ticker and a monitor wall; three edit
+// bays along the north wall) → the "on air" door east into Studio A (camera pedestals, the
+// news set on its riser with the anchor desk, video walls north and east) → the dolly track
+// across the studio fires channel 1: the floor rumbles and a scripted blast in the scene dock
+// blows the studio's back wall open → the scene dock (stacked containers, scenery flats; pipe
+// bombs) → the loading door south → Studio B, the "Jackpot Jamboree" game-show set (bleachers
+// in the west, the stage with three contestant podiums in the east, the prize board on the
+// south wall, an arcade corner in the south-west): climbing onto the stage fires channel 2
+// (the two isolation booths in the south wall open, awake) and the Red studio key waits by the
+// podiums → the green room door in the west wall → the green room (jukebox, pool table,
+// vanity mirror, couch): its switch (channel 5) opens the door back into the lobby, the
+// shortcut → the red door in the lobby's south wall → master control (two console rows, the
+// monitor wall) → the door east to the tower foot → the tower, its floors side by side and
+// each one lift higher: lift 1 (z 0 → 6) to the equipment floor (racks) → lift 2 (→ 12) to the
+// transmitter hall: the cable gantry across the cable well fires channel 4 (a quake, and the
+// gantry collapses 2 m for good) → out of the well up its stairs → lift 3 (→ 18) to the
+// engineering floor → the chief engineer's office (the jetpack, the Yellow roof key) → the
+// yellow door → the roof lift (→ 24) → the roof (open sky: an air handler, the satellite dish on
+// its pad, the transmitter mast); stepping off the lift fires channel 6 (the maintenance shed
+// in the east parapet opens, awake) → the uplink hut at the foot of the mast: the exit switch
+// on its north wall puts the emergency broadcast back on the air.
+// Secrets: (1) a crouch vent low in edit bay 3's east wall (vent 0.25-1.4 m) into the tape
+// vault (rocket launcher, rockets, armour); (2) a crack wall in Studio B's east wall behind the
+// game-show set (a barrel beside it, in the backstage lane): a stash with an atom and rockets
+// (validate's "cannot be reached from the start" warnings for its items are a crack-wall stash,
+// by design); (3) the maintenance platform on the transmitter mast at z 30, jetpack only (atom,
+// armour; validate warns those "cannot be reached from the start", by design).
+(
+    name: "Dead Air",
+    defaults: (floor_z: 0.0, ceil_z: 4.0, floor: "tile", ceil: "ceiling_tile", wall: "concrete"),
+    music: Some("dead_air"),
+    player_start: (pos: (3.0, 15.0), angle_deg: 0.0),
+    sectors: [
+        // ---- Street plaza (open sky, 16 m) ----
+        // The road along the west edge, with the station's outside-broadcast van parked on it.
+        (id: "road", rect: (0.0, 0.0, 8.0, 30.0), holes: [[(2.0, 20.0), (6.0, 20.0), (6.0, 27.0), (2.0, 27.0)]],
+         floor_z: -0.2, ceil_z: 16.0, floor: "asphalt", ceil: "sky", wall: "brick"),
+        (id: "ob_van", rect: (2.0, 20.0, 6.0, 27.0), floor_z: 2.4, ceil_z: 16.0, floor: "hull", ceil: "sky", wall: "hull", face: "hull"),
+        // The plaza, a curb up: the fountain, two planters, a bench, two lamp posts.
+        (id: "plaza", rect: (8.0, 0.0, 30.0, 30.0),
+         holes: [[(14.0, 11.0), (20.0, 11.0), (20.0, 19.0), (14.0, 19.0)],
+                 [(10.0, 3.0), (12.0, 3.0), (12.0, 5.0), (10.0, 5.0)],
+                 [(10.0, 25.0), (12.0, 25.0), (12.0, 27.0), (10.0, 27.0)],
+                 [(22.0, 2.5), (25.0, 2.5), (25.0, 3.1), (22.0, 3.1)],
+                 [(24.0, 8.0), (24.4, 8.0), (24.4, 8.4), (24.0, 8.4)],
+                 [(24.0, 21.6), (24.4, 21.6), (24.4, 22.0), (24.0, 22.0)]],
+         ceil_z: 16.0, floor: "concrete", ceil: "sky", wall: "brick", face: "concrete"),
+        (id: "fountain", rect: (14.0, 11.0, 20.0, 19.0), holes: [[(16.3, 14.3), (17.7, 14.3), (17.7, 15.7), (16.3, 15.7)]],
+         floor_z: -0.3, ceil_z: 16.0, floor: "water", ceil: "sky", face: "tile"),
+        (id: "fountain_column", rect: (16.3, 14.3, 17.7, 15.7), floor_z: 2.4, ceil_z: 16.0, floor: "tile", ceil: "sky", wall: "tile", face: "tile"),
+        (id: "planter_s", rect: (10.0, 3.0, 12.0, 5.0), floor_z: 0.9, ceil_z: 16.0, floor: "gravel", ceil: "sky", face: "concrete"),
+        (id: "planter_n", rect: (10.0, 25.0, 12.0, 27.0), floor_z: 0.9, ceil_z: 16.0, floor: "gravel", ceil: "sky", face: "concrete"),
+        (id: "bench", rect: (22.0, 2.5, 25.0, 3.1), floor_z: 0.5, ceil_z: 16.0, floor: "wood", ceil: "sky", face: "wood"),
+        // The newsstand recess in the south wall (the shotgun).
+        (id: "newsstand", rect: (16.0, -1.0, 20.0, 0.0), ceil_z: 3.2, floor: "concrete", ceil: "metal", wall: "storefront"),
+        // The facade: the station's neon band and its video billboard, set into the wall.
+        (id: "facade_neon", rect: (30.0, 2.0, 30.4, 10.0), floor_z: 3.5, ceil_z: 5.5, floor: "metal", ceil: "metal", wall: "neon"),
+        (id: "billboard", rect: (30.0, 18.0, 30.4, 28.0), floor_z: 3.6, ceil_z: 7.6, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "front_door", rect: (30.0, 13.0, 31.0, 17.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "storefront",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Lobby (6 m) ----
+        (id: "lobby", rect: (31.0, 4.0, 51.0, 26.0),
+         holes: [[(40.0, 11.0), (41.2, 11.0), (41.2, 19.0), (40.0, 19.0)],
+                 [(32.0, 19.5), (33.0, 19.5), (33.0, 23.5), (32.0, 23.5)],
+                 [(48.5, 23.0), (50.0, 23.0), (50.0, 24.5), (48.5, 24.5)],
+                 [(35.5, 9.0), (36.5, 9.0), (36.5, 10.0), (35.5, 10.0)],
+                 [(35.5, 20.0), (36.5, 20.0), (36.5, 21.0), (35.5, 21.0)],
+                 [(45.5, 9.0), (46.5, 9.0), (46.5, 10.0), (45.5, 10.0)],
+                 [(45.5, 20.0), (46.5, 20.0), (46.5, 21.0), (45.5, 21.0)]],
+         ceil_z: 6.0, floor: "tile", ceil: "ceiling_tile", wall: "storefront"),
+        (id: "reception", rect: (40.0, 11.0, 41.2, 19.0), floor_z: 1.1, ceil_z: 6.0, floor: "wood", wall: "wood", face: "screen"),
+        (id: "sofa", rect: (32.0, 19.5, 33.0, 23.5), floor_z: 0.5, ceil_z: 6.0, floor: "velvet", face: "velvet"),
+        (id: "planter_l", rect: (48.5, 23.0, 50.0, 24.5), floor_z: 0.9, ceil_z: 6.0, floor: "gravel", face: "wood"),
+        // The guard office behind the south door: the security desk and the CCTV wall.
+        (id: "guard_door", rect: (37.0, 3.5, 40.0, 4.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "guard", rect: (33.0, -5.0, 43.0, 3.5), holes: [[(36.0, -2.0), (39.0, -2.0), (39.0, -1.0), (36.0, -1.0)]],
+         ceil_z: 3.2, floor: "carpet", ceil: "ceiling_tile", wall: "wood"),
+        (id: "guard_desk", rect: (36.0, -2.0, 39.0, -1.0), floor_z: 0.9, ceil_z: 3.2, floor: "metal", wall: "metal", face: "metal"),
+        (id: "cctv", rect: (35.0, -5.4, 41.0, -5.0), floor_z: 0.9, ceil_z: 2.6, floor: "metal", ceil: "metal", wall: "screen"),
+        // Doors out of the lobby: blue to the newsroom, red to master control, and the green
+        // room's door (channel 5: only the green room's switch opens it).
+        (id: "blue_door", rect: (38.0, 26.0, 42.0, 26.5), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Blue))),
+        (id: "red_door", rect: (46.0, 3.5, 49.0, 4.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Red))),
+        (id: "green_lobby_door", rect: (51.0, 13.0, 51.5, 16.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(5))),
+
+        // ---- Newsroom (4.5 m) ----
+        // Three cubicle crosses (1.5 m dividers), the assignment desk by the studio door, two
+        // columns.
+        (id: "newsroom", rect: (31.0, 26.5, 56.0, 52.0),
+         holes: [[(33.25, 32.875), (35.875, 32.875), (35.875, 30.25), (36.125, 30.25), (36.125, 32.875), (38.75, 32.875),
+                  (38.75, 33.125), (36.125, 33.125), (36.125, 35.75), (35.875, 35.75), (35.875, 33.125), (33.25, 33.125)],
+                 [(44.25, 32.875), (46.875, 32.875), (46.875, 30.25), (47.125, 30.25), (47.125, 32.875), (49.75, 32.875),
+                  (49.75, 33.125), (47.125, 33.125), (47.125, 35.75), (46.875, 35.75), (46.875, 33.125), (44.25, 33.125)],
+                 [(38.75, 42.875), (41.375, 42.875), (41.375, 40.25), (41.625, 40.25), (41.625, 42.875), (44.25, 42.875),
+                  (44.25, 43.125), (41.625, 43.125), (41.625, 45.75), (41.375, 45.75), (41.375, 43.125), (38.75, 43.125)],
+                 [(51.5, 38.0), (53.5, 38.0), (53.5, 45.0), (51.5, 45.0)],
+                 [(35.5, 39.5), (36.5, 39.5), (36.5, 40.5), (35.5, 40.5)],
+                 [(47.0, 44.5), (48.0, 44.5), (48.0, 45.5), (47.0, 45.5)]],
+         ceil_z: 4.5, floor: "carpet", ceil: "ceiling_tile", wall: "concrete"),
+        (id: "cubes_w", poly: [(33.25, 32.875), (35.875, 32.875), (35.875, 30.25), (36.125, 30.25), (36.125, 32.875), (38.75, 32.875),
+                               (38.75, 33.125), (36.125, 33.125), (36.125, 35.75), (35.875, 35.75), (35.875, 33.125), (33.25, 33.125)],
+         floor_z: 1.5, ceil_z: 4.5, floor: "wood", face: "carpet"),
+        (id: "cubes_e", poly: [(44.25, 32.875), (46.875, 32.875), (46.875, 30.25), (47.125, 30.25), (47.125, 32.875), (49.75, 32.875),
+                               (49.75, 33.125), (47.125, 33.125), (47.125, 35.75), (46.875, 35.75), (46.875, 33.125), (44.25, 33.125)],
+         floor_z: 1.5, ceil_z: 4.5, floor: "wood", face: "carpet"),
+        (id: "cubes_n", poly: [(38.75, 42.875), (41.375, 42.875), (41.375, 40.25), (41.625, 40.25), (41.625, 42.875), (44.25, 42.875),
+                               (44.25, 43.125), (41.625, 43.125), (41.625, 45.75), (41.375, 45.75), (41.375, 43.125), (38.75, 43.125)],
+         floor_z: 1.5, ceil_z: 4.5, floor: "wood", face: "carpet"),
+        (id: "assign_desk", rect: (51.5, 38.0, 53.5, 45.0), floor_z: 1.0, ceil_z: 4.5, floor: "wood", wall: "wood", face: "wood"),
+        // The news ticker over the south wall and the monitor wall in the west wall.
+        (id: "ticker", rect: (44.0, 26.1, 54.0, 26.5), floor_z: 2.6, ceil_z: 3.4, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "monitor_wall", rect: (30.6, 34.0, 31.0, 46.0), floor_z: 1.2, ceil_z: 3.8, floor: "metal", ceil: "metal", wall: "screen"),
+        // Edit bays: three booths off the north wall, each with a monitor bank in its back wall.
+        (id: "bay1_way", rect: (34.0, 52.0, 35.5, 52.5), ceil_z: 2.6, floor: "carpet", ceil: "metal", wall: "concrete"),
+        (id: "bay1", rect: (32.0, 52.5, 37.0, 57.5), ceil_z: 2.8, floor: "carpet", ceil: "metal", wall: "wood"),
+        (id: "bay1_monitors", rect: (33.0, 57.5, 36.0, 57.9), floor_z: 1.0, ceil_z: 2.4, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "bay2_way", rect: (39.75, 52.0, 41.25, 52.5), ceil_z: 2.6, floor: "carpet", ceil: "metal", wall: "concrete"),
+        (id: "bay2", rect: (38.0, 52.5, 43.0, 57.5), ceil_z: 2.8, floor: "carpet", ceil: "metal", wall: "wood"),
+        (id: "bay2_monitors", rect: (39.0, 57.5, 42.0, 57.9), floor_z: 1.0, ceil_z: 2.4, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "bay3_way", rect: (45.75, 52.0, 47.25, 52.5), ceil_z: 2.6, floor: "carpet", ceil: "metal", wall: "concrete"),
+        (id: "bay3", rect: (44.0, 52.5, 49.0, 57.5), ceil_z: 2.8, floor: "carpet", ceil: "metal", wall: "wood"),
+        (id: "bay3_monitors", rect: (45.0, 57.5, 48.0, 57.9), floor_z: 1.0, ceil_z: 2.4, floor: "metal", ceil: "metal", wall: "screen"),
+        // Secret 1: the crouch vent in bay 3's east wall and the tape vault behind it.
+        (id: "bay3_vent", rect: (49.0, 53.5, 50.5, 54.7), floor_z: 0.25, ceil_z: 1.4, floor: "grate", ceil: "metal", wall: "grate"),
+        (id: "tape_vault", rect: (50.5, 52.5, 55.5, 57.5), floor_z: 0.25, ceil_z: 2.6, floor: "concrete", ceil: "metal", wall: "container",
+         secret: true),
+        (id: "studio_a_door", rect: (56.0, 40.0, 56.5, 43.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Studio A: the news set (8 m, a lighting grid overhead) ----
+        (id: "studio_a_w", rect: (56.5, 30.0, 63.5, 52.0),
+         holes: [[(59.5, 37.0), (60.3, 37.0), (60.3, 37.8), (59.5, 37.8)],
+                 [(59.5, 45.0), (60.3, 45.0), (60.3, 45.8), (59.5, 45.8)]],
+         ceil_z: 8.0, floor: "concrete", ceil: "grate", wall: "metal"),
+        // Two camera pedestals.
+        (id: "camera_1", rect: (59.5, 37.0, 60.3, 37.8), floor_z: 1.7, ceil_z: 8.0, floor: "metal", wall: "metal", face: "metal"),
+        (id: "camera_2", rect: (59.5, 45.0, 60.3, 45.8), floor_z: 1.7, ceil_z: 8.0, floor: "metal", wall: "metal", face: "metal"),
+        // The camera dolly track across the studio: channel 1, the breach.
+        (id: "dolly_track", rect: (63.5, 30.0, 65.0, 52.0), ceil_z: 8.0, floor: "rail", ceil: "grate", wall: "metal"),
+        (id: "studio_a_e", rect: (65.0, 30.0, 78.0, 52.0), holes: [[(68.0, 38.0), (76.0, 38.0), (76.0, 49.0), (68.0, 49.0)]],
+         ceil_z: 8.0, floor: "concrete", ceil: "grate", wall: "metal"),
+        (id: "news_set", rect: (68.0, 38.0, 76.0, 49.0), holes: [[(70.0, 42.0), (74.0, 42.0), (74.0, 43.2), (70.0, 43.2)]],
+         floor_z: 0.5, ceil_z: 8.0, floor: "carpet", wall: "metal", face: "glowstrip"),
+        (id: "anchor_desk", rect: (70.0, 42.0, 74.0, 43.2), floor_z: 1.25, ceil_z: 8.0, floor: "wood", wall: "wood", face: "screen"),
+        // Video walls: the big one in the north wall, the set backdrop in the east wall.
+        (id: "video_wall_n", rect: (60.0, 52.0, 76.0, 52.4), floor_z: 1.0, ceil_z: 6.5, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "video_wall_e", rect: (78.0, 39.0, 78.4, 49.0), floor_z: 1.0, ceil_z: 6.0, floor: "metal", ceil: "metal", wall: "screen"),
+        // The back wall: a crack wall that only the channel 1 blast opens.
+        (id: "breach", rect: (78.0, 32.0, 78.75, 37.0), ceil_z: 4.0, floor: "concrete", ceil: "concrete", wall: "metal",
+         mover: (kind: Crack)),
+
+        // ---- Scene dock (7 m) ----
+        (id: "scene_dock", rect: (78.75, 30.0, 94.0, 52.0),
+         holes: [[(82.0, 40.0), (85.0, 40.0), (85.0, 43.0), (82.0, 43.0)],
+                 [(88.0, 33.5), (91.0, 33.5), (91.0, 36.5), (88.0, 36.5)],
+                 [(86.0, 45.0), (90.0, 45.0), (90.0, 48.0), (86.0, 48.0)],
+                 [(80.5, 46.5), (81.0, 46.5), (81.0, 51.0), (80.5, 51.0)]],
+         ceil_z: 7.0, floor: "concrete", ceil: "metal", wall: "brick"),
+        (id: "crate_1", rect: (82.0, 40.0, 85.0, 43.0), floor_z: 2.6, ceil_z: 7.0, floor: "container", wall: "container", face: "container"),
+        (id: "crate_2", rect: (88.0, 33.5, 91.0, 36.5), floor_z: 2.6, ceil_z: 7.0, floor: "container", wall: "container", face: "container"),
+        (id: "crate_3", rect: (86.0, 45.0, 90.0, 48.0), floor_z: 1.3, ceil_z: 7.0, floor: "wood", wall: "wood", face: "wood"),
+        (id: "flats", rect: (80.5, 46.5, 81.0, 51.0), floor_z: 3.6, ceil_z: 7.0, floor: "wood", wall: "wood", face: "storefront"),
+        (id: "dock_door", rect: (82.0, 29.5, 85.0, 30.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Studio B: the "Jackpot Jamboree" game-show set (9 m) ----
+        // Bleachers in the west, the stage in the east with the set wall behind it and the
+        // backstage lane between the set wall and the east wall; an arcade corner in the
+        // south-west.
+        (id: "studio_b", rect: (58.0, 4.0, 90.0, 29.5),
+         holes: [[(73.4, 9.0), (74.0, 9.0), (74.0, 7.0), (86.5, 7.0), (86.5, 26.0), (74.0, 26.0), (74.0, 24.0), (73.4, 24.0)],
+                 [(59.5, 9.0), (67.0, 9.0), (67.0, 23.0), (59.5, 23.0)]],
+         ceil_z: 9.0, floor: "tile", ceil: "metal", wall: "marquee"),
+        // The stage: trigger for channel 2 (the isolation booths). Three podiums, a step.
+        (id: "stage", rect: (74.0, 7.0, 86.0, 26.0),
+         holes: [[(77.0, 11.5), (78.5, 11.5), (78.5, 13.0), (77.0, 13.0)],
+                 [(77.0, 15.75), (78.5, 15.75), (78.5, 17.25), (77.0, 17.25)],
+                 [(77.0, 20.0), (78.5, 20.0), (78.5, 21.5), (77.0, 21.5)]],
+         floor_z: 0.8, ceil_z: 9.0, floor: "dancefloor", wall: "marquee", face: "glowstrip"),
+        (id: "stage_step", rect: (73.4, 9.0, 74.0, 24.0), floor_z: 0.4, ceil_z: 9.0, floor: "dancefloor", wall: "marquee", face: "glowstrip"),
+        (id: "podium_1", rect: (77.0, 11.5, 78.5, 13.0), floor_z: 1.9, ceil_z: 9.0, floor: "glowstrip", wall: "marquee", face: "marquee"),
+        (id: "podium_2", rect: (77.0, 15.75, 78.5, 17.25), floor_z: 1.9, ceil_z: 9.0, floor: "glowstrip", wall: "marquee", face: "marquee"),
+        (id: "podium_3", rect: (77.0, 20.0, 78.5, 21.5), floor_z: 1.9, ceil_z: 9.0, floor: "glowstrip", wall: "marquee", face: "marquee"),
+        // The prize board in the south wall.
+        (id: "prize_board", rect: (62.0, 3.6, 72.0, 4.0), floor_z: 1.0, ceil_z: 7.5, floor: "metal", ceil: "metal", wall: "neon"),
+        // The isolation booths in the south wall, on channel 2, awake.
+        (id: "booth_1_door", rect: (76.0, 3.5, 78.0, 4.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "booth_1", rect: (75.0, 0.5, 79.0, 3.5), ceil_z: 3.2, floor: "carpet", ceil: "metal", wall: "velvet"),
+        (id: "booth_2_door", rect: (82.0, 3.5, 84.0, 4.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "booth_2", rect: (81.0, 0.5, 85.0, 3.5), ceil_z: 3.2, floor: "carpet", ceil: "metal", wall: "velvet"),
+        // Secret 2: the cracked east wall in the backstage lane (a barrel beside it).
+        (id: "backstage_crack", rect: (90.0, 14.0, 90.75, 18.0), ceil_z: 3.0, floor: "concrete", ceil: "concrete", wall: "brick",
+         face: "cracked", mover: (kind: Crack)),
+        (id: "backstage_stash", rect: (90.75, 13.0, 94.5, 19.0), ceil_z: 3.0, floor: "concrete", ceil: "concrete", wall: "brick",
+         secret: true),
+        (id: "green_door", rect: (57.5, 12.0, 58.0, 15.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- Green room ----
+        // The switch beside the west door (channel 5) opens the way back into the lobby.
+        (id: "green_room", poly: [(51.5, 8.0), (57.5, 8.0), (57.5, 22.0), (51.5, 22.0), (51.5, 17.5), (51.5, 16.0)],
+         holes: [[(53.0, 19.6), (56.0, 19.6), (56.0, 20.6), (53.0, 20.6)],
+                 [(52.5, 8.6), (56.5, 8.6), (56.5, 9.2), (52.5, 9.2)]],
+         ceil_z: 3.2, floor: "carpet", ceil: "wood", wall: "velvet"),
+        (id: "couch", rect: (53.0, 19.6, 56.0, 20.6), floor_z: 0.5, ceil_z: 3.2, floor: "velvet", face: "velvet"),
+        (id: "vanity", rect: (52.5, 8.6, 56.5, 9.2), floor_z: 0.95, ceil_z: 3.2, floor: "wood", wall: "wood", face: "wood"),
+        (id: "vanity_mirror", rect: (52.5, 7.6, 56.5, 8.0), floor_z: 1.2, ceil_z: 2.6, floor: "glowstrip", ceil: "glowstrip", wall: "glowstrip"),
+
+        // ---- Master control (4.5 m) ----
+        (id: "master_control", rect: (44.5, -16.0, 62.0, 3.5),
+         holes: [[(47.0, -12.0), (59.0, -12.0), (59.0, -11.0), (47.0, -11.0)],
+                 [(47.0, -7.0), (59.0, -7.0), (59.0, -6.0), (47.0, -6.0)],
+                 [(52.5, -2.0), (53.5, -2.0), (53.5, -1.0), (52.5, -1.0)]],
+         ceil_z: 4.5, floor: "grate", ceil: "ceiling_tile", wall: "metal"),
+        (id: "console_1", rect: (47.0, -12.0, 59.0, -11.0), floor_z: 1.0, ceil_z: 4.5, floor: "metal", wall: "metal", face: "screen"),
+        (id: "console_2", rect: (47.0, -7.0, 59.0, -6.0), floor_z: 1.0, ceil_z: 4.5, floor: "metal", wall: "metal", face: "screen"),
+        (id: "monitor_bank", rect: (46.0, -16.4, 60.0, -16.0), floor_z: 0.6, ceil_z: 4.2, floor: "metal", ceil: "metal", wall: "screen"),
+        (id: "mc_door", rect: (62.0, -12.0, 62.5, -9.0), ceil_z: 3.5, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+
+        // ---- The tower: floors side by side, each one lift higher ----
+        // The tower foot (z 0): the standby generator.
+        (id: "tower_foot", rect: (62.5, -22.0, 74.0, -1.0),
+         holes: [[(66.0, -7.0), (70.0, -7.0), (70.0, -4.0), (66.0, -4.0)]],
+         ceil_z: 7.0, floor: "concrete", ceil: "metal", wall: "concrete"),
+        (id: "generator", rect: (66.0, -7.0, 70.0, -4.0), floor_z: 1.8, ceil_z: 7.0, floor: "metal", wall: "metal", face: "pipe"),
+        (id: "lift_1", rect: (74.0, -12.0, 76.0, -8.0), ceil_z: 12.0, floor: "metal", wall: "metal", face: "metal",
+         mover: (kind: Lift(to: 6.0), speed: 3.0)),
+        // The equipment floor (z 6): three rows of floor-to-ceiling racks.
+        (id: "equipment_floor", rect: (76.0, -22.0, 92.0, -1.0),
+         holes: [[(79.0, -18.0), (89.0, -18.0), (89.0, -17.0), (79.0, -17.0)],
+                 [(79.0, -12.5), (89.0, -12.5), (89.0, -11.5), (79.0, -11.5)],
+                 [(79.0, -6.0), (86.0, -6.0), (86.0, -5.0), (79.0, -5.0)]],
+         floor_z: 6.0, ceil_z: 11.5, floor: "grate", ceil: "metal", wall: "pipe"),
+        (id: "lift_2", rect: (92.0, -6.0, 94.0, -2.0), floor_z: 6.0, ceil_z: 18.0, floor: "metal", wall: "metal", face: "metal",
+         mover: (kind: Lift(to: 12.0), speed: 3.0)),
+        // The transmitter hall (z 12): two transmitter cabinets; the cable gantry over the
+        // cable well collapses 2 m on channel 4, and the well's stairs climb out east.
+        (id: "transmitter_w", rect: (94.0, -22.0, 100.0, -1.0), holes: [[(96.0, -19.0), (98.0, -19.0), (98.0, -15.0), (96.0, -15.0)]],
+         floor_z: 12.0, ceil_z: 17.0, floor: "metal", ceil: "metal", wall: "pipe"),
+        (id: "gantry", rect: (100.0, -22.0, 104.0, -17.0), floor_z: 12.0, ceil_z: 17.0, floor: "grate", ceil: "metal", wall: "pipe",
+         face: "rail", mover: (kind: Lift(to: 10.0), channel: Some(4), speed: 3.0, one_shot: true)),
+        (id: "cable_well", rect: (100.0, -17.0, 104.0, -4.0), floor_z: 10.0, ceil_z: 17.0, floor: "pipe", ceil: "metal", wall: "pipe",
+         face: "pipe"),
+        (id: "transmitter_e", rect: (104.0, -22.0, 110.0, -1.0), holes: [[(106.0, -15.0), (108.0, -15.0), (108.0, -11.0), (106.0, -11.0)]],
+         floor_z: 12.0, ceil_z: 17.0, floor: "metal", ceil: "metal", wall: "pipe"),
+        (id: "lift_3", rect: (110.0, -6.0, 112.0, -2.0), floor_z: 12.0, ceil_z: 23.0, floor: "metal", wall: "metal", face: "metal",
+         mover: (kind: Lift(to: 18.0), speed: 3.0)),
+        // The engineering floor (z 18): a workbench; the chief engineer's office east.
+        (id: "engineering", rect: (112.0, -22.0, 124.0, -1.0),
+         holes: [[(115.0, -15.0), (119.0, -15.0), (119.0, -14.0), (115.0, -14.0)],
+                 [(119.5, -8.0), (120.5, -8.0), (120.5, -7.0), (119.5, -7.0)]],
+         floor_z: 18.0, ceil_z: 22.5, floor: "tile", ceil: "ceiling_tile", wall: "concrete"),
+        (id: "workbench", rect: (115.0, -15.0, 119.0, -14.0), floor_z: 19.0, ceil_z: 22.5, floor: "wood", wall: "wood", face: "metal"),
+        (id: "office_door", rect: (124.0, -12.0, 124.5, -9.0), floor_z: 18.0, ceil_z: 21.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door)),
+        (id: "office", rect: (124.5, -16.0, 130.0, -5.0), holes: [[(127.0, -13.0), (128.2, -13.0), (128.2, -9.0), (127.0, -9.0)]],
+         floor_z: 18.0, ceil_z: 21.0, floor: "carpet", ceil: "wood", wall: "wood"),
+        (id: "office_desk", rect: (127.0, -13.0, 128.2, -9.0), floor_z: 18.9, ceil_z: 21.0, floor: "wood", wall: "wood", face: "wood"),
+        (id: "yellow_door", rect: (116.0, -1.0, 119.0, -0.5), floor_z: 18.0, ceil_z: 21.0, floor: "metal", ceil: "metal",
+         wall: "metal", face: "door", mover: (kind: Door, lock: Some(Yellow))),
+        (id: "roof_lift", rect: (116.0, -0.5, 119.0, 2.5), floor_z: 18.0, ceil_z: 28.0, floor: "metal", wall: "concrete",
+         face: "metal", mover: (kind: Lift(to: 24.0), speed: 3.0)),
+
+        // ---- The roof (z 24, open sky) ----
+        (id: "roof", poly: [(96.0, 2.5), (116.0, 2.5), (116.0, 4.5), (119.0, 4.5), (119.0, 2.5), (132.0, 2.5), (132.0, 44.0),
+                            (96.0, 44.0)],
+         holes: [[(99.0, 6.0), (103.0, 6.0), (103.0, 10.0), (99.0, 10.0)],
+                 [(100.0, 26.0), (110.0, 26.0), (110.0, 36.0), (100.0, 36.0)],
+                 [(124.0, 26.0), (129.0, 26.0), (129.0, 31.0), (124.0, 31.0)],
+                 [(113.5, 35.5), (121.5, 35.5), (121.5, 43.5), (113.5, 43.5)],
+                 [(125.5, 13.0), (126.5, 13.0), (126.5, 14.0), (125.5, 14.0)],
+                 [(104.0, 18.0), (105.0, 18.0), (105.0, 19.0), (104.0, 19.0)]],
+         floor_z: 24.0, ceil_z: 40.0, floor: "gravel", ceil: "sky", wall: "brick", face: "concrete"),
+        // The landing mat off the roof lift: channel 6 (the maintenance shed).
+        (id: "roof_mat", rect: (116.0, 2.5, 119.0, 4.5), floor_z: 24.0, ceil_z: 40.0, floor: "grate", ceil: "sky", wall: "brick"),
+        (id: "air_handler", rect: (99.0, 6.0, 103.0, 10.0), floor_z: 26.0, ceil_z: 40.0, floor: "metal", ceil: "sky", wall: "grate",
+         face: "grate"),
+        // The satellite dish on its pad.
+        (id: "dish_pad", rect: (100.0, 26.0, 110.0, 36.0), holes: [[(103.0, 29.0), (107.0, 29.0), (107.0, 33.0), (103.0, 33.0)]],
+         floor_z: 24.5, ceil_z: 40.0, floor: "metal", ceil: "sky", wall: "metal", face: "metal"),
+        (id: "dish", rect: (103.0, 29.0, 107.0, 33.0), floor_z: 28.5, ceil_z: 40.0, floor: "metal", ceil: "sky", wall: "metal",
+         face: "metal"),
+        // Secret 3: the transmitter mast's maintenance platform, jetpack only.
+        (id: "mast_platform", rect: (124.0, 26.0, 129.0, 31.0), floor_z: 30.0, ceil_z: 40.0, floor: "grate", ceil: "sky", wall: "rail",
+         face: "rail", secret: true),
+        // The uplink hut at the foot of the mast: the exit switch on its north wall.
+        (id: "hut_door", rect: (116.0, 35.5, 118.5, 36.0), floor_z: 24.0, ceil_z: 27.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "uplink_hut", poly: [(114.0, 36.0), (121.0, 36.0), (121.0, 43.0), (119.0, 43.0), (116.0, 43.0), (114.0, 43.0)],
+         floor_z: 24.0, ceil_z: 27.5, floor: "metal", ceil: "metal", wall: "screen"),
+        // The maintenance shed in the east parapet, on channel 6, awake.
+        (id: "shed_door", rect: (132.0, 20.0, 132.5, 23.0), floor_z: 24.0, ceil_z: 27.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(6))),
+        (id: "shed", rect: (132.5, 17.5, 137.0, 25.5), floor_z: 24.0, ceil_z: 27.2, floor: "concrete", ceil: "metal", wall: "container"),
+    ],
+    stairs: [
+        // Studio B's bleachers, climbing west.
+        (id: "bleachers", rect: (59.5, 9.0, 67.0, 23.0), dir: W, steps: 4, from_z: 0.5, to_z: 2.0, ceil_z: 9.0,
+         floor: "wood", wall: "marquee"),
+        // Out of the cable well (z 10), climbing east to the transmitter hall's east half (z 12).
+        (id: "well_stairs", rect: (100.0, -4.0, 104.0, -1.0), dir: E, steps: 3, from_z: 10.5, to_z: 11.5, ceil_z: 17.0,
+         floor: "grate", wall: "pipe"),
+    ],
+    switches: [
+        (wall: ((51.5, 16.0), (51.5, 17.5)), sector: "green_room", action: Channel(5)),
+        (wall: ((116.0, 43.0), (119.0, 43.0)), sector: "uplink_hut", action: Exit),
+    ],
+    triggers: [
+        (sector: "dolly_track", action: Channel(1)),
+        (sector: "stage", action: Channel(2)),
+        (sector: "gantry", action: Channel(4)),
+        (sector: "roof_mat", action: Channel(6)),
+    ],
+    quakes: [
+        (channel: 1, duration: 1.6, strength: 0.6),
+        (channel: 4, duration: 2.5, strength: 0.8),
+    ],
+    // In the scene dock, 1.75 m behind the breach: the closed crack shields the studio.
+    blasts: [(channel: 1, at: (80.5, 34.5, 1.0), radius: 3.0, damage: 40, delay: 0.6)],
+    lights: [
+        // Plaza: the night sky over the street, a warm lamp, the billboard's cyan wash, the neon.
+        (pos: (16.0, 15.0, 12.0), color: (0.65, 0.72, 1.0), intensity: 2000000.0, range: 32.0),
+        (pos: (24.2, 15.0, 5.5), color: (1.0, 0.8, 0.55), intensity: 300000.0, range: 16.0, shadows: false),
+        (pos: (28.5, 23.0, 5.5), color: (0.3, 0.85, 1.0), intensity: 150000.0, range: 12.0, shadows: false),
+        (pos: (29.0, 6.0, 4.5), color: (1.0, 0.35, 0.3), intensity: 80000.0, range: 9.0, shadows: false),
+        (pos: (18.0, -0.5, 2.8), color: (1.0, 0.9, 0.7), intensity: 15000.0, range: 5.0, shadows: false),
+        // Lobby, guard office.
+        (pos: (41.0, 15.0, 5.6), color: (1.0, 0.95, 0.85), intensity: 500000.0, range: 22.0),
+        (pos: (34.0, 24.0, 5.5), color: (1.0, 0.9, 0.75), intensity: 60000.0, range: 10.0, shadows: false),
+        (pos: (38.0, -2.5, 2.9), color: (0.6, 0.8, 1.0), intensity: 50000.0, range: 10.0, shadows: false),
+        // Newsroom, edit bays, tape vault.
+        (pos: (43.0, 38.0, 4.2), color: (0.95, 0.97, 1.0), intensity: 500000.0, range: 22.0),
+        (pos: (34.5, 55.0, 2.5), color: (0.4, 0.7, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (40.5, 55.0, 2.5), color: (0.4, 0.7, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (46.5, 55.0, 2.5), color: (0.4, 0.7, 1.0), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (53.0, 55.0, 2.3), color: (1.0, 0.75, 0.45), intensity: 15000.0, range: 6.0, shadows: false),
+        // Studio A: the key light over the set, the video-wall glow.
+        (pos: (70.0, 44.0, 7.5), color: (1.0, 0.92, 0.8), intensity: 900000.0, range: 26.0),
+        (pos: (68.0, 50.5, 4.0), color: (0.3, 0.6, 1.0), intensity: 120000.0, range: 12.0, shadows: false),
+        (pos: (60.0, 35.0, 6.0), color: (1.0, 0.9, 0.8), intensity: 120000.0, range: 14.0, shadows: false),
+        // Scene dock: one work lamp.
+        (pos: (86.0, 41.0, 6.5), color: (1.0, 0.7, 0.4), intensity: 500000.0, range: 22.0),
+        // Studio B: the show rig, magenta and gold washes, the booths, the stash.
+        (pos: (78.0, 16.0, 8.5), color: (1.0, 0.45, 0.9), intensity: 1000000.0, range: 28.0),
+        (pos: (63.0, 16.0, 7.0), color: (1.0, 0.85, 0.3), intensity: 250000.0, range: 18.0, shadows: false),
+        (pos: (67.0, 5.0, 4.0), color: (0.3, 1.0, 0.9), intensity: 80000.0, range: 10.0, shadows: false),
+        (pos: (77.0, 2.0, 2.9), color: (1.0, 0.5, 0.6), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (83.0, 2.0, 2.9), color: (1.0, 0.5, 0.6), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (92.5, 16.0, 2.7), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        // Green room.
+        (pos: (54.5, 15.0, 3.0), color: (1.0, 0.8, 0.6), intensity: 60000.0, range: 11.0, shadows: false),
+        // Master control: blue monitor glow.
+        (pos: (53.0, -8.0, 4.2), color: (0.55, 0.7, 1.0), intensity: 400000.0, range: 20.0),
+        (pos: (53.0, -15.0, 2.5), color: (0.3, 0.6, 1.0), intensity: 80000.0, range: 10.0, shadows: false),
+        // The tower floors: warning-amber work lights.
+        (pos: (68.0, -12.0, 6.5), color: (1.0, 0.8, 0.5), intensity: 200000.0, range: 16.0, shadows: false),
+        (pos: (84.0, -11.0, 11.0), color: (1.0, 0.65, 0.35), intensity: 600000.0, range: 22.0),
+        (pos: (102.0, -11.0, 16.5), color: (1.0, 0.4, 0.3), intensity: 600000.0, range: 22.0),
+        (pos: (102.0, -10.0, 11.0), color: (0.4, 0.9, 1.0), intensity: 40000.0, range: 8.0, shadows: false),
+        (pos: (118.0, -11.0, 22.0), color: (0.9, 0.95, 1.0), intensity: 500000.0, range: 20.0),
+        (pos: (127.0, -10.5, 20.7), color: (1.0, 0.85, 0.6), intensity: 50000.0, range: 9.0, shadows: false),
+        // The roof: night sky, the mast's red beacon, the hut and the shed.
+        (pos: (114.0, 22.0, 34.0), color: (0.6, 0.68, 1.0), intensity: 3000000.0, range: 40.0),
+        (pos: (126.5, 28.5, 34.0), color: (1.0, 0.15, 0.1), intensity: 150000.0, range: 14.0, shadows: false),
+        (pos: (117.5, 39.5, 27.2), color: (0.4, 1.0, 0.6), intensity: 40000.0, range: 8.0, shadows: false),
+        (pos: (134.7, 21.5, 26.9), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+    ],
+    items: [
+        // Plaza: the shotgun in the newsstand recess.
+        (kind: Shotgun, pos: (18.0, -0.5)),
+        (kind: ShotgunShells, pos: (5.0, 3.0)),
+        (kind: PistolAmmo, pos: (11.0, 28.5)),
+        (kind: HealthSmall, pos: (28.5, 1.5)),
+        // Lobby, guard office: the chaingun and the Blue keycard.
+        (kind: Armour, pos: (33.5, 25.0)),
+        (kind: HealthSmall, pos: (49.5, 6.0)),
+        (kind: Chaingun, pos: (41.5, 2.0)),
+        (kind: PistolAmmo, pos: (34.0, -4.0)),
+        (kind: Key(Blue), pos: (37.5, -3.5)),
+        // Newsroom.
+        (kind: ShotgunShells, pos: (32.0, 28.0)),
+        (kind: HealthSmall, pos: (55.0, 28.0)),
+        (kind: PistolAmmo, pos: (54.5, 50.5)),
+        (kind: Medkit, pos: (40.5, 55.5)),
+        // Secret 1: the tape vault.
+        (kind: RocketLauncher, pos: (52.0, 55.0)),
+        (kind: Rockets, pos: (54.0, 56.0)),
+        (kind: Armour, pos: (54.0, 53.5)),
+        // Studio A.
+        (kind: HealthSmall, pos: (57.5, 31.0)),
+        (kind: ShotgunShells, pos: (76.5, 50.5)),
+        (kind: Armour, pos: (66.5, 50.5)),
+        // Scene dock: pipe bombs on the main route.
+        (kind: PipeBombs, pos: (87.0, 42.0)),
+        (kind: PipeBombs, pos: (92.5, 50.5)),
+        (kind: ShotgunShells, pos: (80.0, 44.0)),
+        (kind: Medkit, pos: (92.5, 39.0)),
+        // Studio B: the Red studio key on the stage.
+        (kind: Key(Red), pos: (80.5, 16.5)),
+        (kind: HealthSmall, pos: (60.0, 27.5)),
+        (kind: ShotgunShells, pos: (71.0, 5.0)),
+        (kind: PistolAmmo, pos: (66.0, 27.5)),
+        (kind: Armour, pos: (88.5, 28.0)),
+        // Secret 2: the backstage stash.
+        (kind: Atom, pos: (92.5, 15.0)),
+        (kind: Rockets, pos: (92.5, 17.5)),
+        // Green room.
+        (kind: Medkit, pos: (53.0, 21.3)),
+        // Master control.
+        (kind: ShotgunShells, pos: (45.5, 2.5)),
+        (kind: HealthSmall, pos: (61.0, -15.0)),
+        (kind: PistolAmmo, pos: (48.0, -3.0)),
+        // The tower.
+        (kind: HealthSmall, pos: (72.5, -20.5)),
+        (kind: PipeBombs, pos: (63.5, -20.5)),
+        (kind: ShotgunShells, pos: (77.5, -20.5)),
+        (kind: Armour, pos: (85.0, -2.5)),
+        (kind: PistolAmmo, pos: (90.5, -14.0)),
+        (kind: Medkit, pos: (102.0, -12.0)),
+        (kind: HealthSmall, pos: (96.0, -2.5)),
+        (kind: ShotgunShells, pos: (109.0, -12.0)),
+        (kind: HealthSmall, pos: (113.0, -21.0)),
+        // The chief engineer's office: the jetpack and the Yellow roof key.
+        (kind: Jetpack, pos: (126.0, -6.5)),
+        (kind: Key(Yellow), pos: (129.0, -11.0)),
+        // Roof.
+        (kind: Medkit, pos: (98.0, 4.0)),
+        (kind: ShotgunShells, pos: (130.5, 4.0)),
+        (kind: Rockets, pos: (98.0, 42.5)),
+        (kind: HealthSmall, pos: (120.0, 41.5)),
+        // Secret 3: the mast platform.
+        (kind: Atom, pos: (126.5, 28.5)),
+        (kind: Armour, pos: (127.5, 30.0)),
+    ],
+    actors: [
+        // Plaza: a doorman Enforcer, Grunts behind the fountain and the planters.
+        (kind: Enforcer, pos: (27.5, 15.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (13.0, 7.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (21.5, 20.5), angle_deg: 180.0),
+        (kind: Grunt, pos: (26.0, 26.0), angle_deg: 180.0, skill: Normal),
+        (kind: Drone, pos: (18.0, 24.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (9.5, 13.0)),
+        (kind: Barrel, pos: (28.5, 21.5)),
+        // Lobby: an Enforcer behind reception, a Grunt by the pillars.
+        (kind: Enforcer, pos: (42.5, 15.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (34.0, 7.0), angle_deg: 0.0, skill: Normal),
+        // Guard office.
+        (kind: Grunt, pos: (40.5, -3.0), angle_deg: 90.0),
+        (kind: Enforcer, pos: (35.0, 1.5), angle_deg: 270.0, skill: Normal),
+        // Newsroom: Grunts in the cubicles, Slashers in the aisles.
+        (kind: Grunt, pos: (34.5, 31.5), angle_deg: 270.0),
+        (kind: Grunt, pos: (48.5, 34.5), angle_deg: 270.0),
+        (kind: Slasher, pos: (43.0, 38.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (40.0, 44.5), angle_deg: 270.0, skill: Normal),
+        (kind: Slasher, pos: (34.0, 47.0), angle_deg: 270.0, skill: Hard),
+        (kind: Grunt, pos: (46.5, 55.0), angle_deg: 270.0),
+        // Studio A: Enforcers on the news set, Grunts by the cameras.
+        (kind: Enforcer, pos: (72.0, 46.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (61.5, 49.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (74.5, 40.0), angle_deg: 180.0, skill: Normal),
+        (kind: Slasher, pos: (70.0, 34.0), angle_deg: 180.0, skill: Hard),
+        // Scene dock: one Grunt stands where the breach blast lands; more among the crates.
+        (kind: Grunt, pos: (80.5, 37.5), angle_deg: 180.0),
+        (kind: Enforcer, pos: (89.0, 43.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (84.0, 49.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (92.0, 32.0), angle_deg: 180.0, skill: Hard),
+        // Studio B: Enforcers on stage, Grunts in the bleachers, a Drone over the floor; the
+        // isolation-booth ambush (channel 2) is awake.
+        (kind: Enforcer, pos: (80.5, 23.5), angle_deg: 180.0),
+        (kind: Grunt, pos: (62.3, 16.0), angle_deg: 0.0),
+        (kind: Drone, pos: (70.0, 20.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (64.2, 12.0), angle_deg: 0.0, skill: Normal),
+        (kind: Enforcer, pos: (80.5, 9.0), angle_deg: 180.0, skill: Hard),
+        (kind: Slasher, pos: (77.0, 2.0), angle_deg: 90.0, asleep: false),
+        (kind: Enforcer, pos: (83.0, 2.0), angle_deg: 90.0, asleep: false, skill: Normal),
+        (kind: Barrel, pos: (89.3, 19.8)),
+        (kind: Barrel, pos: (59.0, 26.0)),
+        // Green room.
+        (kind: Slasher, pos: (55.0, 11.0), angle_deg: 90.0, skill: Normal),
+        // Master control: Enforcers at the consoles.
+        (kind: Enforcer, pos: (53.0, -14.0), angle_deg: 90.0),
+        (kind: Grunt, pos: (46.0, -9.0), angle_deg: 0.0),
+        (kind: Enforcer, pos: (60.5, -3.0), angle_deg: 180.0, skill: Normal),
+        (kind: Grunt, pos: (57.0, -8.5), angle_deg: 180.0, skill: Hard),
+        // The tower.
+        (kind: Grunt, pos: (70.0, -15.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (90.0, -20.0), angle_deg: 180.0),
+        (kind: Drone, pos: (84.0, -8.5), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (90.0, -3.0), angle_deg: 270.0, skill: Hard),
+        (kind: Enforcer, pos: (107.5, -7.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (95.5, -11.0), angle_deg: 0.0),
+        (kind: Drone, pos: (102.0, -8.0), angle_deg: 180.0, skill: Normal),
+        (kind: Slasher, pos: (108.5, -20.5), angle_deg: 180.0, skill: Hard),
+        (kind: Enforcer, pos: (121.0, -18.0), angle_deg: 180.0),
+        (kind: Slasher, pos: (126.0, -14.5), angle_deg: 90.0, skill: Normal),
+        // The roof: Enforcers by the dish and the hut, a Drone over the roof; the shed ambush
+        // (channel 6) is awake.
+        (kind: Enforcer, pos: (106.0, 15.0), angle_deg: 270.0),
+        (kind: Drone, pos: (112.0, 24.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (99.0, 40.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (120.0, 32.0), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (115.0, 20.0), angle_deg: 270.0, skill: Hard),
+        (kind: Enforcer, pos: (134.5, 19.5), angle_deg: 180.0, asleep: false),
+        (kind: Slasher, pos: (134.5, 23.5), angle_deg: 180.0, asleep: false, skill: Hard),
+        (kind: Barrel, pos: (112.0, 34.0)),
+    ],
+    props: [
+        // Lobby: the payphone and a vending machine on the west wall.
+        (kind: Payphone, pos: (31.16, 7.0), angle_deg: 0.0),
+        (kind: Vending, pos: (31.42, 11.5), angle_deg: 0.0, stock: 2),
+        // Studio B's arcade corner.
+        (kind: Arcade, pos: (58.45, 5.4), angle_deg: 0.0),
+        (kind: Arcade, pos: (58.45, 6.5), angle_deg: 0.0),
+        (kind: Arcade, pos: (61.0, 4.45), angle_deg: 90.0),
+        // Green room.
+        (kind: Jukebox, pos: (57.19, 18.5), angle_deg: 180.0),
+        (kind: PoolTable, pos: (54.5, 14.5), angle_deg: 90.0),
+        (kind: Vending, pos: (51.92, 10.5), angle_deg: 0.0, stock: 3),
+    ],
+)

@@ -8,7 +8,8 @@
         ),
         (
             name: "Aftershock",
-            levels: [],
+            // Levels 4-7 land in later PRs.
+            levels: ["container_crush.ron", "dead_air.ron", "undertow.ron"],
         ),
     ],
 )

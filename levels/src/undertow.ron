@@ -1,0 +1,535 @@
+// Episode 2, level 3. Coordinates in metres, x = east, y = north, z = up.
+// The city's water treatment plant, where the hive is seeding the water supply: the deeper Rex
+// goes, the more hive growth covers the plant.
+// Route: the gate yard under the open sky (start west, facing east; a parked tanker, concrete
+// barriers; the shotgun in the guard booth to the north-east) → the gatehouse east into the admin
+// lobby (reception desk, the chaingun behind it) → the lab door in the lobby's east wall → the lab
+// (benches, a sparking centrifuge, live electric puddles from the damaged equipment): over the
+// last puddle into the clean bay for the Blue key (fires channel 1: the sample closet in the north
+// wall opens, awake) → back through the lobby, north up the office corridor (security office,
+// manager's office, break room) to the blue door → the intake hall: grated walkways over the
+// water channels, across the south cross walkway to the middle walkway and east → the first
+// settling tank (deep clean water, 3 m down): over the west bridge to the island and the rocket
+// launcher (fires channel 2: the closet in the south wall opens, awake) → the east bridge, the
+// passage east → the second tank, contaminated (a slime floor, hive-crusted walls, the clarifier
+// column) → round the ring and north into the pump hall (huge pipe walls, three pump blocks;
+// the foreman's booth in the south wall holds the jetpack) → the lift in the north-west corner up
+// to the gallery (z 5) → east and south along the galleries to the valve deck and the Red key
+// (fires channel 3: the pump closet opens, awake, and the maintenance door back to the intake
+// hall unlocks) → drop off the gallery, west through the maintenance passage onto the intake
+// hall's north walkway → the red door → up into the control room (a wall of screens, two consoles,
+// windows over the outfall basin) → the sluice switch beside the windows fires channel 5: a
+// rumble, the two sluice gates in the basin's north wall slide apart, the bridge slides down the
+// outfall channel into place, and the surge bursts the pipe wall beside the switch → down the
+// steps into the basin, over the bridge, through the open sluice mouth → the outflow tunnel:
+// long, dark and wet, north, west and north again, the walls turning to hive (channel 6: the hive
+// closet opens, awake) → the hive chamber → the exit switch at the end of the throat.
+// Shortcuts: the lab opens straight back on the lobby; the maintenance door (channel 3) brings
+// the Red key back to the intake hall's north walkway beside the red door.
+// Secrets: (1) a crouch vent at the foot of the security office's north wall (1.3 m high) into
+// the server closet (armour, pipe bombs); (2) the chemical store's south wall cracks open on a
+// blast (a barrel beside it): the old reagent stash (atom, rockets); (3) a jetpack-only ledge at
+// z 10.5 above the pump hall's north gallery (atom, rockets). Validate warns that the stash's and
+// the ledge's items "cannot be reached from the start": a crack-wall stash and a jetpack ledge,
+// by design.
+(
+    name: "Undertow",
+    defaults: (floor_z: 0.0, ceil_z: 4.0, floor: "concrete", ceil: "metal", wall: "concrete"),
+    music: Some("undertow"),
+    player_start: (pos: (3.0, 12.0), angle_deg: 0.0),
+    sectors: [
+        // ---- Gate yard (open sky, 14 m) ----
+        (id: "yard", rect: (0.0, 0.0, 28.0, 24.0),
+         holes: [[(4.0, 2.0), (13.0, 2.0), (13.0, 5.0), (4.0, 5.0)],
+                 [(14.0, 15.0), (17.5, 15.0), (17.5, 16.0), (14.0, 16.0)],
+                 [(9.0, 18.0), (12.5, 18.0), (12.5, 19.0), (9.0, 19.0)]],
+         ceil_z: 14.0, floor: "asphalt", ceil: "sky", wall: "brick"),
+        // A parked chemical tanker and two concrete barriers.
+        (id: "tanker", rect: (4.0, 2.0, 13.0, 5.0), floor_z: 2.8, ceil_z: 14.0, floor: "container", ceil: "sky",
+         wall: "container", face: "container"),
+        (id: "barrier_a", rect: (14.0, 15.0, 17.5, 16.0), floor_z: 1.0, ceil_z: 14.0, ceil: "sky", face: "concrete"),
+        (id: "barrier_b", rect: (9.0, 18.0, 12.5, 19.0), floor_z: 1.0, ceil_z: 14.0, ceil: "sky", face: "concrete"),
+        // The guard booth, open to the yard (the shotgun, a payphone).
+        (id: "booth", rect: (19.0, 24.0, 27.0, 30.0), ceil_z: 3.0, floor: "tile", ceil: "ceiling_tile", wall: "brick"),
+        // The gatehouse into the admin block.
+        (id: "gatehouse", rect: (28.0, 9.5, 31.0, 14.5), floor: "concrete", wall: "metal"),
+
+        // ---- Admin block ----
+        (id: "lobby", rect: (31.0, 4.0, 45.0, 20.0),
+         holes: [[(35.0, 13.0), (39.0, 13.0), (39.0, 14.5), (35.0, 14.5)],
+                 [(40.5, 11.0), (41.5, 11.0), (41.5, 12.0), (40.5, 12.0)]],
+         ceil_z: 5.0, floor: "tile", ceil: "ceiling_tile", wall: "concrete"),
+        (id: "reception", rect: (35.0, 13.0, 39.0, 14.5), floor_z: 1.1, ceil_z: 5.0, floor: "wood", ceil: "ceiling_tile",
+         wall: "wood", face: "wood"),
+        (id: "pillar", rect: (40.5, 11.0, 41.5, 12.0), floor_z: 5.0, ceil_z: 5.5, face: "concrete"),
+        (id: "lab_door", rect: (45.0, 10.0, 45.5, 13.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        // The lab: benches, the centrifuge, live puddles where the equipment shorted out.
+        (id: "lab", rect: (45.5, 2.0, 62.0, 20.0),
+         holes: [[(48.0, 15.5), (54.0, 15.5), (54.0, 17.0), (48.0, 17.0)],
+                 [(48.0, 5.0), (54.0, 5.0), (54.0, 6.5), (48.0, 6.5)],
+                 [(56.5, 9.5), (59.0, 9.5), (59.0, 12.0), (56.5, 12.0)],
+                 [(49.0, 9.0), (53.0, 9.0), (53.0, 12.0), (49.0, 12.0)],
+                 [(55.0, 14.0), (59.0, 14.0), (59.0, 16.5), (55.0, 16.5)],
+                 [(59.5, 8.5), (61.5, 8.5), (61.5, 13.5), (59.5, 13.5)]],
+         floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        (id: "bench_n", rect: (48.0, 15.5, 54.0, 17.0), floor_z: 0.95, floor: "metal", ceil: "ceiling_tile", wall: "tile", face: "metal"),
+        (id: "bench_s", rect: (48.0, 5.0, 54.0, 6.5), floor_z: 0.95, floor: "metal", ceil: "ceiling_tile", wall: "tile", face: "metal"),
+        (id: "centrifuge", rect: (56.5, 9.5, 59.0, 12.0), floor_z: 1.8, floor: "metal", ceil: "ceiling_tile", wall: "tile",
+         face: "screen"),
+        (id: "puddle_a", rect: (49.0, 9.0, 53.0, 12.0), floor: "electric", ceil: "ceiling_tile", wall: "tile",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "puddle_b", rect: (55.0, 14.0, 59.0, 16.5), floor: "electric", ceil: "ceiling_tile", wall: "tile",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        (id: "puddle_c", rect: (59.5, 8.5, 61.5, 13.5), floor: "electric", ceil: "ceiling_tile", wall: "tile",
+         hazard: Some((damage: 3, interval: 0.5, kind: Electric))),
+        // The clean bay (the Blue key): channel 1.
+        (id: "key_bay", rect: (62.0, 8.0, 64.5, 14.0), ceil_z: 3.0, floor: "metal", ceil: "glowstrip", wall: "metal"),
+        // The sample closet in the north wall on channel 1, awake.
+        (id: "lab_cl_door", rect: (50.5, 20.0, 53.5, 20.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(1))),
+        (id: "lab_cl", rect: (50.0, 20.5, 54.0, 23.5), ceil_z: 3.0, floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        // The office corridor north to the blue door.
+        (id: "corridor", rect: (35.0, 20.0, 39.0, 38.5), ceil_z: 3.2, floor: "carpet", ceil: "ceiling_tile"),
+        // The security office: a wall of monitors, the crouch vent (secret 1).
+        (id: "sec_door", rect: (34.5, 25.0, 35.0, 27.5), ceil_z: 2.8, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "security", rect: (28.5, 22.0, 34.5, 31.5),
+         ceil_z: 3.2, floor: "carpet", ceil: "ceiling_tile", wall: "screen"),
+        (id: "vent", rect: (29.0, 31.5, 31.0, 35.0), ceil_z: 1.3, floor: "grate", ceil: "metal", wall: "grate"),
+        (id: "server_closet", rect: (27.5, 35.0, 33.5, 38.5), ceil_z: 2.8, floor: "metal", ceil: "glowstrip", wall: "screen",
+         secret: true),
+        // The manager's office.
+        (id: "mgr_door", rect: (39.0, 25.0, 39.5, 27.5), ceil_z: 2.8, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "manager", rect: (39.5, 22.0, 47.0, 31.5), holes: [[(42.0, 26.0), (45.0, 26.0), (45.0, 27.2), (42.0, 27.2)]],
+         ceil_z: 3.2, floor: "carpet", ceil: "ceiling_tile", wall: "wood"),
+        (id: "mgr_desk", rect: (42.0, 26.0, 45.0, 27.2), floor_z: 0.9, ceil_z: 3.2, floor: "wood", ceil: "ceiling_tile",
+         wall: "wood", face: "wood"),
+        // The break room (a vending machine, an arcade cabinet).
+        (id: "break_door", rect: (39.0, 33.0, 39.5, 35.5), ceil_z: 2.8, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "breakroom", rect: (39.5, 32.5, 46.0, 38.0), ceil_z: 3.0, floor: "tile", ceil: "ceiling_tile", wall: "tile"),
+        (id: "blue_door", rect: (35.0, 38.5, 39.0, 39.0), ceil_z: 3.2, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Blue))),
+
+        // ---- Intake hall (9 m): grated walkways over the water channels ----
+        (id: "landing", rect: (31.0, 39.0, 43.0, 43.0), ceil_z: 9.0, floor: "grate", wall: "concrete"),
+        (id: "s_walk", rect: (20.0, 43.0, 70.0, 45.0), ceil_z: 9.0, floor: "grate", wall: "pipe"),
+        (id: "m_walk", rect: (20.0, 50.0, 70.0, 53.0), ceil_z: 9.0, floor: "grate", wall: "pipe"),
+        (id: "n_walk", rect: (20.0, 59.0, 70.0, 62.0), ceil_z: 9.0, floor: "grate", wall: "pipe"),
+        (id: "x_south", rect: (44.0, 45.0, 46.0, 50.0), ceil_z: 9.0, floor: "grate", wall: "pipe"),
+        (id: "x_north", rect: (56.0, 53.0, 58.0, 59.0), ceil_z: 9.0, floor: "grate", wall: "pipe"),
+        // The channels, 1 m down, each with a sump step at its outer end to climb out by.
+        (id: "ch_sw", rect: (22.0, 45.0, 44.0, 50.0), floor_z: -1.0, ceil_z: 9.0, floor: "water", wall: "pipe", face: "concrete"),
+        (id: "ch_se", rect: (46.0, 45.0, 68.0, 50.0), floor_z: -1.0, ceil_z: 9.0, floor: "water", wall: "pipe", face: "concrete"),
+        (id: "ch_nw", rect: (22.0, 53.0, 56.0, 59.0),
+         floor_z: -1.0, ceil_z: 9.0, floor: "water", wall: "pipe", face: "concrete"),
+        (id: "ch_ne", rect: (58.0, 53.0, 68.0, 59.0), floor_z: -1.0, ceil_z: 9.0, floor: "water", wall: "pipe", face: "concrete"),
+        (id: "step_sw", rect: (20.0, 45.0, 22.0, 50.0), floor_z: -0.5, ceil_z: 9.0, wall: "pipe", face: "concrete"),
+        (id: "step_se", rect: (68.0, 45.0, 70.0, 50.0), floor_z: -0.5, ceil_z: 9.0, wall: "pipe", face: "concrete"),
+        (id: "step_nw", rect: (20.0, 53.0, 22.0, 59.0), floor_z: -0.5, ceil_z: 9.0, wall: "pipe", face: "concrete"),
+        (id: "step_ne", rect: (68.0, 53.0, 70.0, 59.0), floor_z: -0.5, ceil_z: 9.0, wall: "pipe", face: "concrete"),
+        (id: "tank_corr", rect: (70.0, 50.0, 77.0, 53.0), floor: "grate", wall: "pipe"),
+        // The maintenance door back from the pump hall: channel 3 (the Red key).
+        (id: "maint_door", rect: (70.0, 59.5, 70.5, 61.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(3))),
+        (id: "maint", poly: [(70.5, 59.5), (76.0, 59.5), (76.0, 65.5), (74.0, 65.5), (74.0, 61.5), (70.5, 61.5)],
+         ceil_z: 3.0, floor: "grate", wall: "pipe"),
+
+        // ---- Settling tank 1 (10 m): deep clean water, the island in the middle ----
+        (id: "ring1", poly: [(77.0, 47.0), (84.0, 40.0), (92.0, 40.0), (99.0, 47.0), (99.0, 55.0), (92.0, 62.0), (84.0, 62.0), (77.0, 55.0)],
+         holes: [[(80.0, 48.0), (85.0, 43.0), (91.0, 43.0), (96.0, 48.0), (96.0, 54.0), (91.0, 59.0), (85.0, 59.0), (80.0, 54.0)]],
+         ceil_z: 10.0, floor: "grate", wall: "concrete"),
+        (id: "tank1_n", poly: [(80.0, 52.0), (85.0, 52.0), (85.0, 54.0), (91.0, 54.0), (91.0, 52.0), (96.0, 52.0), (96.0, 54.0),
+                               (91.0, 59.0), (85.0, 59.0), (80.0, 54.0)],
+         floor_z: -3.0, ceil_z: 10.0, floor: "water", wall: "concrete", face: "concrete"),
+        (id: "tank1_s", poly: [(80.0, 50.0), (85.0, 50.0), (85.0, 48.0), (87.0, 48.0), (87.0, 46.0), (89.0, 46.0), (89.0, 48.0),
+                               (91.0, 48.0), (91.0, 50.0), (96.0, 50.0), (96.0, 48.0), (91.0, 43.0), (85.0, 43.0), (80.0, 48.0)],
+         floor_z: -3.0, ceil_z: 10.0, floor: "water", wall: "concrete", face: "concrete"),
+        (id: "bridge_w", rect: (80.0, 50.0, 85.0, 52.0), ceil_z: 10.0, floor: "grate", face: "rail"),
+        (id: "island", rect: (85.0, 48.0, 91.0, 54.0), ceil_z: 10.0, floor: "metal", face: "rail"),
+        (id: "bridge_e", rect: (91.0, 50.0, 96.0, 52.0), ceil_z: 10.0, floor: "grate", face: "rail"),
+        // The skimmer lift: from the tank floor up to the island.
+        (id: "tank1_lift", rect: (87.0, 46.0, 89.0, 48.0), floor_z: -3.0, ceil_z: 10.0, floor: "metal", face: "metal",
+         mover: (kind: Lift(to: 0.0), speed: 2.5)),
+        // The closet in the south wall on channel 2, awake.
+        (id: "t1_cl_door", rect: (86.0, 39.5, 90.0, 40.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(2))),
+        (id: "t1_cl", rect: (85.5, 36.0, 90.5, 39.5), ceil_z: 3.0, floor: "metal", ceil: "glowstrip"),
+        (id: "tank_pass", rect: (99.0, 49.0, 101.0, 53.0), floor: "grate", wall: "pipe"),
+
+        // ---- Settling tank 2 (10 m): contaminated, a slime floor 1.5 m down, hive on the walls ----
+        (id: "ring2", poly: [(101.0, 47.0), (108.0, 40.0), (116.0, 40.0), (123.0, 47.0), (123.0, 55.0), (116.0, 62.0), (108.0, 62.0), (101.0, 55.0)],
+         holes: [[(104.0, 48.0), (109.0, 43.0), (115.0, 43.0), (120.0, 48.0), (120.0, 54.0), (115.0, 59.0), (109.0, 59.0), (104.0, 54.0)]],
+         ceil_z: 10.0, floor: "grate", wall: "hive"),
+        (id: "tank2", poly: [(104.0, 48.0), (109.0, 43.0), (109.0, 46.0), (115.0, 46.0), (115.0, 43.0), (120.0, 48.0), (120.0, 54.0),
+                             (115.0, 59.0), (109.0, 59.0), (104.0, 54.0)],
+         holes: [[(110.5, 49.5), (113.5, 49.5), (113.5, 52.5), (110.5, 52.5)]],
+         floor_z: -1.5, ceil_z: 10.0, floor: "slime", wall: "hive", face: "hive",
+         hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        (id: "clarifier", rect: (110.5, 49.5, 113.5, 52.5), floor_z: 10.0, ceil_z: 10.5, floor: "metal", ceil: "metal",
+         wall: "hive", face: "hive"),
+        (id: "t2_pass", rect: (110.0, 62.0, 114.0, 65.5), floor: "grate", wall: "pipe"),
+
+        // ---- Pump hall (14 m): pipe walls, three pump blocks, galleries at z 5 ----
+        (id: "pump_floor", poly: [(74.0, 65.5), (118.0, 65.5), (118.0, 88.0), (83.0, 88.0), (83.0, 85.0), (80.0, 85.0), (80.0, 88.0), (74.0, 88.0)],
+         holes: [[(82.0, 71.0), (88.0, 71.0), (88.0, 76.0), (82.0, 76.0)],
+                 [(94.0, 71.0), (100.0, 71.0), (100.0, 76.0), (94.0, 76.0)],
+                 [(106.0, 78.0), (112.0, 78.0), (112.0, 83.0), (106.0, 83.0)]],
+         ceil_z: 14.0, floor: "concrete", wall: "pipe"),
+        (id: "pump_1", rect: (82.0, 71.0, 88.0, 76.0), floor_z: 3.0, ceil_z: 14.0, floor: "metal", wall: "pipe", face: "pipe"),
+        (id: "pump_2", rect: (94.0, 71.0, 100.0, 76.0), floor_z: 3.0, ceil_z: 14.0, floor: "metal", wall: "pipe", face: "pipe"),
+        (id: "pump_3", rect: (106.0, 78.0, 112.0, 83.0), floor_z: 3.0, ceil_z: 14.0, floor: "metal", wall: "pipe", face: "pipe"),
+        (id: "pump_lift", rect: (80.0, 85.0, 83.0, 88.0), ceil_z: 14.0, floor: "metal", wall: "pipe", face: "metal",
+         mover: (kind: Lift(to: 5.0), speed: 2.5)),
+        (id: "gallery_n", rect: (74.0, 88.0, 124.0, 93.0), floor_z: 5.0, ceil_z: 14.0, floor: "grate", wall: "pipe", face: "rail"),
+        (id: "gallery_e", rect: (118.0, 70.0, 124.0, 88.0), floor_z: 5.0, ceil_z: 14.0, floor: "grate", wall: "pipe", face: "rail"),
+        // The valve deck (the Red key): channel 3.
+        (id: "valve_deck", rect: (118.0, 65.5, 124.0, 70.0), floor_z: 5.0, ceil_z: 14.0, floor: "glowstrip", wall: "pipe", face: "rail"),
+        // Secret 3: the jetpack-only ledge above the north gallery.
+        (id: "jet_ledge", rect: (96.0, 93.0, 102.0, 96.0), floor_z: 10.5, ceil_z: 13.5, floor: "metal", wall: "pipe", face: "pipe",
+         secret: true),
+        // The pump closet in the south wall on channel 3, awake.
+        (id: "pump_cl_door", rect: (86.5, 65.0, 89.5, 65.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, channel: Some(3))),
+        (id: "pump_cl", rect: (86.0, 62.5, 90.0, 65.0), ceil_z: 3.0, floor: "metal", ceil: "glowstrip", wall: "pipe"),
+        // The foreman's booth (the jetpack).
+        (id: "booth_door", rect: (102.0, 65.0, 104.0, 65.5), ceil_z: 2.8, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "foreman", rect: (100.0, 61.0, 106.0, 65.0), ceil_z: 3.0, floor: "tile", ceil: "ceiling_tile", wall: "wood"),
+
+        // ---- Chemical store: drums and barrels; secret 2 behind the south wall ----
+        (id: "chem_door", rect: (73.5, 78.0, 74.0, 81.0), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door)),
+        (id: "chem", rect: (62.0, 74.0, 73.5, 86.0),
+         holes: [[(64.0, 82.5), (71.0, 82.5), (71.0, 84.0), (64.0, 84.0)],
+                 [(68.5, 77.0), (71.5, 77.0), (71.5, 80.0), (68.5, 80.0)]],
+         ceil_z: 5.0, floor: "concrete", wall: "metal"),
+        (id: "drum_rack", rect: (64.0, 82.5, 71.0, 84.0), floor_z: 2.2, ceil_z: 5.0, floor: "metal", wall: "metal", face: "container"),
+        (id: "spill_tank", rect: (68.5, 77.0, 71.5, 80.0), floor_z: 1.5, ceil_z: 5.0, floor: "slime", wall: "metal", face: "metal"),
+        (id: "chem_crack", rect: (65.0, 73.25, 68.0, 74.0), ceil_z: 3.0, floor: "concrete", wall: "metal", face: "metal",
+         mover: (kind: Crack)),
+        (id: "stash", rect: (63.5, 67.0, 69.5, 73.25), ceil_z: 3.0, floor: "tile", ceil: "glowstrip", wall: "metal", secret: true),
+
+        // ---- Control room (z 1.5): a wall of screens, windows over the outfall basin ----
+        (id: "red_door", rect: (36.0, 62.0, 40.0, 62.5), ceil_z: 3.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "door", mover: (kind: Door, lock: Some(Red))),
+        (id: "control", rect: (30.0, 66.0, 58.0, 76.0),
+         holes: [[(33.0, 70.0), (41.0, 70.0), (41.0, 71.2), (33.0, 71.2)],
+                 [(47.0, 70.0), (55.0, 70.0), (55.0, 71.2), (47.0, 71.2)]],
+         floor_z: 1.5, ceil_z: 6.0, floor: "carpet", ceil: "ceiling_tile", wall: "screen"),
+        (id: "console_w", rect: (33.0, 70.0, 41.0, 71.2), floor_z: 2.5, ceil_z: 6.0, floor: "metal", ceil: "ceiling_tile",
+         wall: "screen", face: "screen"),
+        (id: "console_e", rect: (47.0, 70.0, 55.0, 71.2), floor_z: 2.5, ceil_z: 6.0, floor: "metal", ceil: "ceiling_tile",
+         wall: "screen", face: "screen"),
+        // The windows (glass on the control-room side) and the pipe wall the surge bursts.
+        (id: "window_w", rect: (32.0, 76.0, 40.0, 76.3), floor_z: 2.6, ceil_z: 5.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "metal"),
+        (id: "window_e", rect: (48.0, 76.0, 56.0, 76.3), floor_z: 2.6, ceil_z: 5.0, floor: "metal", ceil: "metal", wall: "metal",
+         face: "metal"),
+        (id: "pipe_burst", rect: (42.0, 76.0, 46.0, 76.3), floor_z: 1.5, ceil_z: 4.5, floor: "metal", ceil: "pipe", wall: "pipe",
+         face: "pipe", mover: (kind: Crack)),
+
+        // ---- Outfall basin (12 m): the outflow channel, the bridge, the sluice mouth ----
+        (id: "s_bank", poly: [(20.0, 76.3), (42.0, 76.3), (42.0, 80.0), (46.0, 80.0), (46.0, 76.3), (58.0, 76.3), (58.0, 84.0),
+                              (50.0, 84.0), (50.0, 86.0), (20.0, 86.0)],
+         ceil_z: 12.0, floor: "concrete", wall: "pipe"),
+        // The channel is the bridge's track; the dock at its east end is too wide to span.
+        (id: "outfall", poly: [(23.0, 86.0), (50.0, 86.0), (50.0, 84.0), (58.0, 84.0), (58.0, 92.0), (50.0, 92.0), (50.0, 90.0), (23.0, 90.0)],
+         holes: [[(53.5, 86.1), (56.5, 86.1), (56.5, 89.9), (53.5, 89.9)]],
+         floor_z: -1.5, ceil_z: 12.0, floor: "water", wall: "pipe", face: "concrete"),
+        // The bridge: docked in the east, slides 10 m west on channel 5 to span the channel
+        // 0.1 m off both banks, in line with the steps from the control room.
+        (id: "bridge", rect: (53.5, 86.1, 56.5, 89.9), ceil_z: 12.0, floor: "grate", wall: "rail", face: "rail",
+         mover: (kind: Slide(by: (-10.0, 0.0)), channel: Some(5), speed: 1.5)),
+        (id: "n_bank", poly: [(20.0, 90.0), (50.0, 90.0), (50.0, 92.0), (58.0, 92.0), (58.0, 96.0), (20.0, 96.0)],
+         ceil_z: 12.0, floor: "concrete", wall: "pipe"),
+        // The sluice mouth: the gates' track, with a pocket either side.
+        (id: "mouth", poly: [(36.0, 96.0), (46.0, 96.0), (46.0, 96.5), (51.0, 96.5), (51.0, 97.5), (46.0, 97.5), (46.0, 98.0),
+                             (36.0, 98.0), (36.0, 97.5), (31.0, 97.5), (31.0, 96.5), (36.0, 96.5)],
+         holes: [[(36.1, 96.6), (40.95, 96.6), (40.95, 97.4), (36.1, 97.4)],
+                 [(41.05, 96.6), (45.9, 96.6), (45.9, 97.4), (41.05, 97.4)]],
+         ceil_z: 5.0, floor: "grate", ceil: "pipe", wall: "pipe"),
+        // The sluice gates: blocks to 0.1 m under the ceiling, 0.1 m apart and 0.1 m clear of
+        // the pockets; each slides 5 m outward on channel 5.
+        (id: "gate_w", rect: (36.1, 96.6, 40.95, 97.4), floor_z: 4.9, ceil_z: 5.0, floor: "metal", ceil: "pipe", wall: "rail",
+         face: "rail", mover: (kind: Slide(by: (-5.0, 0.0)), channel: Some(5), speed: 1.0)),
+        (id: "gate_e", rect: (41.05, 96.6, 45.9, 97.4), floor_z: 4.9, ceil_z: 5.0, floor: "metal", ceil: "pipe", wall: "rail",
+         face: "rail", mover: (kind: Slide(by: (5.0, 0.0)), channel: Some(5), speed: 1.0)),
+
+        // ---- Outflow tunnel: long, dark and wet, turning to hive ----
+        (id: "tunnel_a", rect: (38.0, 98.0, 44.0, 112.0), floor_z: -0.2, floor: "water", ceil: "concrete", wall: "pipe"),
+        (id: "tunnel_b", poly: [(12.0, 112.0), (44.0, 112.0), (44.0, 118.0), (18.0, 118.0), (18.0, 128.0), (12.0, 128.0)], floor_z: -0.2, floor: "water", ceil: "concrete", wall: "concrete"),
+        // The grit chamber off the tunnel: a valve platform (armour, rockets).
+        (id: "grit", rect: (26.0, 118.0, 34.0, 123.0), floor_z: 0.3, ceil_z: 3.5, floor: "metal", ceil: "pipe", wall: "pipe",
+         face: "metal"),
+        // The hive takes over: channel 6.
+        (id: "tunnel_d", rect: (12.0, 128.0, 18.0, 138.0), floor_z: -0.2, ceil_z: 4.5, floor: "hive", ceil: "hive", wall: "hive"),
+
+        // ---- Hive chamber ----
+        (id: "hive", rect: (2.0, 138.0, 30.0, 158.0),
+         holes: [[(8.0, 144.0), (11.0, 144.0), (11.0, 147.0), (8.0, 147.0)],
+                 [(21.0, 149.0), (24.0, 149.0), (24.0, 152.0), (21.0, 152.0)],
+                 [(13.0, 146.0), (18.0, 146.0), (18.0, 151.0), (13.0, 151.0)]],
+         floor_z: -0.2, ceil_z: 9.0, floor: "hive", ceil: "hive", wall: "hive"),
+        (id: "pod_a", rect: (8.0, 144.0, 11.0, 147.0), floor_z: 2.5, ceil_z: 9.0, floor: "hive", ceil: "hive", wall: "hive", face: "hive"),
+        (id: "pod_b", rect: (21.0, 149.0, 24.0, 152.0), floor_z: 2.5, ceil_z: 9.0, floor: "hive", ceil: "hive", wall: "hive", face: "hive"),
+        (id: "brood_pool", rect: (13.0, 146.0, 18.0, 151.0), floor_z: -0.6, ceil_z: 9.0, floor: "slime", ceil: "hive", wall: "hive",
+         face: "hive", hazard: Some((damage: 4, interval: 0.75, kind: Slime))),
+        // The hive closet in the west wall on channel 6, awake.
+        (id: "hive_cl_door", rect: (1.5, 149.0, 2.0, 152.0), floor_z: -0.2, ceil_z: 3.0, floor: "hive", ceil: "hive", wall: "hive",
+         face: "hive", mover: (kind: Door, channel: Some(6))),
+        (id: "hive_cl", rect: (-2.0, 148.0, 1.5, 153.0), floor_z: -0.2, ceil_z: 3.0, floor: "hive", ceil: "hive", wall: "hive"),
+        // The throat: the exit switch on its north wall.
+        (id: "throat", rect: (15.0, 158.0, 19.0, 162.0), floor_z: -0.2, ceil_z: 3.5, floor: "hive", ceil: "hive", wall: "hive"),
+    ],
+    stairs: [
+        // The red door up into the control room (z 1.5).
+        (id: "ctl_steps", rect: (36.0, 62.5, 40.0, 66.0), dir: N, steps: 2, from_z: 0.5, to_z: 1.0, ceil_z: 4.5,
+         floor: "metal", ceil: "metal", wall: "screen"),
+        // Behind the burst pipe wall, down into the basin.
+        (id: "burst_steps", rect: (42.0, 76.3, 46.0, 80.0), dir: S, steps: 2, from_z: 0.5, to_z: 1.0, ceil_z: 5.0,
+         floor: "grate", ceil: "pipe", wall: "pipe"),
+        // The outfall channel's west end: steps up to the south bank.
+        (id: "outfall_steps", rect: (20.0, 86.0, 23.0, 90.0), dir: S, steps: 2, from_z: -1.0, to_z: -0.5, ceil_z: 12.0,
+         floor: "concrete", wall: "pipe"),
+        // The contaminated tank's sump steps, up to the ring.
+        (id: "sump_steps", rect: (109.0, 43.0, 115.0, 46.0), dir: S, steps: 2, from_z: -1.0, to_z: -0.5, ceil_z: 10.0,
+         floor: "concrete", wall: "hive"),
+    ],
+    switches: [
+        // The sluice switch, between the burst pipe wall and the east window.
+        (wall: ((46.0, 76.0), (48.0, 76.0)), sector: "control", action: Channel(5)),
+        (wall: ((15.0, 162.0), (19.0, 162.0)), sector: "throat", action: Exit),
+    ],
+    triggers: [
+        (sector: "key_bay", action: Channel(1)),
+        (sector: "island", action: Channel(2)),
+        (sector: "valve_deck", action: Channel(3)),
+        (sector: "tunnel_d", action: Channel(6)),
+    ],
+    quakes: [
+        (channel: 5, duration: 3.0, strength: 0.6),
+        (channel: 6, duration: 1.5, strength: 0.35),
+    ],
+    // Behind the pipe wall, on the steps: the closed wall shields the switch.
+    blasts: [(channel: 5, at: (44.0, 78.8, 2.0), radius: 3.0, damage: 40, delay: 0.6)],
+    glass: [((32.0, 76.0), (40.0, 76.0)), ((48.0, 76.0), (56.0, 76.0))],
+    props: [
+        // The guard booth's payphone on its west wall.
+        (kind: Payphone, pos: (19.16, 27.0), angle_deg: 0.0),
+        // Break room: the vending machine on the east wall, the arcade cabinet on the north wall.
+        (kind: Vending, pos: (45.55, 35.3), angle_deg: 180.0, stock: 3),
+        (kind: Arcade, pos: (42.5, 37.55), angle_deg: 270.0),
+        // The foreman's booth: a jukebox for the night shift.
+        (kind: Jukebox, pos: (105.65, 63.0), angle_deg: 180.0),
+    ],
+    lights: [
+        // Shadowed: one key light per big space.
+        (pos: (14.0, 12.0, 13.0), color: (1.0, 0.9, 0.75), intensity: 4000000.0, range: 35.0),
+        (pos: (38.0, 10.0, 4.6), color: (1.0, 0.92, 0.8), intensity: 300000.0, range: 16.0),
+        (pos: (54.0, 11.0, 3.6), color: (0.85, 0.95, 1.0), intensity: 200000.0, range: 16.0, breakable: true),
+        (pos: (45.0, 52.0, 8.5), color: (0.6, 0.85, 1.0), intensity: 900000.0, range: 30.0),
+        (pos: (88.0, 51.0, 9.5), color: (0.7, 0.9, 1.0), intensity: 600000.0, range: 22.0),
+        (pos: (106.0, 51.0, 9.2), color: (0.55, 1.0, 0.45), intensity: 600000.0, range: 22.0),
+        (pos: (90.0, 78.0, 13.0), color: (1.0, 0.85, 0.6), intensity: 1500000.0, range: 35.0),
+        (pos: (114.0, 84.0, 12.0), color: (1.0, 0.7, 0.45), intensity: 800000.0, range: 25.0),
+        (pos: (68.0, 80.0, 4.6), color: (1.0, 0.75, 0.35), intensity: 150000.0, range: 14.0),
+        (pos: (44.0, 68.5, 5.6), color: (0.55, 0.8, 1.0), intensity: 300000.0, range: 18.0),
+        (pos: (40.0, 88.0, 11.5), color: (0.7, 0.85, 1.0), intensity: 1000000.0, range: 28.0),
+        (pos: (16.0, 148.0, 8.5), color: (0.75, 1.0, 0.5), intensity: 600000.0, range: 25.0),
+        // Fills (no shadows).
+        (pos: (23.0, 27.0, 2.7), color: (1.0, 0.95, 0.8), intensity: 20000.0, range: 7.0, shadows: false),
+        (pos: (29.5, 12.0, 3.6), color: (1.0, 0.9, 0.7), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (51.0, 10.5, 0.6), color: (0.45, 0.6, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (57.0, 15.2, 0.6), color: (0.45, 0.6, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (60.5, 11.0, 0.6), color: (0.45, 0.6, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (63.3, 11.0, 2.7), color: (0.5, 0.7, 1.0), intensity: 25000.0, range: 6.0, shadows: false),
+        (pos: (52.0, 22.0, 2.7), color: (1.0, 0.9, 0.8), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (37.0, 29.0, 2.9), color: (1.0, 0.95, 0.85), intensity: 30000.0, range: 10.0, shadows: false),
+        (pos: (31.5, 26.5, 2.9), color: (0.6, 0.8, 1.0), intensity: 30000.0, range: 8.0, shadows: false),
+        (pos: (43.0, 29.0, 2.9), color: (1.0, 0.85, 0.65), intensity: 30000.0, range: 8.0, shadows: false),
+        (pos: (42.7, 35.2, 2.7), color: (1.0, 0.95, 0.9), intensity: 25000.0, range: 7.0, shadows: false),
+        (pos: (30.5, 36.7, 2.5), color: (0.4, 1.0, 0.6), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (37.0, 41.0, 6.0), color: (0.7, 0.85, 1.0), intensity: 80000.0, range: 12.0, shadows: false),
+        (pos: (30.0, 47.5, -0.5), color: (0.3, 0.7, 1.0), intensity: 30000.0, range: 9.0, shadows: false),
+        (pos: (60.0, 56.0, -0.5), color: (0.3, 0.7, 1.0), intensity: 30000.0, range: 9.0, shadows: false),
+        (pos: (73.0, 62.0, 2.7), color: (1.0, 0.6, 0.3), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (88.0, 37.7, 2.7), color: (1.0, 0.9, 0.8), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (88.0, 51.0, -2.0), color: (0.3, 0.8, 1.0), intensity: 40000.0, range: 10.0, shadows: false),
+        (pos: (112.0, 45.0, -1.0), color: (0.4, 1.0, 0.3), intensity: 60000.0, range: 10.0, shadows: false),
+        (pos: (112.0, 57.0, -1.0), color: (0.4, 1.0, 0.3), intensity: 60000.0, range: 10.0, shadows: false),
+        (pos: (103.0, 63.0, 2.7), color: (1.0, 0.9, 0.7), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (88.0, 63.7, 2.7), color: (1.0, 0.5, 0.3), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (99.0, 90.5, 9.0), color: (1.0, 0.8, 0.5), intensity: 200000.0, range: 16.0, shadows: false),
+        (pos: (121.0, 67.5, 7.5), color: (1.0, 0.3, 0.25), intensity: 60000.0, range: 8.0, shadows: false),
+        (pos: (99.0, 94.5, 12.8), color: (1.0, 0.9, 0.6), intensity: 25000.0, range: 6.0, shadows: false),
+        (pos: (70.0, 78.5, 2.0), color: (0.4, 1.0, 0.3), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (66.5, 70.0, 2.7), color: (1.0, 0.8, 0.5), intensity: 20000.0, range: 6.0, shadows: false),
+        (pos: (38.0, 64.5, 4.0), color: (1.0, 0.35, 0.3), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (37.0, 70.6, 3.5), color: (0.4, 0.9, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (51.0, 70.6, 3.5), color: (0.4, 0.9, 1.0), intensity: 30000.0, range: 6.0, shadows: false),
+        (pos: (40.0, 88.0, -1.0), color: (0.3, 0.7, 1.0), intensity: 60000.0, range: 14.0, shadows: false),
+        (pos: (41.0, 97.0, 4.5), color: (1.0, 0.6, 0.2), intensity: 30000.0, range: 7.0, shadows: false),
+        (pos: (41.0, 105.0, 3.5), color: (0.5, 0.7, 0.9), intensity: 15000.0, range: 9.0, shadows: false),
+        (pos: (28.0, 115.0, 3.5), color: (0.5, 0.7, 0.9), intensity: 15000.0, range: 9.0, shadows: false),
+        (pos: (30.0, 120.5, 3.0), color: (1.0, 0.8, 0.5), intensity: 15000.0, range: 6.0, shadows: false),
+        (pos: (15.0, 123.0, 3.5), color: (0.5, 0.7, 0.9), intensity: 12000.0, range: 8.0, shadows: false),
+        (pos: (15.0, 134.0, 4.0), color: (0.7, 1.0, 0.45), intensity: 20000.0, range: 8.0, shadows: false),
+        (pos: (15.5, 148.5, 0.3), color: (0.4, 1.0, 0.3), intensity: 50000.0, range: 9.0, shadows: false),
+        (pos: (-0.2, 150.5, 2.5), color: (1.0, 0.4, 0.6), intensity: 15000.0, range: 5.0, shadows: false),
+        (pos: (17.0, 160.5, 3.0), color: (1.0, 0.5, 0.7), intensity: 25000.0, range: 6.0, shadows: false),
+    ],
+    items: [
+        // Gate yard and the guard booth: the shotgun.
+        (kind: Shotgun, pos: (24.0, 28.5)),
+        (kind: ShotgunShells, pos: (16.0, 10.0)),
+        (kind: PistolAmmo, pos: (26.0, 2.0)),
+        (kind: HealthSmall, pos: (2.0, 22.0)),
+        // Lobby: the chaingun behind the reception desk.
+        (kind: Chaingun, pos: (37.0, 16.0)),
+        (kind: HealthSmall, pos: (32.0, 5.0)),
+        (kind: ShotgunShells, pos: (44.0, 18.5)),
+        // Lab: the Blue key in the clean bay.
+        (kind: Key(Blue), pos: (63.5, 11.0)),
+        (kind: Medkit, pos: (60.5, 18.5)),
+        (kind: ShotgunShells, pos: (47.0, 3.0)),
+        (kind: PistolAmmo, pos: (55.0, 3.0)),
+        // Offices, break room; secret 1 in the server closet.
+        (kind: ShotgunShells, pos: (33.5, 23.0)),
+        (kind: PipeBombs, pos: (45.5, 30.5)),
+        (kind: Armour, pos: (41.0, 30.5)),
+        (kind: HealthSmall, pos: (41.0, 33.5)),
+        (kind: Armour, pos: (30.5, 37.5)),
+        (kind: PipeBombs, pos: (32.5, 36.0)),
+        // Intake hall.
+        (kind: PistolAmmo, pos: (45.0, 47.5)),
+        (kind: Armour, pos: (21.0, 60.5)),
+        (kind: ShotgunShells, pos: (60.0, 51.5)),
+        (kind: HealthSmall, pos: (69.0, 44.0)),
+        // Tank 1: the rocket launcher on the island.
+        (kind: RocketLauncher, pos: (88.0, 51.0)),
+        (kind: Rockets, pos: (90.0, 53.0)),
+        (kind: HealthSmall, pos: (78.0, 54.0)),
+        // Tank 2.
+        (kind: ShotgunShells, pos: (102.5, 51.0)),
+        (kind: Armour, pos: (112.0, 60.5)),
+        (kind: HealthSmall, pos: (121.5, 51.0)),
+        // Pump hall: the jetpack in the foreman's booth, the Red key on the valve deck;
+        // secret 3's atom and rockets on the jetpack ledge.
+        (kind: Jetpack, pos: (102.5, 62.5)),
+        (kind: Armour, pos: (101.0, 64.0)),
+        (kind: Rockets, pos: (116.0, 67.0)),
+        (kind: PistolAmmo, pos: (76.0, 86.0)),
+        (kind: Medkit, pos: (91.0, 90.5)),
+        (kind: ShotgunShells, pos: (122.0, 80.0)),
+        (kind: Key(Red), pos: (121.0, 67.5)),
+        (kind: Atom, pos: (98.0, 94.5)),
+        (kind: Rockets, pos: (100.0, 94.5)),
+        // Chemical store; secret 2's atom and rockets in the stash.
+        (kind: Rockets, pos: (63.0, 80.0)),
+        (kind: PipeBombs, pos: (72.5, 85.0)),
+        (kind: Atom, pos: (65.0, 69.0)),
+        (kind: Rockets, pos: (68.0, 69.0)),
+        // Control room.
+        (kind: Medkit, pos: (56.5, 67.0)),
+        (kind: ShotgunShells, pos: (31.0, 74.5)),
+        (kind: PistolAmmo, pos: (44.0, 67.5)),
+        // Outfall basin.
+        (kind: Rockets, pos: (56.0, 78.0)),
+        (kind: HealthSmall, pos: (21.0, 78.0)),
+        (kind: PistolAmmo, pos: (56.0, 94.5)),
+        (kind: ShotgunShells, pos: (21.0, 94.5)),
+        // Outflow tunnel, the grit chamber.
+        (kind: PistolAmmo, pos: (41.0, 105.0)),
+        (kind: ShotgunShells, pos: (15.0, 115.0)),
+        (kind: Armour, pos: (29.0, 121.5)),
+        (kind: Rockets, pos: (32.0, 121.5)),
+        (kind: Atom, pos: (15.0, 136.0)),
+        // Hive chamber.
+        (kind: Rockets, pos: (27.0, 140.0)),
+        (kind: HealthSmall, pos: (4.0, 156.0)),
+        (kind: ShotgunShells, pos: (28.0, 156.0)),
+    ],
+    actors: [
+        // Gate yard: Grunts behind the barriers and the tanker, a Drone on Hard.
+        (kind: Grunt, pos: (20.0, 12.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (15.5, 20.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (25.0, 6.0), angle_deg: 180.0, skill: Normal),
+        (kind: Drone, pos: (18.0, 8.0), angle_deg: 180.0, skill: Hard),
+        (kind: Barrel, pos: (27.0, 22.0)),
+        // Lobby and offices.
+        (kind: Grunt, pos: (42.5, 12.0), angle_deg: 180.0),
+        (kind: Enforcer, pos: (37.0, 18.5), angle_deg: 270.0, skill: Normal),
+        (kind: Grunt, pos: (43.5, 23.5), angle_deg: 90.0),
+        (kind: Slasher, pos: (31.0, 24.0), angle_deg: 90.0, skill: Hard),
+        // Lab: a Grunt and an Enforcer among the benches; the sample closet (channel 1) awake.
+        (kind: Grunt, pos: (52.0, 13.5), angle_deg: 180.0),
+        (kind: Enforcer, pos: (58.0, 4.0), angle_deg: 180.0),
+        (kind: Drone, pos: (55.0, 12.5), angle_deg: 180.0, skill: Hard),
+        (kind: Slasher, pos: (51.2, 22.0), angle_deg: 270.0, asleep: false),
+        (kind: Grunt, pos: (52.8, 22.0), angle_deg: 270.0, asleep: false, skill: Normal),
+        (kind: Barrel, pos: (46.5, 18.5)),
+        // Intake hall: Drones over the channels.
+        (kind: Drone, pos: (40.0, 56.0), angle_deg: 270.0),
+        (kind: Drone, pos: (60.0, 47.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (66.0, 60.5), angle_deg: 180.0),
+        (kind: Enforcer, pos: (24.0, 51.5), angle_deg: 0.0, skill: Normal),
+        (kind: Drone, pos: (52.0, 47.5), angle_deg: 90.0, skill: Normal),
+        (kind: Grunt, pos: (64.0, 44.0), angle_deg: 180.0, skill: Hard),
+        // Tank 1: on the ring; the closet (channel 2) awake.
+        (kind: Grunt, pos: (95.0, 58.0), angle_deg: 225.0),
+        (kind: Enforcer, pos: (82.0, 44.0), angle_deg: 45.0),
+        (kind: Enforcer, pos: (87.0, 37.7), angle_deg: 90.0, asleep: false),
+        (kind: Slasher, pos: (89.0, 37.7), angle_deg: 90.0, asleep: false, skill: Normal),
+        (kind: Drone, pos: (88.0, 57.0), angle_deg: 270.0, skill: Hard),
+        // Tank 2.
+        (kind: Slasher, pos: (112.0, 41.5), angle_deg: 90.0),
+        (kind: Drone, pos: (112.0, 55.5), angle_deg: 270.0),
+        (kind: Grunt, pos: (121.5, 48.0), angle_deg: 180.0, skill: Normal),
+        (kind: Enforcer, pos: (106.0, 58.0), angle_deg: 0.0, skill: Hard),
+        // Pump hall: the floor, the galleries; the pump closet (channel 3) awake.
+        (kind: Grunt, pos: (92.0, 80.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (110.0, 90.5), angle_deg: 180.0),
+        (kind: Drone, pos: (100.0, 82.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (115.0, 68.0), angle_deg: 90.0, skill: Normal),
+        (kind: Drone, pos: (88.0, 80.0), angle_deg: 270.0, skill: Normal),
+        (kind: Slasher, pos: (87.2, 63.7), angle_deg: 90.0, asleep: false),
+        (kind: Slasher, pos: (88.8, 63.7), angle_deg: 90.0, asleep: false, skill: Normal),
+        (kind: Enforcer, pos: (121.0, 85.0), angle_deg: 270.0, skill: Hard),
+        (kind: Barrel, pos: (76.5, 70.0)),
+        (kind: Barrel, pos: (116.5, 86.5)),
+        // Chemical store: barrels everywhere (watch the splash), one beside the crack wall.
+        (kind: Grunt, pos: (66.0, 80.0), angle_deg: 0.0),
+        (kind: Slasher, pos: (67.5, 85.2), angle_deg: 270.0, skill: Hard),
+        (kind: Barrel, pos: (66.5, 75.2)),
+        (kind: Barrel, pos: (63.0, 85.0)),
+        (kind: Barrel, pos: (64.3, 85.2)),
+        (kind: Barrel, pos: (72.6, 83.0)),
+        (kind: Barrel, pos: (72.6, 75.0)),
+        (kind: Barrel, pos: (63.0, 76.5)),
+        // Control room.
+        (kind: Enforcer, pos: (44.0, 73.5), angle_deg: 270.0),
+        (kind: Grunt, pos: (51.0, 68.0), angle_deg: 180.0),
+        (kind: Grunt, pos: (34.0, 68.0), angle_deg: 0.0, skill: Normal),
+        // Outfall basin.
+        (kind: Drone, pos: (35.0, 88.0), angle_deg: 270.0),
+        (kind: Enforcer, pos: (52.0, 94.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (25.0, 93.0), angle_deg: 0.0, skill: Normal),
+        (kind: Drone, pos: (50.0, 80.0), angle_deg: 90.0, skill: Hard),
+        // Outflow tunnel.
+        (kind: Slasher, pos: (41.0, 108.0), angle_deg: 270.0),
+        (kind: Grunt, pos: (20.0, 115.0), angle_deg: 0.0, skill: Normal),
+        (kind: Slasher, pos: (30.0, 120.5), angle_deg: 270.0, skill: Hard),
+        // Hive chamber: Slashers among the pods; the hive closet (channel 6) awake.
+        (kind: Slasher, pos: (10.0, 152.0), angle_deg: 270.0),
+        (kind: Slasher, pos: (24.0, 145.0), angle_deg: 180.0),
+        (kind: Drone, pos: (16.0, 154.0), angle_deg: 270.0),
+        (kind: Slasher, pos: (-0.5, 149.5), angle_deg: 0.0, asleep: false),
+        (kind: Slasher, pos: (-0.5, 151.8), angle_deg: 0.0, asleep: false, skill: Normal),
+        (kind: Enforcer, pos: (27.0, 155.0), angle_deg: 225.0, skill: Normal),
+        (kind: Slasher, pos: (5.0, 141.0), angle_deg: 45.0, skill: Hard),
+        (kind: Drone, pos: (25.0, 143.0), angle_deg: 90.0, skill: Hard),
+    ],
+)
