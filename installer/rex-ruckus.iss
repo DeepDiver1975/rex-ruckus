@@ -1,5 +1,5 @@
 ; Inno Setup 6.6+ script for Rex Ruckus: Meltdown. Build the release exe first, then:
-;   iscc /DAppVersion=0.1.0 installer\rex-ruckus.iss
+;   iscc /DAppVersion=0.2.0 installer\rex-ruckus.iss
 ; The installer lands in installer\Output\. The icon and wizard images come from
 ; scripts/build-icons.sh (rerun it after editing assets/icon/*.svg).
 
