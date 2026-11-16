@@ -88,6 +88,7 @@ pub fn level_info(raw: &RawLevel, map: &Map) -> String {
             let kind = match h.kind {
                 HazardKind::Slime => "slime",
                 HazardKind::Electric => "electric",
+                HazardKind::Burn => "burn",
             };
             flags.push(format!("{kind} {}/{}s", h.damage, h.interval));
         }

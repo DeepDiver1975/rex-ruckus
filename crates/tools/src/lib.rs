@@ -140,6 +140,32 @@ mod tests {
     }
 
     #[test]
+    fn aftershock_materials_are_known() {
+        for name in [
+            "container",
+            "water",
+            "magma",
+            "hive",
+            "screen",
+            "rail",
+            "storefront",
+            "pipe",
+        ] {
+            let src = format!(
+                r#"(name: "t", materials: ["{name}"],
+                vertices: [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
+                sectors: [(loops: [[0, 1, 2, 3]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 0, ceil_mat: 0, wall_mat: 0)],
+                player_start: (pos: (2.0, 2.0), angle_deg: 0.0))"#
+            );
+            let (report, ok) = validate_source("t.ron", &src);
+            assert!(
+                ok && !report.contains("unknown material"),
+                "{name}: {report}"
+            );
+        }
+    }
+
+    #[test]
     fn shipped_levels_use_known_materials_only() {
         for name in ["arsenal_depot.ron", "combat_arena.ron", "engine_lab.ron"] {
             let (report, ok) = validate_file(&level(name));

@@ -90,6 +90,7 @@
     // Engine features.
     HazardSizzle: (files: ["sounds/synth/hazard_sizzle.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
     HazardZap: (files: ["sounds/synth/hazard_zap.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
+    HazardScorch: (files: ["sounds/synth/hazard_scorch.wav"], volume: 0.6, max_voices: 1, pitch_jitter: 0.08, spatial: false),
     QuakeRumble: (files: ["sounds/synth/quake_rumble.wav"], volume: 0.9, max_voices: 1, spatial: false, looped: true),
     ToiletFlush: (files: ["sounds/synth/toilet_flush.wav"], volume: 0.7, max_voices: 1),
     VendingDispense: (files: ["sounds/synth/vending_dispense.wav"], volume: 0.7, max_voices: 1),

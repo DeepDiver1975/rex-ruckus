@@ -96,10 +96,12 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
     writeln!(o, r#"<svg xmlns="http://www.w3.org/2000/svg" width="{:.0}" height="{:.0}" font-family="monospace" font-size="10">"#, size.x, size.y).unwrap();
     writeln!(o, r##"<rect width="100%" height="100%" fill="#1d1f24"/><text x="6" y="14" fill="#ddd">{}</text>"##, esc(&map.name)).unwrap();
     // Crack walls are hatched: diagonal soot lines over brick red.
-    // Slime is green with a dark diagonal; electric floors are blue with a yellow zigzag.
+    // Slime is green with a dark diagonal; electric floors are blue with a yellow zigzag; magma
+    // is black crust with an orange crack.
     o.push_str(r##"<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#b5523b"/><line x1="0" y1="0" x2="0" y2="6" stroke="#2b1a14" stroke-width="3"/></pattern>"##);
     o.push_str(r##"<pattern id="slime" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#3fae2a"/><line x1="0" y1="8" x2="8" y2="0" stroke="#1d4d14" stroke-width="2"/></pattern>"##);
-    o.push_str(r##"<pattern id="electric" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#2a6fd6"/><polyline points="0,6 2,2 4,6 6,2 8,6" style="fill:none" stroke="#ffe14d" stroke-width="1.5"/></pattern></defs>"##);
+    o.push_str(r##"<pattern id="electric" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#2a6fd6"/><polyline points="0,6 2,2 4,6 6,2 8,6" style="fill:none" stroke="#ffe14d" stroke-width="1.5"/></pattern>"##);
+    o.push_str(r##"<pattern id="magma" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#2a1a12"/><polyline points="0,3 3,4 5,1 8,3" style="fill:none" stroke="#ff8a1a" stroke-width="1.5"/></pattern></defs>"##);
     o.push('\n');
 
     for (s, sec) in map.sectors.iter().enumerate() {
@@ -112,6 +114,7 @@ pub fn render_svg_with(map: &Map, opts: &SvgOptions) -> String {
             None if sec.hazard.is_some() => {
                 let url = match sec.hazard.map(|h| h.kind) {
                     Some(HazardKind::Electric) => "url(#electric)",
+                    Some(HazardKind::Burn) => "url(#magma)",
                     _ => "url(#slime)",
                 };
                 ("sector hazard", url.to_string())

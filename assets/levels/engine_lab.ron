@@ -23,9 +23,16 @@
 // facing the door and wakes when she sees the player come in; her death (channel 11) opens the
 // stash door in the north wall (an atom and rockets). A rocket launcher waits by the door; the
 // door is too narrow for her to follow.
+// Material gallery (side trip west of the hall, sectors 29-37): a doorway in the hall's west
+// wall opens on a 5 m wide corridor of 3 m bays running west, each showing one Aftershock
+// material: container, storefront, screen, pipe, rail, hive (with a magma Burn pit, 0.4 m deep,
+// in the middle of the bay) and a shallow water pool at the far end.
 (
     name: "Engine Lab",
-    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door", "carpet", "flesh"],
+    materials: ["brick", "concrete", "sky", "metal", "tile", "wood", "door", "carpet", "flesh",
+                // 9-18: the gallery
+                "container", "water", "magma", "hive", "screen", "rail", "storefront", "pipe",
+                "grate", "ceiling_tile"],
     vertices: [
         (0.0, 0.0), (12.0, 0.0), (12.0, 3.0), (12.0, 5.0), (12.0, 8.0), (6.0, 8.0), // 0-5   hall
         (4.0, 8.0), (0.0, 8.0),                                                       // 6-7
@@ -60,10 +67,15 @@
         (0.0, 21.0), (0.0, 23.0), (2.0, 23.0), (2.0, 21.0),                           // 112-115 pillar
         (8.0, 21.0), (8.0, 23.0), (10.0, 23.0), (10.0, 21.0),                         // 116-119 pillar
         (4.0, 26.5), (4.0, 28.5), (6.0, 28.5), (6.0, 26.5),                           // 120-123 pillar
+        (0.0, 3.5), (0.0, 1.5), (-1.0, 1.5), (-1.0, 3.5),                             // 124-127 gallery door
+        (-1.0, 0.0), (-1.0, 5.0), (-4.0, 0.0), (-4.0, 5.0), (-7.0, 0.0), (-7.0, 5.0),   // 128-133 gallery bays
+        (-10.0, 0.0), (-10.0, 5.0), (-13.0, 0.0), (-13.0, 5.0), (-16.0, 0.0), (-16.0, 5.0), // 134-139
+        (-19.0, 0.0), (-19.0, 5.0), (-22.0, 0.0), (-22.0, 5.0),                       // 140-143
+        (-18.5, 1.5), (-16.5, 1.5), (-16.5, 3.5), (-18.5, 3.5),                       // 144-147 magma pit
     ],
     sectors: [
         // 0 hall (start; jetpack, shotgun, armour)
-        (loops: [[0, 58, 59, 1, 2, 3, 4, 5, 6, 7]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
+        (loops: [[0, 58, 59, 1, 2, 3, 4, 5, 6, 7, 124, 125]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 1 doorway to the gag room
         (loops: [[6, 5, 8, 9]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 0),
         // 2 gag room (toilet, vending machine, pool table; chaingun, medkit)
@@ -137,6 +149,26 @@
          face_mat: Some(6), mover: Some((kind: Door, channel: Some(11), one_shot: true))),
         // 28 stash (atom, rockets)
         (loops: [[108, 107, 106, 109, 110, 111]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 3, ceil_mat: 3, wall_mat: 3),
+        // 29 doorway from the hall to the material gallery
+        (loops: [[126, 125, 124, 127]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 1, ceil_mat: 3, wall_mat: 3),
+        // 30 gallery bay: container walls
+        (loops: [[130, 128, 126, 127, 129, 131]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 1, ceil_mat: 3, wall_mat: 9),
+        // 31 gallery bay: storefront walls, tile floor, office ceiling
+        (loops: [[132, 130, 131, 133]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 4, ceil_mat: 18, wall_mat: 15),
+        // 32 gallery bay: screen walls, carpet
+        (loops: [[134, 132, 133, 135]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 7, ceil_mat: 3, wall_mat: 13),
+        // 33 gallery bay: pipe walls and ceiling, grate floor
+        (loops: [[136, 134, 135, 137]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 17, ceil_mat: 16, wall_mat: 16),
+        // 34 gallery bay: rail walls and floor
+        (loops: [[138, 136, 137, 139]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 14, ceil_mat: 3, wall_mat: 14),
+        // 35 gallery bay: hive walls, floor and ceiling, around the magma pit
+        (loops: [[140, 138, 139, 141], [144, 147, 146, 145]], floor_z: 0.0, ceil_z: 4.0,
+         floor_mat: 12, ceil_mat: 12, wall_mat: 12),
+        // 36 magma pit: a Burn hazard 0.4 m down, shallow enough to step out of
+        (loops: [[144, 145, 146, 147]], floor_z: -0.4, ceil_z: 4.0, floor_mat: 11, ceil_mat: 12, wall_mat: 11,
+         hazard: Some((damage: 5, interval: 0.5, kind: Burn))),
+        // 37 gallery end: a shallow water pool (not a hazard)
+        (loops: [[142, 140, 141, 143]], floor_z: -0.3, ceil_z: 4.0, floor_mat: 10, ceil_mat: 1, wall_mat: 1),
     ],
     switches: [
         // Gate: beside the hall's south doorway, and in the corridor south of the gate.
@@ -204,5 +236,10 @@
         // Hive: a sickly green glow over the chamber, a fill at the stash.
         (pos: (5.0, 24.5, 6.5), color: (0.6, 1.0, 0.45), intensity: 200000.0, range: 22.0),
         (pos: (5.0, 35.5, 2.6), color: (1.0, 0.9, 0.7), intensity: 15000.0, range: 6.0, shadows: false),
+        // Gallery: white fills along the corridor, an orange glow over the magma pit.
+        (pos: (-5.5, 2.5, 3.6), color: (1.0, 0.97, 0.9), intensity: 40000.0, range: 9.0, shadows: false),
+        (pos: (-11.5, 2.5, 3.6), color: (1.0, 0.97, 0.9), intensity: 40000.0, range: 9.0, shadows: false),
+        (pos: (-20.0, 2.5, 3.6), color: (0.9, 0.97, 1.0), intensity: 40000.0, range: 9.0, shadows: false),
+        (pos: (-17.5, 2.5, 1.0), color: (1.0, 0.5, 0.15), intensity: 20000.0, range: 6.0, shadows: false),
     ],
 )

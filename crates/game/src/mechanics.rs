@@ -100,7 +100,7 @@ fn material_id(map: &mut Map, name: &str) -> MaterialId {
     }
 }
 
-/// Points each hazard sector's floor at the `slime` or `electric` material (appended to
+/// Points each hazard sector's floor at the `slime`, `electric` or `magma` material (appended to
 /// `Map::materials` when missing), like `mark_crack_walls` does for cracks.
 pub fn mark_hazard_floors(map: &mut Map) {
     for s in 0..map.sectors.len() {
@@ -110,6 +110,7 @@ pub fn mark_hazard_floors(map: &mut Map) {
         let name = match h.kind {
             HazardKind::Slime => textures::SLIME,
             HazardKind::Electric => textures::ELECTRIC,
+            HazardKind::Burn => textures::MAGMA,
         };
         map.sectors[s].floor_mat = material_id(map, name);
     }

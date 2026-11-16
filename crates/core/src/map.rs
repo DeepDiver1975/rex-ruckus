@@ -83,6 +83,14 @@ pub const KNOWN_MATERIALS: &[&str] = &[
     "marquee",
     "dancefloor",
     "glowstrip",
+    "container",
+    "water",
+    "magma",
+    "hive",
+    "screen",
+    "rail",
+    "storefront",
+    "pipe",
 ];
 
 #[derive(Debug, Clone, Deserialize)]

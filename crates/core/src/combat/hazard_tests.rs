@@ -75,3 +75,37 @@ fn slime_on_a_rising_lift_keeps_burning_on_schedule() {
     assert_eq!(p.body.pos.z, 2.0, "rode to the top");
     assert_eq!(n, 4, "0, 0.75, 1.5 and 2.25 s");
 }
+
+#[test]
+fn standing_on_magma_burns_with_its_own_kind() {
+    let mut map = engine_room("");
+    map.sectors[3].hazard = Some(Hazard {
+        damage: 6,
+        interval: 0.5,
+        kind: HazardKind::Burn,
+    });
+    let d = defs();
+    let mut c = Combat::spawn(&map, &d, 1);
+    let mut p = Player::at(&map, 11.0, 2.0);
+    let mut n = 0;
+    for _ in 0..60 {
+        let ev = p.tick(&mut c, &mut map, &d);
+        assert_eq!(burns(&ev), 0, "no slime burn on magma");
+        if let Some(i) = ev.iter().position(|e| {
+            matches!(
+                e,
+                CombatEvent::HazardBurn {
+                    kind: HazardKind::Burn
+                }
+            )
+        }) {
+            n += 1;
+            assert!(matches!(
+                ev[i + 1],
+                CombatEvent::PlayerHurt { amount: 6, .. }
+            ));
+        }
+    }
+    assert_eq!(n, 2, "at once and after 0.5 s");
+    assert_eq!(p.vitals.health.hp, 88);
+}

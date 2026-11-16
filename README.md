@@ -100,7 +100,8 @@ The default level is `arsenal_depot.ron`, the M4a showcase: rockets and explodin
 `engine_lab.ron` is the M5b showcase (not part of the episode): a gag room (a toilet to flush, a
 vending machine, a pool table), a slime pit to cross by jetpack, a Grunt and an Enforcer that
 fight each other, a live electric grate, a trigger pad that sets off a quake and drops the floor
-ahead, and a boss whose death ends the level. `assets/demo/engine_lab.ron` tours it.
+ahead, and a boss whose death ends the level. West of the hall, a material gallery shows the
+Aftershock materials, with a magma pit. `assets/demo/engine_lab.ron` tours it.
 
 Add `--mute` to start with the sound off (`M` toggles it in game).
 
@@ -109,7 +110,7 @@ Add `--mute` to start with the sound off (`M` toggles it in game).
 Every engine field defaults off, so older levels parse unchanged:
 
 ```ron
-sectors: [ ( ..., hazard: Some((damage: 4, interval: 0.75, kind: Slime)) ),   // or Electric
+sectors: [ ( ..., hazard: Some((damage: 4, interval: 0.75, kind: Slime)) ),   // or Electric, Burn (magma)
            ( ..., mover: Some((kind: Lift(to: -1.5), channel: Some(7), speed: 0.8, one_shot: true)) ) ],
 triggers: [ (sector: 5, action: Channel(7)), (sector: 12, action: Exit) ],   // once: true default
 quakes:   [ (channel: 7, duration: 3.0, strength: 0.8) ],

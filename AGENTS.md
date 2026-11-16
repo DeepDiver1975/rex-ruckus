@@ -118,6 +118,9 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   `targetable()`: shots, blasts, pounds and collision skip it. Minions are appended to
   `Combat::actors` mid-level (`ActorSpawned`, also counted in the kill total); the game gives
   them visuals then. At most one boss of each kind per level.
+- A hazard floor's material comes from its kind (`mark_hazard_floors` overrides the authored
+  `floor_mat`): `Slime` → `slime`, `Electric` → `electric`, `Burn` → `magma`. A plain `magma` or
+  `water` floor does not hurt.
 - Material names must be in `rr_core::map::KNOWN_MATERIALS` (each has a `texel()` arm); `validate` rejects others. Fill lights set `shadows: false`; keep ≤ 12 shadowed lights per level.
 
 ## Git and pull requests

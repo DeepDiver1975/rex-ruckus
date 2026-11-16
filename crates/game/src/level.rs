@@ -154,6 +154,10 @@ pub fn material_glow(name: &str) -> Option<LinearRgba> {
         "marquee" => Some(LinearRgba::rgb(1.8, 1.4, 0.6)),
         "dancefloor" => Some(LinearRgba::rgb(1.2, 1.2, 1.2)),
         "glowstrip" => Some(LinearRgba::rgb(0.6, 1.8, 1.6)),
+        textures::MAGMA => Some(LinearRgba::rgb(3.0, 1.5, 0.4)),
+        "screen" => Some(LinearRgba::rgb(1.4, 1.4, 1.5)),
+        // Faint: only the amber pores read as lit.
+        "hive" => Some(LinearRgba::rgb(0.35, 0.22, 0.1)),
         _ => None,
     }
 }
@@ -165,12 +169,15 @@ pub fn material_scroll(name: &str) -> Option<f32> {
         textures::ELECTRIC => Some(0.6),
         "marquee" => Some(0.25),
         "dancefloor" => Some(0.1),
+        "water" => Some(0.05),
+        textures::MAGMA => Some(0.04),
+        "screen" => Some(0.1),
         _ => None,
     }
 }
 
-/// Scrolls the animated level materials (slime, electric, marquee, dance floor), using the same
-/// material-update pattern as the fireball fade in `fx.rs`.
+/// Scrolls the animated level materials (slime, electric, marquee, dance floor, water, magma,
+/// screens), using the same material-update pattern as the fireball fade in `fx.rs`.
 fn scroll_materials(
     time: Res<Time>,
     mats: Option<Res<LevelMaterials>>,
@@ -329,6 +336,33 @@ mod tests {
         assert!(material_scroll("marquee").is_some());
         assert!(material_scroll("dancefloor").is_some());
         assert!(material_scroll("carpet").is_none());
+    }
+
+    #[test]
+    fn aftershock_materials_glow_and_scroll_as_designed() {
+        for name in ["magma", "screen", "hive"] {
+            assert!(material_glow(name).is_some(), "{name} glows");
+        }
+        for name in ["container", "water", "rail", "storefront", "pipe"] {
+            assert!(material_glow(name).is_none(), "{name} does not glow");
+        }
+        for name in ["water", "magma", "screen"] {
+            assert!(
+                material_scroll(name).is_some_and(|v| v > 0.0 && v <= 0.1),
+                "{name}"
+            );
+        }
+        for name in ["container", "hive", "rail", "storefront", "pipe"] {
+            assert!(material_scroll(name).is_none(), "{name} is still");
+        }
+        let (magma, hive) = (
+            material_glow("magma").unwrap(),
+            material_glow("hive").unwrap(),
+        );
+        assert!(
+            magma.red > 2.0 && hive.red < 0.5,
+            "magma glows strongly, the hive faintly"
+        );
     }
 
     #[test]
