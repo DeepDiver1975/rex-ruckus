@@ -1,0 +1,818 @@
+// Episode 2 level 2. Coordinates in metres, x = east, y = north, z = up.
+// Setting: the Beacon 12 broadcast centre (a fictional local channel, "Beacon 12 - The City's
+// Light"), taken over by the hive's servants to jam the emergency broadcast.
+// Route: the street plaza (start on the road at the west end, facing east; the outside-broadcast
+// van, the fountain, planters, the station's video billboard on the facade; the shotgun in the
+// newsstand recess in the south wall) → the front doors → the lobby (reception desk, sofa,
+// payphone and vending on the west wall) → the guard office through the south door (CCTV wall;
+// the chaingun and the Blue security keycard) → the blue door in the lobby's north wall → the
+// newsroom (cubicle crosses, the assignment desk, a news ticker and a monitor wall; three edit
+// bays along the north wall) → the "on air" door east into Studio A (camera pedestals, the
+// news set on its riser with the anchor desk, video walls north and east) → the dolly track
+// across the studio fires channel 1: the floor rumbles and a scripted blast in the scene dock
+// blows the studio's back wall open → the scene dock (stacked containers, scenery flats; pipe
+// bombs) → the loading door south → Studio B, the "Jackpot Jamboree" game-show set (bleachers
+// in the west, the stage with three contestant podiums in the east, the prize board on the
+// south wall, an arcade corner in the south-west): climbing onto the stage fires channel 2
+// (the two isolation booths in the south wall open, awake) and the Red studio key waits by the
+// podiums → the green room door in the west wall → the green room (jukebox, pool table,
+// vanity mirror, couch): its switch (channel 5) opens the door back into the lobby, the
+// shortcut → the red door in the lobby's south wall → master control (two console rows, the
+// monitor wall) → the door east to the tower foot → the tower, its floors side by side and
+// each one lift higher: lift 1 (z 0 → 6) to the equipment floor (racks) → lift 2 (→ 12) to the
+// transmitter hall: the cable gantry across the cable well fires channel 4 (a quake, and the
+// gantry collapses 2 m for good) → out of the well up its stairs → lift 3 (→ 18) to the
+// engineering floor → the chief engineer's office (the jetpack, the Yellow roof key) → the
+// yellow door → the roof lift (→ 24) → the roof (open sky: an air handler, the satellite dish on
+// its pad, the transmitter mast); stepping off the lift fires channel 6 (the maintenance shed
+// in the east parapet opens, awake) → the uplink hut at the foot of the mast: the exit switch
+// on its north wall puts the emergency broadcast back on the air.
+// Secrets: (1) a crouch vent low in edit bay 3's east wall (vent 0.25-1.4 m) into the tape
+// vault (rocket launcher, rockets, armour); (2) a crack wall in Studio B's east wall behind the
+// game-show set (a barrel beside it, in the backstage lane): a stash with an atom and rockets
+// (validate's "cannot be reached from the start" warnings for its items are a crack-wall stash,
+// by design); (3) the maintenance platform on the transmitter mast at z 30, jetpack only (atom,
+// armour; validate warns those "cannot be reached from the start", by design).
+// Built by `rr-tools build` from levels/src/dead_air.ron. Do not edit; edit the source and rebuild.
+(
+    name: "Dead Air",
+    materials: ["asphalt", "sky", "brick", "hull", "concrete", "water", "tile", "gravel", "wood", "metal", "storefront", "neon", "screen", "door", "ceiling_tile", "velvet", "carpet", "grate", "container", "rail", "glowstrip", "marquee", "dancefloor", "cracked", "pipe"],
+    vertices: [
+        (0.0, 0.0), // 0
+        (8.0, 0.0), // 1
+        (8.0, 30.0), // 2
+        (0.0, 30.0), // 3
+        (2.0, 27.0), // 4
+        (6.0, 27.0), // 5
+        (6.0, 20.0), // 6
+        (2.0, 20.0), // 7
+        (30.0, 0.0), // 8
+        (30.0, 30.0), // 9
+        (14.0, 19.0), // 10
+        (20.0, 19.0), // 11
+        (20.0, 11.0), // 12
+        (14.0, 11.0), // 13
+        (10.0, 5.0), // 14
+        (12.0, 5.0), // 15
+        (12.0, 3.0), // 16
+        (10.0, 3.0), // 17
+        (10.0, 27.0), // 18
+        (12.0, 27.0), // 19
+        (12.0, 25.0), // 20
+        (10.0, 25.0), // 21
+        (22.0, 3.1), // 22
+        (25.0, 3.1), // 23
+        (25.0, 2.5), // 24
+        (22.0, 2.5), // 25
+        (24.0, 8.4), // 26
+        (24.4, 8.4), // 27
+        (24.4, 8.0), // 28
+        (24.0, 8.0), // 29
+        (24.0, 22.0), // 30
+        (24.4, 22.0), // 31
+        (24.4, 21.6), // 32
+        (24.0, 21.6), // 33
+        (16.3, 15.7), // 34
+        (17.7, 15.7), // 35
+        (17.7, 14.3), // 36
+        (16.3, 14.3), // 37
+        (16.0, -1.0), // 38
+        (20.0, -1.0), // 39
+        (20.0, 0.0), // 40
+        (16.0, 0.0), // 41
+        (30.0, 2.0), // 42
+        (30.4, 2.0), // 43
+        (30.4, 10.0), // 44
+        (30.0, 10.0), // 45
+        (30.0, 18.0), // 46
+        (30.4, 18.0), // 47
+        (30.4, 28.0), // 48
+        (30.0, 28.0), // 49
+        (30.0, 13.0), // 50
+        (31.0, 13.0), // 51
+        (31.0, 17.0), // 52
+        (30.0, 17.0), // 53
+        (31.0, 4.0), // 54
+        (51.0, 4.0), // 55
+        (51.0, 26.0), // 56
+        (31.0, 26.0), // 57
+        (40.0, 19.0), // 58
+        (41.2, 19.0), // 59
+        (41.2, 11.0), // 60
+        (40.0, 11.0), // 61
+        (32.0, 23.5), // 62
+        (33.0, 23.5), // 63
+        (33.0, 19.5), // 64
+        (32.0, 19.5), // 65
+        (48.5, 24.5), // 66
+        (50.0, 24.5), // 67
+        (50.0, 23.0), // 68
+        (48.5, 23.0), // 69
+        (35.5, 10.0), // 70
+        (36.5, 10.0), // 71
+        (36.5, 9.0), // 72
+        (35.5, 9.0), // 73
+        (35.5, 21.0), // 74
+        (36.5, 21.0), // 75
+        (36.5, 20.0), // 76
+        (35.5, 20.0), // 77
+        (45.5, 10.0), // 78
+        (46.5, 10.0), // 79
+        (46.5, 9.0), // 80
+        (45.5, 9.0), // 81
+        (45.5, 21.0), // 82
+        (46.5, 21.0), // 83
+        (46.5, 20.0), // 84
+        (45.5, 20.0), // 85
+        (37.0, 3.5), // 86
+        (40.0, 3.5), // 87
+        (40.0, 4.0), // 88
+        (37.0, 4.0), // 89
+        (33.0, -5.0), // 90
+        (43.0, -5.0), // 91
+        (43.0, 3.5), // 92
+        (33.0, 3.5), // 93
+        (36.0, -1.0), // 94
+        (39.0, -1.0), // 95
+        (39.0, -2.0), // 96
+        (36.0, -2.0), // 97
+        (35.0, -5.4), // 98
+        (41.0, -5.4), // 99
+        (41.0, -5.0), // 100
+        (35.0, -5.0), // 101
+        (38.0, 26.0), // 102
+        (42.0, 26.0), // 103
+        (42.0, 26.5), // 104
+        (38.0, 26.5), // 105
+        (46.0, 3.5), // 106
+        (49.0, 3.5), // 107
+        (49.0, 4.0), // 108
+        (46.0, 4.0), // 109
+        (51.0, 13.0), // 110
+        (51.5, 13.0), // 111
+        (51.5, 16.0), // 112
+        (51.0, 16.0), // 113
+        (31.0, 26.5), // 114
+        (56.0, 26.5), // 115
+        (56.0, 52.0), // 116
+        (31.0, 52.0), // 117
+        (33.25, 33.125), // 118
+        (35.875, 33.125), // 119
+        (35.875, 35.75), // 120
+        (36.125, 35.75), // 121
+        (36.125, 33.125), // 122
+        (38.75, 33.125), // 123
+        (38.75, 32.875), // 124
+        (36.125, 32.875), // 125
+        (36.125, 30.25), // 126
+        (35.875, 30.25), // 127
+        (35.875, 32.875), // 128
+        (33.25, 32.875), // 129
+        (44.25, 33.125), // 130
+        (46.875, 33.125), // 131
+        (46.875, 35.75), // 132
+        (47.125, 35.75), // 133
+        (47.125, 33.125), // 134
+        (49.75, 33.125), // 135
+        (49.75, 32.875), // 136
+        (47.125, 32.875), // 137
+        (47.125, 30.25), // 138
+        (46.875, 30.25), // 139
+        (46.875, 32.875), // 140
+        (44.25, 32.875), // 141
+        (38.75, 43.125), // 142
+        (41.375, 43.125), // 143
+        (41.375, 45.75), // 144
+        (41.625, 45.75), // 145
+        (41.625, 43.125), // 146
+        (44.25, 43.125), // 147
+        (44.25, 42.875), // 148
+        (41.625, 42.875), // 149
+        (41.625, 40.25), // 150
+        (41.375, 40.25), // 151
+        (41.375, 42.875), // 152
+        (38.75, 42.875), // 153
+        (51.5, 45.0), // 154
+        (53.5, 45.0), // 155
+        (53.5, 38.0), // 156
+        (51.5, 38.0), // 157
+        (35.5, 40.5), // 158
+        (36.5, 40.5), // 159
+        (36.5, 39.5), // 160
+        (35.5, 39.5), // 161
+        (47.0, 45.5), // 162
+        (48.0, 45.5), // 163
+        (48.0, 44.5), // 164
+        (47.0, 44.5), // 165
+        (44.0, 26.1), // 166
+        (54.0, 26.1), // 167
+        (54.0, 26.5), // 168
+        (44.0, 26.5), // 169
+        (30.6, 34.0), // 170
+        (31.0, 34.0), // 171
+        (31.0, 46.0), // 172
+        (30.6, 46.0), // 173
+        (34.0, 52.0), // 174
+        (35.5, 52.0), // 175
+        (35.5, 52.5), // 176
+        (34.0, 52.5), // 177
+        (32.0, 52.5), // 178
+        (37.0, 52.5), // 179
+        (37.0, 57.5), // 180
+        (32.0, 57.5), // 181
+        (33.0, 57.5), // 182
+        (36.0, 57.5), // 183
+        (36.0, 57.9), // 184
+        (33.0, 57.9), // 185
+        (39.75, 52.0), // 186
+        (41.25, 52.0), // 187
+        (41.25, 52.5), // 188
+        (39.75, 52.5), // 189
+        (38.0, 52.5), // 190
+        (43.0, 52.5), // 191
+        (43.0, 57.5), // 192
+        (38.0, 57.5), // 193
+        (39.0, 57.5), // 194
+        (42.0, 57.5), // 195
+        (42.0, 57.9), // 196
+        (39.0, 57.9), // 197
+        (45.75, 52.0), // 198
+        (47.25, 52.0), // 199
+        (47.25, 52.5), // 200
+        (45.75, 52.5), // 201
+        (44.0, 52.5), // 202
+        (49.0, 52.5), // 203
+        (49.0, 57.5), // 204
+        (44.0, 57.5), // 205
+        (45.0, 57.5), // 206
+        (48.0, 57.5), // 207
+        (48.0, 57.9), // 208
+        (45.0, 57.9), // 209
+        (49.0, 53.5), // 210
+        (50.5, 53.5), // 211
+        (50.5, 54.7), // 212
+        (49.0, 54.7), // 213
+        (50.5, 52.5), // 214
+        (55.5, 52.5), // 215
+        (55.5, 57.5), // 216
+        (50.5, 57.5), // 217
+        (56.0, 40.0), // 218
+        (56.5, 40.0), // 219
+        (56.5, 43.0), // 220
+        (56.0, 43.0), // 221
+        (56.5, 30.0), // 222
+        (63.5, 30.0), // 223
+        (63.5, 52.0), // 224
+        (56.5, 52.0), // 225
+        (59.5, 37.8), // 226
+        (60.3, 37.8), // 227
+        (60.3, 37.0), // 228
+        (59.5, 37.0), // 229
+        (59.5, 45.8), // 230
+        (60.3, 45.8), // 231
+        (60.3, 45.0), // 232
+        (59.5, 45.0), // 233
+        (65.0, 30.0), // 234
+        (65.0, 52.0), // 235
+        (78.0, 30.0), // 236
+        (78.0, 52.0), // 237
+        (68.0, 49.0), // 238
+        (76.0, 49.0), // 239
+        (76.0, 38.0), // 240
+        (68.0, 38.0), // 241
+        (70.0, 43.2), // 242
+        (74.0, 43.2), // 243
+        (74.0, 42.0), // 244
+        (70.0, 42.0), // 245
+        (60.0, 52.0), // 246
+        (76.0, 52.0), // 247
+        (76.0, 52.4), // 248
+        (60.0, 52.4), // 249
+        (78.0, 39.0), // 250
+        (78.4, 39.0), // 251
+        (78.4, 49.0), // 252
+        (78.0, 49.0), // 253
+        (78.0, 32.0), // 254
+        (78.75, 32.0), // 255
+        (78.75, 37.0), // 256
+        (78.0, 37.0), // 257
+        (78.75, 30.0), // 258
+        (94.0, 30.0), // 259
+        (94.0, 52.0), // 260
+        (78.75, 52.0), // 261
+        (82.0, 43.0), // 262
+        (85.0, 43.0), // 263
+        (85.0, 40.0), // 264
+        (82.0, 40.0), // 265
+        (88.0, 36.5), // 266
+        (91.0, 36.5), // 267
+        (91.0, 33.5), // 268
+        (88.0, 33.5), // 269
+        (86.0, 48.0), // 270
+        (90.0, 48.0), // 271
+        (90.0, 45.0), // 272
+        (86.0, 45.0), // 273
+        (80.5, 51.0), // 274
+        (81.0, 51.0), // 275
+        (81.0, 46.5), // 276
+        (80.5, 46.5), // 277
+        (82.0, 29.5), // 278
+        (85.0, 29.5), // 279
+        (85.0, 30.0), // 280
+        (82.0, 30.0), // 281
+        (58.0, 4.0), // 282
+        (90.0, 4.0), // 283
+        (90.0, 29.5), // 284
+        (58.0, 29.5), // 285
+        (73.4, 24.0), // 286
+        (74.0, 24.0), // 287
+        (74.0, 26.0), // 288
+        (86.5, 26.0), // 289
+        (86.5, 7.0), // 290
+        (74.0, 7.0), // 291
+        (74.0, 9.0), // 292
+        (73.4, 9.0), // 293
+        (59.5, 23.0), // 294
+        (67.0, 23.0), // 295
+        (67.0, 9.0), // 296
+        (59.5, 9.0), // 297
+        (86.0, 7.0), // 298
+        (86.0, 26.0), // 299
+        (77.0, 13.0), // 300
+        (78.5, 13.0), // 301
+        (78.5, 11.5), // 302
+        (77.0, 11.5), // 303
+        (77.0, 17.25), // 304
+        (78.5, 17.25), // 305
+        (78.5, 15.75), // 306
+        (77.0, 15.75), // 307
+        (77.0, 21.5), // 308
+        (78.5, 21.5), // 309
+        (78.5, 20.0), // 310
+        (77.0, 20.0), // 311
+        (62.0, 3.6), // 312
+        (72.0, 3.6), // 313
+        (72.0, 4.0), // 314
+        (62.0, 4.0), // 315
+        (76.0, 3.5), // 316
+        (78.0, 3.5), // 317
+        (78.0, 4.0), // 318
+        (76.0, 4.0), // 319
+        (75.0, 0.5), // 320
+        (79.0, 0.5), // 321
+        (79.0, 3.5), // 322
+        (75.0, 3.5), // 323
+        (82.0, 3.5), // 324
+        (84.0, 3.5), // 325
+        (84.0, 4.0), // 326
+        (82.0, 4.0), // 327
+        (81.0, 0.5), // 328
+        (85.0, 0.5), // 329
+        (85.0, 3.5), // 330
+        (81.0, 3.5), // 331
+        (90.0, 14.0), // 332
+        (90.75, 14.0), // 333
+        (90.75, 18.0), // 334
+        (90.0, 18.0), // 335
+        (90.75, 13.0), // 336
+        (94.5, 13.0), // 337
+        (94.5, 19.0), // 338
+        (90.75, 19.0), // 339
+        (57.5, 12.0), // 340
+        (58.0, 12.0), // 341
+        (58.0, 15.0), // 342
+        (57.5, 15.0), // 343
+        (51.5, 8.0), // 344
+        (57.5, 8.0), // 345
+        (57.5, 22.0), // 346
+        (51.5, 22.0), // 347
+        (51.5, 17.5), // 348
+        (53.0, 20.6), // 349
+        (56.0, 20.6), // 350
+        (56.0, 19.6), // 351
+        (53.0, 19.6), // 352
+        (52.5, 9.2), // 353
+        (56.5, 9.2), // 354
+        (56.5, 8.6), // 355
+        (52.5, 8.6), // 356
+        (52.5, 7.6), // 357
+        (56.5, 7.6), // 358
+        (56.5, 8.0), // 359
+        (52.5, 8.0), // 360
+        (44.5, -16.0), // 361
+        (62.0, -16.0), // 362
+        (62.0, 3.5), // 363
+        (44.5, 3.5), // 364
+        (47.0, -11.0), // 365
+        (59.0, -11.0), // 366
+        (59.0, -12.0), // 367
+        (47.0, -12.0), // 368
+        (47.0, -6.0), // 369
+        (59.0, -6.0), // 370
+        (59.0, -7.0), // 371
+        (47.0, -7.0), // 372
+        (52.5, -1.0), // 373
+        (53.5, -1.0), // 374
+        (53.5, -2.0), // 375
+        (52.5, -2.0), // 376
+        (46.0, -16.4), // 377
+        (60.0, -16.4), // 378
+        (60.0, -16.0), // 379
+        (46.0, -16.0), // 380
+        (62.0, -12.0), // 381
+        (62.5, -12.0), // 382
+        (62.5, -9.0), // 383
+        (62.0, -9.0), // 384
+        (62.5, -22.0), // 385
+        (74.0, -22.0), // 386
+        (74.0, -1.0), // 387
+        (62.5, -1.0), // 388
+        (66.0, -4.0), // 389
+        (70.0, -4.0), // 390
+        (70.0, -7.0), // 391
+        (66.0, -7.0), // 392
+        (74.0, -12.0), // 393
+        (76.0, -12.0), // 394
+        (76.0, -8.0), // 395
+        (74.0, -8.0), // 396
+        (76.0, -22.0), // 397
+        (92.0, -22.0), // 398
+        (92.0, -1.0), // 399
+        (76.0, -1.0), // 400
+        (79.0, -17.0), // 401
+        (89.0, -17.0), // 402
+        (89.0, -18.0), // 403
+        (79.0, -18.0), // 404
+        (79.0, -11.5), // 405
+        (89.0, -11.5), // 406
+        (89.0, -12.5), // 407
+        (79.0, -12.5), // 408
+        (79.0, -5.0), // 409
+        (86.0, -5.0), // 410
+        (86.0, -6.0), // 411
+        (79.0, -6.0), // 412
+        (92.0, -6.0), // 413
+        (94.0, -6.0), // 414
+        (94.0, -2.0), // 415
+        (92.0, -2.0), // 416
+        (94.0, -22.0), // 417
+        (100.0, -22.0), // 418
+        (100.0, -1.0), // 419
+        (94.0, -1.0), // 420
+        (96.0, -15.0), // 421
+        (98.0, -15.0), // 422
+        (98.0, -19.0), // 423
+        (96.0, -19.0), // 424
+        (104.0, -22.0), // 425
+        (104.0, -17.0), // 426
+        (100.0, -17.0), // 427
+        (104.0, -4.0), // 428
+        (100.0, -4.0), // 429
+        (110.0, -22.0), // 430
+        (110.0, -1.0), // 431
+        (104.0, -1.0), // 432
+        (106.0, -11.0), // 433
+        (108.0, -11.0), // 434
+        (108.0, -15.0), // 435
+        (106.0, -15.0), // 436
+        (110.0, -6.0), // 437
+        (112.0, -6.0), // 438
+        (112.0, -2.0), // 439
+        (110.0, -2.0), // 440
+        (112.0, -22.0), // 441
+        (124.0, -22.0), // 442
+        (124.0, -1.0), // 443
+        (112.0, -1.0), // 444
+        (115.0, -14.0), // 445
+        (119.0, -14.0), // 446
+        (119.0, -15.0), // 447
+        (115.0, -15.0), // 448
+        (119.5, -7.0), // 449
+        (120.5, -7.0), // 450
+        (120.5, -8.0), // 451
+        (119.5, -8.0), // 452
+        (124.0, -12.0), // 453
+        (124.5, -12.0), // 454
+        (124.5, -9.0), // 455
+        (124.0, -9.0), // 456
+        (124.5, -16.0), // 457
+        (130.0, -16.0), // 458
+        (130.0, -5.0), // 459
+        (124.5, -5.0), // 460
+        (127.0, -9.0), // 461
+        (128.2, -9.0), // 462
+        (128.2, -13.0), // 463
+        (127.0, -13.0), // 464
+        (116.0, -1.0), // 465
+        (119.0, -1.0), // 466
+        (119.0, -0.5), // 467
+        (116.0, -0.5), // 468
+        (119.0, 2.5), // 469
+        (116.0, 2.5), // 470
+        (96.0, 2.5), // 471
+        (116.0, 4.5), // 472
+        (119.0, 4.5), // 473
+        (132.0, 2.5), // 474
+        (132.0, 44.0), // 475
+        (96.0, 44.0), // 476
+        (99.0, 10.0), // 477
+        (103.0, 10.0), // 478
+        (103.0, 6.0), // 479
+        (99.0, 6.0), // 480
+        (100.0, 36.0), // 481
+        (110.0, 36.0), // 482
+        (110.0, 26.0), // 483
+        (100.0, 26.0), // 484
+        (124.0, 31.0), // 485
+        (129.0, 31.0), // 486
+        (129.0, 26.0), // 487
+        (124.0, 26.0), // 488
+        (113.5, 43.5), // 489
+        (121.5, 43.5), // 490
+        (121.5, 35.5), // 491
+        (113.5, 35.5), // 492
+        (125.5, 14.0), // 493
+        (126.5, 14.0), // 494
+        (126.5, 13.0), // 495
+        (125.5, 13.0), // 496
+        (104.0, 19.0), // 497
+        (105.0, 19.0), // 498
+        (105.0, 18.0), // 499
+        (104.0, 18.0), // 500
+        (103.0, 33.0), // 501
+        (107.0, 33.0), // 502
+        (107.0, 29.0), // 503
+        (103.0, 29.0), // 504
+        (116.0, 35.5), // 505
+        (118.5, 35.5), // 506
+        (118.5, 36.0), // 507
+        (116.0, 36.0), // 508
+        (114.0, 36.0), // 509
+        (121.0, 36.0), // 510
+        (121.0, 43.0), // 511
+        (119.0, 43.0), // 512
+        (116.0, 43.0), // 513
+        (114.0, 43.0), // 514
+        (132.0, 20.0), // 515
+        (132.5, 20.0), // 516
+        (132.5, 23.0), // 517
+        (132.0, 23.0), // 518
+        (132.5, 17.5), // 519
+        (137.0, 17.5), // 520
+        (137.0, 25.5), // 521
+        (132.5, 25.5), // 522
+        (65.125, 9.0), // 523
+        (65.125, 23.0), // 524
+        (63.25, 9.0), // 525
+        (63.25, 23.0), // 526
+        (61.375, 9.0), // 527
+        (61.375, 23.0), // 528
+        (101.333, -4.0), // 529
+        (101.333, -1.0), // 530
+        (102.667, -4.0), // 531
+        (102.667, -1.0), // 532
+    ],
+    sectors: [
+        // 0 road
+        (loops: [[0, 1, 2, 3], [4, 5, 6, 7]], floor_z: -0.2, ceil_z: 16.0, floor_mat: 0, ceil_mat: 1, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 1 ob_van
+        (loops: [[7, 6, 5, 4]], floor_z: 2.4, ceil_z: 16.0, floor_mat: 3, ceil_mat: 1, wall_mat: 3, face_mat: Some(3), mover: None, secret: false, hazard: None),
+        // 2 plaza
+        (loops: [[1, 41, 40, 8, 42, 45, 50, 53, 46, 49, 9, 2], [10, 11, 12, 13], [14, 15, 16, 17], [18, 19, 20, 21], [22, 23, 24, 25], [26, 27, 28, 29], [30, 31, 32, 33]], floor_z: 0.0, ceil_z: 16.0, floor_mat: 4, ceil_mat: 1, wall_mat: 2, face_mat: Some(4), mover: None, secret: false, hazard: None),
+        // 3 fountain
+        (loops: [[13, 12, 11, 10], [34, 35, 36, 37]], floor_z: -0.3, ceil_z: 16.0, floor_mat: 5, ceil_mat: 1, wall_mat: 4, face_mat: Some(6), mover: None, secret: false, hazard: None),
+        // 4 fountain_column
+        (loops: [[37, 36, 35, 34]], floor_z: 2.4, ceil_z: 16.0, floor_mat: 6, ceil_mat: 1, wall_mat: 6, face_mat: Some(6), mover: None, secret: false, hazard: None),
+        // 5 planter_s
+        (loops: [[17, 16, 15, 14]], floor_z: 0.9, ceil_z: 16.0, floor_mat: 7, ceil_mat: 1, wall_mat: 4, face_mat: Some(4), mover: None, secret: false, hazard: None),
+        // 6 planter_n
+        (loops: [[21, 20, 19, 18]], floor_z: 0.9, ceil_z: 16.0, floor_mat: 7, ceil_mat: 1, wall_mat: 4, face_mat: Some(4), mover: None, secret: false, hazard: None),
+        // 7 bench
+        (loops: [[25, 24, 23, 22]], floor_z: 0.5, ceil_z: 16.0, floor_mat: 8, ceil_mat: 1, wall_mat: 4, face_mat: Some(8), mover: None, secret: false, hazard: None),
+        // 8 newsstand
+        (loops: [[38, 39, 40, 41]], floor_z: 0.0, ceil_z: 3.2, floor_mat: 4, ceil_mat: 9, wall_mat: 10, face_mat: None, mover: None, secret: false, hazard: None),
+        // 9 facade_neon
+        (loops: [[42, 43, 44, 45]], floor_z: 3.5, ceil_z: 5.5, floor_mat: 9, ceil_mat: 9, wall_mat: 11, face_mat: None, mover: None, secret: false, hazard: None),
+        // 10 billboard
+        (loops: [[46, 47, 48, 49]], floor_z: 3.6, ceil_z: 7.6, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 11 front_door
+        (loops: [[50, 51, 52, 53]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 9, ceil_mat: 9, wall_mat: 10, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 12 lobby
+        (loops: [[54, 89, 88, 109, 108, 55, 110, 113, 56, 103, 102, 57, 52, 51], [58, 59, 60, 61], [62, 63, 64, 65], [66, 67, 68, 69], [70, 71, 72, 73], [74, 75, 76, 77], [78, 79, 80, 81], [82, 83, 84, 85]], floor_z: 0.0, ceil_z: 6.0, floor_mat: 6, ceil_mat: 14, wall_mat: 10, face_mat: None, mover: None, secret: false, hazard: None),
+        // 13 reception
+        (loops: [[61, 60, 59, 58]], floor_z: 1.1, ceil_z: 6.0, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(12), mover: None, secret: false, hazard: None),
+        // 14 sofa
+        (loops: [[65, 64, 63, 62]], floor_z: 0.5, ceil_z: 6.0, floor_mat: 15, ceil_mat: 14, wall_mat: 4, face_mat: Some(15), mover: None, secret: false, hazard: None),
+        // 15 planter_l
+        (loops: [[69, 68, 67, 66]], floor_z: 0.9, ceil_z: 6.0, floor_mat: 7, ceil_mat: 14, wall_mat: 4, face_mat: Some(8), mover: None, secret: false, hazard: None),
+        // 16 guard_door
+        (loops: [[86, 87, 88, 89]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 17 guard
+        (loops: [[90, 101, 100, 91, 92, 87, 86, 93], [94, 95, 96, 97]], floor_z: 0.0, ceil_z: 3.2, floor_mat: 16, ceil_mat: 14, wall_mat: 8, face_mat: None, mover: None, secret: false, hazard: None),
+        // 18 guard_desk
+        (loops: [[97, 96, 95, 94]], floor_z: 0.9, ceil_z: 3.2, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(9), mover: None, secret: false, hazard: None),
+        // 19 cctv
+        (loops: [[98, 99, 100, 101]], floor_z: 0.9, ceil_z: 2.6, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 20 blue_door
+        (loops: [[102, 103, 104, 105]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:Some(Blue),channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 21 red_door
+        (loops: [[106, 107, 108, 109]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:Some(Red),channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 22 green_lobby_door
+        (loops: [[110, 111, 112, 113]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(5),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 23 newsroom
+        (loops: [[114, 105, 104, 169, 168, 115, 218, 221, 116, 199, 198, 187, 186, 175, 174, 117, 172, 171], [118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129], [130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141], [142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153], [154, 155, 156, 157], [158, 159, 160, 161], [162, 163, 164, 165]], floor_z: 0.0, ceil_z: 4.5, floor_mat: 16, ceil_mat: 14, wall_mat: 4, face_mat: None, mover: None, secret: false, hazard: None),
+        // 24 cubes_w
+        (loops: [[129, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118]], floor_z: 1.5, ceil_z: 4.5, floor_mat: 8, ceil_mat: 14, wall_mat: 4, face_mat: Some(16), mover: None, secret: false, hazard: None),
+        // 25 cubes_e
+        (loops: [[141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130]], floor_z: 1.5, ceil_z: 4.5, floor_mat: 8, ceil_mat: 14, wall_mat: 4, face_mat: Some(16), mover: None, secret: false, hazard: None),
+        // 26 cubes_n
+        (loops: [[153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142]], floor_z: 1.5, ceil_z: 4.5, floor_mat: 8, ceil_mat: 14, wall_mat: 4, face_mat: Some(16), mover: None, secret: false, hazard: None),
+        // 27 assign_desk
+        (loops: [[157, 156, 155, 154]], floor_z: 1.0, ceil_z: 4.5, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(8), mover: None, secret: false, hazard: None),
+        // 28 ticker
+        (loops: [[166, 167, 168, 169]], floor_z: 2.6, ceil_z: 3.4, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 29 monitor_wall
+        (loops: [[170, 171, 172, 173]], floor_z: 1.2, ceil_z: 3.8, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 30 bay1_way
+        (loops: [[174, 175, 176, 177]], floor_z: 0.0, ceil_z: 2.6, floor_mat: 16, ceil_mat: 9, wall_mat: 4, face_mat: None, mover: None, secret: false, hazard: None),
+        // 31 bay1
+        (loops: [[178, 177, 176, 179, 180, 183, 182, 181]], floor_z: 0.0, ceil_z: 2.8, floor_mat: 16, ceil_mat: 9, wall_mat: 8, face_mat: None, mover: None, secret: false, hazard: None),
+        // 32 bay1_monitors
+        (loops: [[182, 183, 184, 185]], floor_z: 1.0, ceil_z: 2.4, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 33 bay2_way
+        (loops: [[186, 187, 188, 189]], floor_z: 0.0, ceil_z: 2.6, floor_mat: 16, ceil_mat: 9, wall_mat: 4, face_mat: None, mover: None, secret: false, hazard: None),
+        // 34 bay2
+        (loops: [[190, 189, 188, 191, 192, 195, 194, 193]], floor_z: 0.0, ceil_z: 2.8, floor_mat: 16, ceil_mat: 9, wall_mat: 8, face_mat: None, mover: None, secret: false, hazard: None),
+        // 35 bay2_monitors
+        (loops: [[194, 195, 196, 197]], floor_z: 1.0, ceil_z: 2.4, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 36 bay3_way
+        (loops: [[198, 199, 200, 201]], floor_z: 0.0, ceil_z: 2.6, floor_mat: 16, ceil_mat: 9, wall_mat: 4, face_mat: None, mover: None, secret: false, hazard: None),
+        // 37 bay3
+        (loops: [[202, 201, 200, 203, 210, 213, 204, 207, 206, 205]], floor_z: 0.0, ceil_z: 2.8, floor_mat: 16, ceil_mat: 9, wall_mat: 8, face_mat: None, mover: None, secret: false, hazard: None),
+        // 38 bay3_monitors
+        (loops: [[206, 207, 208, 209]], floor_z: 1.0, ceil_z: 2.4, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 39 bay3_vent
+        (loops: [[210, 211, 212, 213]], floor_z: 0.25, ceil_z: 1.4, floor_mat: 17, ceil_mat: 9, wall_mat: 17, face_mat: None, mover: None, secret: false, hazard: None),
+        // 40 tape_vault
+        (loops: [[214, 215, 216, 217, 212, 211]], floor_z: 0.25, ceil_z: 2.6, floor_mat: 4, ceil_mat: 9, wall_mat: 18, face_mat: None, mover: None, secret: true, hazard: None),
+        // 41 studio_a_door
+        (loops: [[218, 219, 220, 221]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 42 studio_a_w
+        (loops: [[222, 223, 224, 246, 225, 220, 219], [226, 227, 228, 229], [230, 231, 232, 233]], floor_z: 0.0, ceil_z: 8.0, floor_mat: 4, ceil_mat: 17, wall_mat: 9, face_mat: None, mover: None, secret: false, hazard: None),
+        // 43 camera_1
+        (loops: [[229, 228, 227, 226]], floor_z: 1.7, ceil_z: 8.0, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(9), mover: None, secret: false, hazard: None),
+        // 44 camera_2
+        (loops: [[233, 232, 231, 230]], floor_z: 1.7, ceil_z: 8.0, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(9), mover: None, secret: false, hazard: None),
+        // 45 dolly_track
+        (loops: [[223, 234, 235, 224]], floor_z: 0.0, ceil_z: 8.0, floor_mat: 19, ceil_mat: 17, wall_mat: 9, face_mat: None, mover: None, secret: false, hazard: None),
+        // 46 studio_a_e
+        (loops: [[234, 236, 254, 257, 250, 253, 237, 247, 235], [238, 239, 240, 241]], floor_z: 0.0, ceil_z: 8.0, floor_mat: 4, ceil_mat: 17, wall_mat: 9, face_mat: None, mover: None, secret: false, hazard: None),
+        // 47 news_set
+        (loops: [[241, 240, 239, 238], [242, 243, 244, 245]], floor_z: 0.5, ceil_z: 8.0, floor_mat: 16, ceil_mat: 14, wall_mat: 9, face_mat: Some(20), mover: None, secret: false, hazard: None),
+        // 48 anchor_desk
+        (loops: [[245, 244, 243, 242]], floor_z: 1.25, ceil_z: 8.0, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(12), mover: None, secret: false, hazard: None),
+        // 49 video_wall_n
+        (loops: [[246, 224, 235, 247, 248, 249]], floor_z: 1.0, ceil_z: 6.5, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 50 video_wall_e
+        (loops: [[250, 251, 252, 253]], floor_z: 1.0, ceil_z: 6.0, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 51 breach
+        (loops: [[254, 255, 256, 257]], floor_z: 0.0, ceil_z: 4.0, floor_mat: 4, ceil_mat: 4, wall_mat: 9, face_mat: None, mover: Some((kind:Crack,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 52 scene_dock
+        (loops: [[258, 281, 280, 259, 260, 261, 256, 255], [262, 263, 264, 265], [266, 267, 268, 269], [270, 271, 272, 273], [274, 275, 276, 277]], floor_z: 0.0, ceil_z: 7.0, floor_mat: 4, ceil_mat: 9, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 53 crate_1
+        (loops: [[265, 264, 263, 262]], floor_z: 2.6, ceil_z: 7.0, floor_mat: 18, ceil_mat: 14, wall_mat: 18, face_mat: Some(18), mover: None, secret: false, hazard: None),
+        // 54 crate_2
+        (loops: [[269, 268, 267, 266]], floor_z: 2.6, ceil_z: 7.0, floor_mat: 18, ceil_mat: 14, wall_mat: 18, face_mat: Some(18), mover: None, secret: false, hazard: None),
+        // 55 crate_3
+        (loops: [[273, 272, 271, 270]], floor_z: 1.3, ceil_z: 7.0, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(8), mover: None, secret: false, hazard: None),
+        // 56 flats
+        (loops: [[277, 276, 275, 274]], floor_z: 3.6, ceil_z: 7.0, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(10), mover: None, secret: false, hazard: None),
+        // 57 dock_door
+        (loops: [[278, 279, 280, 281]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 58 studio_b
+        (loops: [[282, 315, 314, 319, 318, 327, 326, 283, 332, 335, 284, 279, 278, 285, 342, 341], [286, 287, 288, 299, 289, 290, 298, 291, 292, 293], [294, 528, 526, 524, 295, 296, 523, 525, 527, 297]], floor_z: 0.0, ceil_z: 9.0, floor_mat: 6, ceil_mat: 9, wall_mat: 21, face_mat: None, mover: None, secret: false, hazard: None),
+        // 59 stage
+        (loops: [[291, 298, 299, 288, 287, 292], [300, 301, 302, 303], [304, 305, 306, 307], [308, 309, 310, 311]], floor_z: 0.8, ceil_z: 9.0, floor_mat: 22, ceil_mat: 14, wall_mat: 21, face_mat: Some(20), mover: None, secret: false, hazard: None),
+        // 60 stage_step
+        (loops: [[293, 292, 287, 286]], floor_z: 0.4, ceil_z: 9.0, floor_mat: 22, ceil_mat: 14, wall_mat: 21, face_mat: Some(20), mover: None, secret: false, hazard: None),
+        // 61 podium_1
+        (loops: [[303, 302, 301, 300]], floor_z: 1.9, ceil_z: 9.0, floor_mat: 20, ceil_mat: 14, wall_mat: 21, face_mat: Some(21), mover: None, secret: false, hazard: None),
+        // 62 podium_2
+        (loops: [[307, 306, 305, 304]], floor_z: 1.9, ceil_z: 9.0, floor_mat: 20, ceil_mat: 14, wall_mat: 21, face_mat: Some(21), mover: None, secret: false, hazard: None),
+        // 63 podium_3
+        (loops: [[311, 310, 309, 308]], floor_z: 1.9, ceil_z: 9.0, floor_mat: 20, ceil_mat: 14, wall_mat: 21, face_mat: Some(21), mover: None, secret: false, hazard: None),
+        // 64 prize_board
+        (loops: [[312, 313, 314, 315]], floor_z: 1.0, ceil_z: 7.5, floor_mat: 9, ceil_mat: 9, wall_mat: 11, face_mat: None, mover: None, secret: false, hazard: None),
+        // 65 booth_1_door
+        (loops: [[316, 317, 318, 319]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(2),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 66 booth_1
+        (loops: [[320, 321, 322, 317, 316, 323]], floor_z: 0.0, ceil_z: 3.2, floor_mat: 16, ceil_mat: 9, wall_mat: 15, face_mat: None, mover: None, secret: false, hazard: None),
+        // 67 booth_2_door
+        (loops: [[324, 325, 326, 327]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(2),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 68 booth_2
+        (loops: [[328, 329, 330, 325, 324, 331]], floor_z: 0.0, ceil_z: 3.2, floor_mat: 16, ceil_mat: 9, wall_mat: 15, face_mat: None, mover: None, secret: false, hazard: None),
+        // 69 backstage_crack
+        (loops: [[332, 333, 334, 335]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 4, ceil_mat: 4, wall_mat: 2, face_mat: Some(23), mover: Some((kind:Crack,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 70 backstage_stash
+        (loops: [[336, 337, 338, 339, 334, 333]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 4, ceil_mat: 4, wall_mat: 2, face_mat: None, mover: None, secret: true, hazard: None),
+        // 71 green_door
+        (loops: [[340, 341, 342, 343]], floor_z: 0.0, ceil_z: 3.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 72 green_room
+        (loops: [[344, 360, 359, 345, 340, 343, 346, 347, 348, 112, 111], [349, 350, 351, 352], [353, 354, 355, 356]], floor_z: 0.0, ceil_z: 3.2, floor_mat: 16, ceil_mat: 8, wall_mat: 15, face_mat: None, mover: None, secret: false, hazard: None),
+        // 73 couch
+        (loops: [[352, 351, 350, 349]], floor_z: 0.5, ceil_z: 3.2, floor_mat: 15, ceil_mat: 14, wall_mat: 4, face_mat: Some(15), mover: None, secret: false, hazard: None),
+        // 74 vanity
+        (loops: [[356, 355, 354, 353]], floor_z: 0.95, ceil_z: 3.2, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(8), mover: None, secret: false, hazard: None),
+        // 75 vanity_mirror
+        (loops: [[357, 358, 359, 360]], floor_z: 1.2, ceil_z: 2.6, floor_mat: 20, ceil_mat: 20, wall_mat: 20, face_mat: None, mover: None, secret: false, hazard: None),
+        // 76 master_control
+        (loops: [[361, 380, 379, 362, 381, 384, 363, 107, 106, 364], [365, 366, 367, 368], [369, 370, 371, 372], [373, 374, 375, 376]], floor_z: 0.0, ceil_z: 4.5, floor_mat: 17, ceil_mat: 14, wall_mat: 9, face_mat: None, mover: None, secret: false, hazard: None),
+        // 77 console_1
+        (loops: [[368, 367, 366, 365]], floor_z: 1.0, ceil_z: 4.5, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(12), mover: None, secret: false, hazard: None),
+        // 78 console_2
+        (loops: [[372, 371, 370, 369]], floor_z: 1.0, ceil_z: 4.5, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(12), mover: None, secret: false, hazard: None),
+        // 79 monitor_bank
+        (loops: [[377, 378, 379, 380]], floor_z: 0.6, ceil_z: 4.2, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 80 mc_door
+        (loops: [[381, 382, 383, 384]], floor_z: 0.0, ceil_z: 3.5, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 81 tower_foot
+        (loops: [[385, 386, 393, 396, 387, 388, 383, 382], [389, 390, 391, 392]], floor_z: 0.0, ceil_z: 7.0, floor_mat: 4, ceil_mat: 9, wall_mat: 4, face_mat: None, mover: None, secret: false, hazard: None),
+        // 82 generator
+        (loops: [[392, 391, 390, 389]], floor_z: 1.8, ceil_z: 7.0, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(24), mover: None, secret: false, hazard: None),
+        // 83 lift_1
+        (loops: [[393, 394, 395, 396]], floor_z: 0.0, ceil_z: 12.0, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(9), mover: Some((kind:Lift(to:6.0),speed:3.0,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 84 equipment_floor
+        (loops: [[397, 398, 413, 416, 399, 400, 395, 394], [401, 402, 403, 404], [405, 406, 407, 408], [409, 410, 411, 412]], floor_z: 6.0, ceil_z: 11.5, floor_mat: 17, ceil_mat: 9, wall_mat: 24, face_mat: None, mover: None, secret: false, hazard: None),
+        // 85 lift_2
+        (loops: [[413, 414, 415, 416]], floor_z: 6.0, ceil_z: 18.0, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(9), mover: Some((kind:Lift(to:12.0),speed:3.0,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 86 transmitter_w
+        (loops: [[417, 418, 427, 429, 419, 420, 415, 414], [421, 422, 423, 424]], floor_z: 12.0, ceil_z: 17.0, floor_mat: 9, ceil_mat: 9, wall_mat: 24, face_mat: None, mover: None, secret: false, hazard: None),
+        // 87 gantry
+        (loops: [[418, 425, 426, 427]], floor_z: 12.0, ceil_z: 17.0, floor_mat: 17, ceil_mat: 9, wall_mat: 24, face_mat: Some(19), mover: Some((kind:Lift(to:10.0),speed:3.0,lock:None,channel:Some(4),auto_return:None,one_shot:true)), secret: false, hazard: None),
+        // 88 cable_well
+        (loops: [[427, 426, 428, 531, 529, 429]], floor_z: 10.0, ceil_z: 17.0, floor_mat: 24, ceil_mat: 9, wall_mat: 24, face_mat: Some(24), mover: None, secret: false, hazard: None),
+        // 89 transmitter_e
+        (loops: [[425, 430, 437, 440, 431, 432, 428, 426], [433, 434, 435, 436]], floor_z: 12.0, ceil_z: 17.0, floor_mat: 9, ceil_mat: 9, wall_mat: 24, face_mat: None, mover: None, secret: false, hazard: None),
+        // 90 lift_3
+        (loops: [[437, 438, 439, 440]], floor_z: 12.0, ceil_z: 23.0, floor_mat: 9, ceil_mat: 14, wall_mat: 9, face_mat: Some(9), mover: Some((kind:Lift(to:18.0),speed:3.0,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 91 engineering
+        (loops: [[441, 442, 453, 456, 443, 466, 465, 444, 439, 438], [445, 446, 447, 448], [449, 450, 451, 452]], floor_z: 18.0, ceil_z: 22.5, floor_mat: 6, ceil_mat: 14, wall_mat: 4, face_mat: None, mover: None, secret: false, hazard: None),
+        // 92 workbench
+        (loops: [[448, 447, 446, 445]], floor_z: 19.0, ceil_z: 22.5, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(9), mover: None, secret: false, hazard: None),
+        // 93 office_door
+        (loops: [[453, 454, 455, 456]], floor_z: 18.0, ceil_z: 21.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 94 office
+        (loops: [[457, 458, 459, 460, 455, 454], [461, 462, 463, 464]], floor_z: 18.0, ceil_z: 21.0, floor_mat: 16, ceil_mat: 8, wall_mat: 8, face_mat: None, mover: None, secret: false, hazard: None),
+        // 95 office_desk
+        (loops: [[464, 463, 462, 461]], floor_z: 18.9, ceil_z: 21.0, floor_mat: 8, ceil_mat: 14, wall_mat: 8, face_mat: Some(8), mover: None, secret: false, hazard: None),
+        // 96 yellow_door
+        (loops: [[465, 466, 467, 468]], floor_z: 18.0, ceil_z: 21.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:Some(Yellow),channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 97 roof_lift
+        (loops: [[468, 467, 469, 470]], floor_z: 18.0, ceil_z: 28.0, floor_mat: 9, ceil_mat: 14, wall_mat: 4, face_mat: Some(9), mover: Some((kind:Lift(to:24.0),speed:3.0,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 98 roof
+        (loops: [[471, 470, 472, 473, 469, 474, 515, 518, 475, 476], [477, 478, 479, 480], [481, 482, 483, 484], [485, 486, 487, 488], [489, 490, 491, 506, 505, 492], [493, 494, 495, 496], [497, 498, 499, 500]], floor_z: 24.0, ceil_z: 40.0, floor_mat: 7, ceil_mat: 1, wall_mat: 2, face_mat: Some(4), mover: None, secret: false, hazard: None),
+        // 99 roof_mat
+        (loops: [[470, 469, 473, 472]], floor_z: 24.0, ceil_z: 40.0, floor_mat: 17, ceil_mat: 1, wall_mat: 2, face_mat: None, mover: None, secret: false, hazard: None),
+        // 100 air_handler
+        (loops: [[480, 479, 478, 477]], floor_z: 26.0, ceil_z: 40.0, floor_mat: 9, ceil_mat: 1, wall_mat: 17, face_mat: Some(17), mover: None, secret: false, hazard: None),
+        // 101 dish_pad
+        (loops: [[484, 483, 482, 481], [501, 502, 503, 504]], floor_z: 24.5, ceil_z: 40.0, floor_mat: 9, ceil_mat: 1, wall_mat: 9, face_mat: Some(9), mover: None, secret: false, hazard: None),
+        // 102 dish
+        (loops: [[504, 503, 502, 501]], floor_z: 28.5, ceil_z: 40.0, floor_mat: 9, ceil_mat: 1, wall_mat: 9, face_mat: Some(9), mover: None, secret: false, hazard: None),
+        // 103 mast_platform
+        (loops: [[488, 487, 486, 485]], floor_z: 30.0, ceil_z: 40.0, floor_mat: 17, ceil_mat: 1, wall_mat: 19, face_mat: Some(19), mover: None, secret: true, hazard: None),
+        // 104 hut_door
+        (loops: [[505, 506, 507, 508]], floor_z: 24.0, ceil_z: 27.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:None,auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 105 uplink_hut
+        (loops: [[509, 508, 507, 510, 511, 512, 513, 514]], floor_z: 24.0, ceil_z: 27.5, floor_mat: 9, ceil_mat: 9, wall_mat: 12, face_mat: None, mover: None, secret: false, hazard: None),
+        // 106 shed_door
+        (loops: [[515, 516, 517, 518]], floor_z: 24.0, ceil_z: 27.0, floor_mat: 9, ceil_mat: 9, wall_mat: 9, face_mat: Some(13), mover: Some((kind:Door,speed:2.5,lock:None,channel:Some(6),auto_return:None,one_shot:false)), secret: false, hazard: None),
+        // 107 shed
+        (loops: [[519, 520, 521, 522, 517, 516]], floor_z: 24.0, ceil_z: 27.2, floor_mat: 4, ceil_mat: 9, wall_mat: 18, face_mat: None, mover: None, secret: false, hazard: None),
+        // 108 bleachers#0
+        (loops: [[523, 296, 295, 524]], floor_z: 0.5, ceil_z: 9.0, floor_mat: 8, ceil_mat: 14, wall_mat: 21, face_mat: None, mover: None, secret: false, hazard: None),
+        // 109 bleachers#1
+        (loops: [[525, 523, 524, 526]], floor_z: 1.0, ceil_z: 9.0, floor_mat: 8, ceil_mat: 14, wall_mat: 21, face_mat: None, mover: None, secret: false, hazard: None),
+        // 110 bleachers#2
+        (loops: [[527, 525, 526, 528]], floor_z: 1.5, ceil_z: 9.0, floor_mat: 8, ceil_mat: 14, wall_mat: 21, face_mat: None, mover: None, secret: false, hazard: None),
+        // 111 bleachers#3
+        (loops: [[297, 527, 528, 294]], floor_z: 2.0, ceil_z: 9.0, floor_mat: 8, ceil_mat: 14, wall_mat: 21, face_mat: None, mover: None, secret: false, hazard: None),
+        // 112 well_stairs#0
+        (loops: [[429, 529, 530, 419]], floor_z: 10.5, ceil_z: 17.0, floor_mat: 17, ceil_mat: 14, wall_mat: 24, face_mat: None, mover: None, secret: false, hazard: None),
+        // 113 well_stairs#1
+        (loops: [[529, 531, 532, 530]], floor_z: 11.0, ceil_z: 17.0, floor_mat: 17, ceil_mat: 14, wall_mat: 24, face_mat: None, mover: None, secret: false, hazard: None),
+        // 114 well_stairs#2
+        (loops: [[531, 428, 432, 532]], floor_z: 11.5, ceil_z: 17.0, floor_mat: 17, ceil_mat: 14, wall_mat: 24, face_mat: None, mover: None, secret: false, hazard: None),
+    ],
+    player_start: (pos:(3.0,15.0),angle_deg:0.0),
+    lights: [(pos:(16.0,15.0,12.0),color:(0.65,0.72,1.0),intensity:2000000.0,range:32.0,breakable:false,shadows:true), (pos:(24.2,15.0,5.5),color:(1.0,0.8,0.55),intensity:300000.0,range:16.0,breakable:false,shadows:false), (pos:(28.5,23.0,5.5),color:(0.3,0.85,1.0),intensity:150000.0,range:12.0,breakable:false,shadows:false), (pos:(29.0,6.0,4.5),color:(1.0,0.35,0.3),intensity:80000.0,range:9.0,breakable:false,shadows:false), (pos:(18.0,-0.5,2.8),color:(1.0,0.9,0.7),intensity:15000.0,range:5.0,breakable:false,shadows:false), (pos:(41.0,15.0,5.6),color:(1.0,0.95,0.85),intensity:500000.0,range:22.0,breakable:false,shadows:true), (pos:(34.0,24.0,5.5),color:(1.0,0.9,0.75),intensity:60000.0,range:10.0,breakable:false,shadows:false), (pos:(38.0,-2.5,2.9),color:(0.6,0.8,1.0),intensity:50000.0,range:10.0,breakable:false,shadows:false), (pos:(43.0,38.0,4.2),color:(0.95,0.97,1.0),intensity:500000.0,range:22.0,breakable:false,shadows:true), (pos:(34.5,55.0,2.5),color:(0.4,0.7,1.0),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(40.5,55.0,2.5),color:(0.4,0.7,1.0),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(46.5,55.0,2.5),color:(0.4,0.7,1.0),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(53.0,55.0,2.3),color:(1.0,0.75,0.45),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(70.0,44.0,7.5),color:(1.0,0.92,0.8),intensity:900000.0,range:26.0,breakable:false,shadows:true), (pos:(68.0,50.5,4.0),color:(0.3,0.6,1.0),intensity:120000.0,range:12.0,breakable:false,shadows:false), (pos:(60.0,35.0,6.0),color:(1.0,0.9,0.8),intensity:120000.0,range:14.0,breakable:false,shadows:false), (pos:(86.0,41.0,6.5),color:(1.0,0.7,0.4),intensity:500000.0,range:22.0,breakable:false,shadows:true), (pos:(78.0,16.0,8.5),color:(1.0,0.45,0.9),intensity:1000000.0,range:28.0,breakable:false,shadows:true), (pos:(63.0,16.0,7.0),color:(1.0,0.85,0.3),intensity:250000.0,range:18.0,breakable:false,shadows:false), (pos:(67.0,5.0,4.0),color:(0.3,1.0,0.9),intensity:80000.0,range:10.0,breakable:false,shadows:false), (pos:(77.0,2.0,2.9),color:(1.0,0.5,0.6),intensity:15000.0,range:5.0,breakable:false,shadows:false), (pos:(83.0,2.0,2.9),color:(1.0,0.5,0.6),intensity:15000.0,range:5.0,breakable:false,shadows:false), (pos:(92.5,16.0,2.7),color:(1.0,0.8,0.5),intensity:15000.0,range:6.0,breakable:false,shadows:false), (pos:(54.5,15.0,3.0),color:(1.0,0.8,0.6),intensity:60000.0,range:11.0,breakable:false,shadows:false), (pos:(53.0,-8.0,4.2),color:(0.55,0.7,1.0),intensity:400000.0,range:20.0,breakable:false,shadows:true), (pos:(53.0,-15.0,2.5),color:(0.3,0.6,1.0),intensity:80000.0,range:10.0,breakable:false,shadows:false), (pos:(68.0,-12.0,6.5),color:(1.0,0.8,0.5),intensity:200000.0,range:16.0,breakable:false,shadows:false), (pos:(84.0,-11.0,11.0),color:(1.0,0.65,0.35),intensity:600000.0,range:22.0,breakable:false,shadows:true), (pos:(102.0,-11.0,16.5),color:(1.0,0.4,0.3),intensity:600000.0,range:22.0,breakable:false,shadows:true), (pos:(102.0,-10.0,11.0),color:(0.4,0.9,1.0),intensity:40000.0,range:8.0,breakable:false,shadows:false), (pos:(118.0,-11.0,22.0),color:(0.9,0.95,1.0),intensity:500000.0,range:20.0,breakable:false,shadows:true), (pos:(127.0,-10.5,20.7),color:(1.0,0.85,0.6),intensity:50000.0,range:9.0,breakable:false,shadows:false), (pos:(114.0,22.0,34.0),color:(0.6,0.68,1.0),intensity:3000000.0,range:40.0,breakable:false,shadows:true), (pos:(126.5,28.5,34.0),color:(1.0,0.15,0.1),intensity:150000.0,range:14.0,breakable:false,shadows:false), (pos:(117.5,39.5,27.2),color:(0.4,1.0,0.6),intensity:40000.0,range:8.0,breakable:false,shadows:false), (pos:(134.7,21.5,26.9),color:(1.0,0.8,0.5),intensity:15000.0,range:6.0,breakable:false,shadows:false)],
+    switches: [(wall: (348, 112), action: Channel(5), key: None), (wall: (512, 513), action: Exit, key: None)],
+    items: [(kind:Shotgun,pos:(18.0,-0.5),skill:Easy), (kind:ShotgunShells,pos:(5.0,3.0),skill:Easy), (kind:PistolAmmo,pos:(11.0,28.5),skill:Easy), (kind:HealthSmall,pos:(28.5,1.5),skill:Easy), (kind:Armour,pos:(33.5,25.0),skill:Easy), (kind:HealthSmall,pos:(49.5,6.0),skill:Easy), (kind:Chaingun,pos:(41.5,2.0),skill:Easy), (kind:PistolAmmo,pos:(34.0,-4.0),skill:Easy), (kind:Key(Blue),pos:(37.5,-3.5),skill:Easy), (kind:ShotgunShells,pos:(32.0,28.0),skill:Easy), (kind:HealthSmall,pos:(55.0,28.0),skill:Easy), (kind:PistolAmmo,pos:(54.5,50.5),skill:Easy), (kind:Medkit,pos:(40.5,55.5),skill:Easy), (kind:RocketLauncher,pos:(52.0,55.0),skill:Easy), (kind:Rockets,pos:(54.0,56.0),skill:Easy), (kind:Armour,pos:(54.0,53.5),skill:Easy), (kind:HealthSmall,pos:(57.5,31.0),skill:Easy), (kind:ShotgunShells,pos:(76.5,50.5),skill:Easy), (kind:Armour,pos:(66.5,50.5),skill:Easy), (kind:PipeBombs,pos:(87.0,42.0),skill:Easy), (kind:PipeBombs,pos:(92.5,50.5),skill:Easy), (kind:ShotgunShells,pos:(80.0,44.0),skill:Easy), (kind:Medkit,pos:(92.5,39.0),skill:Easy), (kind:Key(Red),pos:(80.5,16.5),skill:Easy), (kind:HealthSmall,pos:(60.0,27.5),skill:Easy), (kind:ShotgunShells,pos:(71.0,5.0),skill:Easy), (kind:PistolAmmo,pos:(66.0,27.5),skill:Easy), (kind:Armour,pos:(88.5,28.0),skill:Easy), (kind:Atom,pos:(92.5,15.0),skill:Easy), (kind:Rockets,pos:(92.5,17.5),skill:Easy), (kind:Medkit,pos:(53.0,21.3),skill:Easy), (kind:ShotgunShells,pos:(45.5,2.5),skill:Easy), (kind:HealthSmall,pos:(61.0,-15.0),skill:Easy), (kind:PistolAmmo,pos:(48.0,-3.0),skill:Easy), (kind:HealthSmall,pos:(72.5,-20.5),skill:Easy), (kind:PipeBombs,pos:(63.5,-20.5),skill:Easy), (kind:ShotgunShells,pos:(77.5,-20.5),skill:Easy), (kind:Armour,pos:(85.0,-2.5),skill:Easy), (kind:PistolAmmo,pos:(90.5,-14.0),skill:Easy), (kind:Medkit,pos:(102.0,-12.0),skill:Easy), (kind:HealthSmall,pos:(96.0,-2.5),skill:Easy), (kind:ShotgunShells,pos:(109.0,-12.0),skill:Easy), (kind:HealthSmall,pos:(113.0,-21.0),skill:Easy), (kind:Jetpack,pos:(126.0,-6.5),skill:Easy), (kind:Key(Yellow),pos:(129.0,-11.0),skill:Easy), (kind:Medkit,pos:(98.0,4.0),skill:Easy), (kind:ShotgunShells,pos:(130.5,4.0),skill:Easy), (kind:Rockets,pos:(98.0,42.5),skill:Easy), (kind:HealthSmall,pos:(120.0,41.5),skill:Easy), (kind:Atom,pos:(126.5,28.5),skill:Easy), (kind:Armour,pos:(127.5,30.0),skill:Easy)],
+    actors: [(kind:Enforcer,pos:(27.5,15.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(13.0,7.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(21.5,20.5),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(26.0,26.0),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Drone,pos:(18.0,24.0),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Barrel,pos:(9.5,13.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Barrel,pos:(28.5,21.5),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(42.5,15.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(34.0,7.0),angle_deg:0.0,asleep:true,skill:Normal,on_death:None), (kind:Grunt,pos:(40.5,-3.0),angle_deg:90.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(35.0,1.5),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Grunt,pos:(34.5,31.5),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(48.5,34.5),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(43.0,38.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(40.0,44.5),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(34.0,47.0),angle_deg:270.0,asleep:true,skill:Hard,on_death:None), (kind:Grunt,pos:(46.5,55.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(72.0,46.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(61.5,49.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(74.5,40.0),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(70.0,34.0),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Grunt,pos:(80.5,37.5),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(89.0,43.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(84.0,49.0),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Grunt,pos:(92.0,32.0),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Enforcer,pos:(80.5,23.5),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(62.3,16.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(70.0,20.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(64.2,12.0),angle_deg:0.0,asleep:true,skill:Normal,on_death:None), (kind:Enforcer,pos:(80.5,9.0),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Slasher,pos:(77.0,2.0),angle_deg:90.0,asleep:false,skill:Easy,on_death:None), (kind:Enforcer,pos:(83.0,2.0),angle_deg:90.0,asleep:false,skill:Normal,on_death:None), (kind:Barrel,pos:(89.3,19.8),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Barrel,pos:(59.0,26.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(55.0,11.0),angle_deg:90.0,asleep:true,skill:Normal,on_death:None), (kind:Enforcer,pos:(53.0,-14.0),angle_deg:90.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(46.0,-9.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(60.5,-3.0),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Grunt,pos:(57.0,-8.5),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Grunt,pos:(70.0,-15.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(90.0,-20.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(84.0,-8.5),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Enforcer,pos:(90.0,-3.0),angle_deg:270.0,asleep:true,skill:Hard,on_death:None), (kind:Enforcer,pos:(107.5,-7.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(95.5,-11.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(102.0,-8.0),angle_deg:180.0,asleep:true,skill:Normal,on_death:None), (kind:Slasher,pos:(108.5,-20.5),angle_deg:180.0,asleep:true,skill:Hard,on_death:None), (kind:Enforcer,pos:(121.0,-18.0),angle_deg:180.0,asleep:true,skill:Easy,on_death:None), (kind:Slasher,pos:(126.0,-14.5),angle_deg:90.0,asleep:true,skill:Normal,on_death:None), (kind:Enforcer,pos:(106.0,15.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Drone,pos:(112.0,24.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Grunt,pos:(99.0,40.0),angle_deg:270.0,asleep:true,skill:Easy,on_death:None), (kind:Enforcer,pos:(120.0,32.0),angle_deg:270.0,asleep:true,skill:Normal,on_death:None), (kind:Grunt,pos:(115.0,20.0),angle_deg:270.0,asleep:true,skill:Hard,on_death:None), (kind:Enforcer,pos:(134.5,19.5),angle_deg:180.0,asleep:false,skill:Easy,on_death:None), (kind:Slasher,pos:(134.5,23.5),angle_deg:180.0,asleep:false,skill:Hard,on_death:None), (kind:Barrel,pos:(112.0,34.0),angle_deg:0.0,asleep:true,skill:Easy,on_death:None)],
+    glass: [],
+    music: Some("dead_air"),
+    triggers: [(sector: 45, action: Channel(1), once: true), (sector: 59, action: Channel(2), once: true), (sector: 87, action: Channel(4), once: true), (sector: 99, action: Channel(6), once: true)],
+    quakes: [(channel:1,duration:1.6,strength:0.6), (channel:4,duration:2.5,strength:0.8)],
+    blasts: [(channel:1,at:(80.5,34.5,1.0),radius:3.0,damage:40,delay:0.6)],
+    props: [(kind:Payphone,pos:(31.16,7.0),angle_deg:0.0,stock:3), (kind:Vending,pos:(31.42,11.5),angle_deg:0.0,stock:2), (kind:Arcade,pos:(58.45,5.4),angle_deg:0.0,stock:3), (kind:Arcade,pos:(58.45,6.5),angle_deg:0.0,stock:3), (kind:Arcade,pos:(61.0,4.45),angle_deg:90.0,stock:3), (kind:Jukebox,pos:(57.19,18.5),angle_deg:180.0,stock:3), (kind:PoolTable,pos:(54.5,14.5),angle_deg:90.0,stock:3), (kind:Vending,pos:(51.92,10.5),angle_deg:0.0,stock:3)],
+)
