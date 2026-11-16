@@ -115,6 +115,18 @@ Scale, rotation, tint and attachment points are applied at runtime from `assets/
 | `assets/models/props/toilet.glb` | Toilet | CreativeTrio | https://poly.pizza/m/ZGtHqPsLv2 | CC0 | none |
 | `assets/models/pickups/jetpack.glb` | Lowpoly Jetpack: `Jetpacks.blend`, collection "Collection 1" | snabisch | https://opengameart.org/content/lowpoly-jetpack | CC0 | converted to glTF with Blender by `scripts/blend_to_glb.py` (Diffuse materials rebuilt as Principled in the same colours) |
 
+## Icon and installer art
+
+Original art made for this game. `scripts/build-icons.sh` renders it from the SVG sources into
+the app icon, the window icon and the installer wizard images (the wizard titles use the Kenney
+Future font listed below).
+
+| Repo path | What | Author | Source | Licence | Processing |
+|---|---|---|---|---|---|
+| `assets/icon/rex-ruckus.svg`, `assets/icon/rex-ruckus-small.svg` | Meltdown badge app icon (original; the small variant is for 16-32 px) | Rex Ruckus contributors | this repository | GPL-3.0-or-later | hand-written SVG |
+| `assets/icon/rex-ruckus-256.png`, `installer/rex-ruckus.ico` | App and window icon | Rex Ruckus contributors | `assets/icon/*.svg` | GPL-3.0-or-later | built by `scripts/build-icons.sh` |
+| `installer/wizard/*.png` | Installer wizard images | Rex Ruckus contributors | `assets/icon/rex-ruckus.svg` | GPL-3.0-or-later | built by `scripts/build-icons.sh` |
+
 ## Fonts
 
 The UI font (CC0 1.0, public domain; the pack's `License.txt` says so).

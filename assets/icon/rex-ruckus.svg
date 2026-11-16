@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Rex Ruckus: Meltdown app icon (full). Original art, GPL-3.0-or-later.
+       Rendered by scripts/build-icons.sh; edit this file, not the PNG/ICO outputs. -->
+  <defs>
+    <radialGradient id="heat" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#ffe14a"/>
+      <stop offset="0.45" stop-color="#ff8a00"/>
+      <stop offset="1" stop-color="#c8160a"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="52" fill="#1b0b05"/>
+  <rect x="14" y="14" width="228" height="228" rx="42" fill="url(#heat)"/>
+  <rect x="14" y="14" width="228" height="228" rx="42" fill="none" stroke="#ffd84a" stroke-width="3"/>
+  <g fill="#1b0b05">
+    <circle cx="128" cy="106" r="18"/>
+    <path d="M142.00,130.25 L166.00,171.82 A76,76 0 0 1 90.00,171.82 L114.00,130.25 A28,28 0 0 0 142.00,130.25 Z"/><path d="M100.00,106.00 L52.00,106.00 A76,76 0 0 1 90.00,40.18 L114.00,81.75 A28,28 0 0 0 100.00,106.00 Z"/><path d="M142.00,81.75 L166.00,40.18 A76,76 0 0 1 204.00,106.00 L156.00,106.00 A28,28 0 0 0 142.00,81.75 Z"/>
+    <line x1="156.5" y1="172.5" x2="156.5" y2="194.5" stroke="#1b0b05" stroke-width="13" stroke-linecap="round"/><circle cx="156.5" cy="194.5" r="8.1"/><line x1="138.6" y1="177.3" x2="138.6" y2="217.3" stroke="#1b0b05" stroke-width="16" stroke-linecap="round"/><circle cx="138.6" cy="217.3" r="9.9"/><line x1="118.7" y1="177.4" x2="118.7" y2="193.4" stroke="#1b0b05" stroke-width="11" stroke-linecap="round"/><circle cx="118.7" cy="193.4" r="6.8"/><line x1="102.0" y1="173.4" x2="102.0" y2="201.4" stroke="#1b0b05" stroke-width="12" stroke-linecap="round"/><circle cx="102.0" cy="201.4" r="7.4"/><ellipse cx="135.9" cy="239.6" rx="5" ry="6.5"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Rex Ruckus: Meltdown app icon (small sizes). Original art, GPL-3.0-or-later.
+       Rendered by scripts/build-icons.sh; edit this file, not the PNG/ICO outputs. -->
+  <defs>
+    <radialGradient id="heat" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#ffe14a"/>
+      <stop offset="0.45" stop-color="#ff8a00"/>
+      <stop offset="1" stop-color="#c8160a"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="52" fill="#1b0b05"/>
+  <rect x="18" y="18" width="220" height="220" rx="38" fill="url(#heat)"/>
+  <rect x="18" y="18" width="220" height="220" rx="38" fill="none" stroke="#ffd84a" stroke-width="3"/>
+  <g fill="#1b0b05">
+    <circle cx="128" cy="128" r="24"/>
+    <path d="M146.02,156.83 L178.87,209.41 A96,96 0 0 1 77.13,209.41 L109.98,156.83 A34,34 0 0 0 146.02,156.83 Z"/><path d="M94.02,129.19 L32.06,131.35 A96,96 0 0 1 82.93,43.24 L112.04,97.98 A34,34 0 0 0 94.02,129.19 Z"/><path d="M143.96,97.98 L173.07,43.24 A96,96 0 0 1 223.94,131.35 L161.98,129.19 A34,34 0 0 0 143.96,97.98 Z"/>
+    
+  </g>
+</svg>
