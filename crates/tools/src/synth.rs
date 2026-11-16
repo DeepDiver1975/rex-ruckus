@@ -590,6 +590,7 @@ mod tests {
         "level_complete",
         "hazard_sizzle",
         "hazard_zap",
+        "hazard_scorch",
         "quake_rumble",
         "toilet_flush",
         "vending_dispense",

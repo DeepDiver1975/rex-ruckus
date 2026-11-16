@@ -1,4 +1,4 @@
-//! Damaging floors: slime and live electric grates hurt the player standing on them.
+//! Damaging floors: slime, live electric grates and magma hurt the player standing on them.
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +9,8 @@ use crate::map::Map;
 pub enum HazardKind {
     Slime,
     Electric,
+    /// Molten rock (geothermal vents); the floor renders as `magma`.
+    Burn,
 }
 
 /// A sector's damaging floor: `damage` (before difficulty and armour) every `interval` seconds.

@@ -98,6 +98,7 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
             match kind {
                 HazardKind::Slime => Cue::HazardSizzle,
                 HazardKind::Electric => Cue::HazardZap,
+                HazardKind::Burn => Cue::HazardScorch,
             },
             None,
         )),
@@ -466,6 +467,12 @@ mod tests {
             }),
             vec![(Cue::HazardZap, None)]
         );
+        assert_eq!(
+            one(&CombatEvent::HazardBurn {
+                kind: HazardKind::Burn
+            }),
+            vec![(Cue::HazardScorch, None)]
+        );
         let mech = |e: MechEvent| {
             let mut out = Vec::new();
             mech_cues(&e, &map, &mut out);
@@ -811,6 +818,9 @@ mod tests {
             },
             CombatEvent::HazardBurn {
                 kind: crate::hazard::HazardKind::Electric,
+            },
+            CombatEvent::HazardBurn {
+                kind: crate::hazard::HazardKind::Burn,
             },
         ] {
             combat_cues(&e, &c, &map, &mut out);

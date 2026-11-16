@@ -93,6 +93,7 @@ pub fn hazard_color(kind: HazardKind) -> Color {
     match kind {
         HazardKind::Slime => Color::srgb(0.25, 0.85, 0.1),
         HazardKind::Electric => Color::srgb(0.3, 0.6, 1.0),
+        HazardKind::Burn => Color::srgb(1.0, 0.45, 0.05),
     }
 }
 
@@ -688,6 +689,21 @@ mod tests {
         assert_eq!(
             hurt_tint(&[slime, hurt]),
             Some(hazard_color(HazardKind::Slime))
+        );
+        let magma = CombatEvent::HazardBurn {
+            kind: HazardKind::Burn,
+        };
+        let hurt = CombatEvent::PlayerHurt {
+            amount: 6,
+            from: Vec3::ZERO,
+        };
+        assert_eq!(
+            hurt_tint(&[magma, hurt]),
+            Some(hazard_color(HazardKind::Burn))
+        );
+        assert_ne!(
+            hazard_color(HazardKind::Burn),
+            hazard_color(HazardKind::Slime)
         );
     }
 

@@ -271,3 +271,15 @@ fn hazard_sectors_use_their_material() {
     assert_eq!(map.0.materials[map.0.sectors[3].floor_mat], "slime");
     assert_eq!(map.0.materials[map.0.sectors[0].floor_mat], "floor");
 }
+
+#[test]
+fn burn_hazard_floors_use_magma() {
+    let mut src = rr_core::fixtures::engine_room("");
+    src.sectors[3].hazard = Some(rr_core::hazard::Hazard {
+        damage: 6,
+        interval: 0.5,
+        kind: rr_core::hazard::HazardKind::Burn,
+    });
+    let (map, _) = rr_game::mechanics::fresh_level(src);
+    assert_eq!(map.0.materials[map.0.sectors[3].floor_mat], "magma");
+}

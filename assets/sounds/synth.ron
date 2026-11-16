@@ -331,6 +331,13 @@
         (wave: Square, freq: 110.0, duty: 0.2, sustain: 0.12, decay: 0.1, crush_bits: 4, lpf: 5000.0, gain: 0.6),
         (wave: Noise, freq: 1000.0, sustain: 0.05, decay: 0.08, punch: 1.0, hpf: 2500.0, gain: 0.7),
     ]),
+    // Magma burn: a hot, dry crackle over a low roar and a short steam hiss.
+    (name: "hazard_scorch", seed: 63, layers: [
+        (wave: Brown, freq: 500.0, attack: 0.01, sustain: 0.12, decay: 0.3, lpf: 900.0, gain: 0.8),
+        (wave: Noise, freq: 1400.0, attack: 0.02, sustain: 0.08, decay: 0.35, lpf: 7000.0, hpf: 3000.0, gain: 0.45),
+        (wave: Noise, freq: 600.0, sustain: 0.02, decay: 0.06, punch: 1.0, crush_bits: 5, hpf: 900.0, gain: 0.5),
+        (wave: Noise, freq: 600.0, sustain: 0.02, decay: 0.05, punch: 1.0, crush_bits: 5, hpf: 900.0, gain: 0.4, delay: 0.11),
+    ]),
     // Quake (loop, 2 s): a steady low rumble; the game loops it for the quake's duration. Loop
     // layers cannot have delays or decays, so the grinding debris is two steady, wobbling noise beds.
     (name: "quake_rumble", seed: 45, loop: true, layers: [

@@ -114,6 +114,8 @@ pub enum Cue {
     HazardSizzle,
     /// The player burns on a live electric grate.
     HazardZap,
+    /// The player burns on magma.
+    HazardScorch,
     /// A scripted quake starts.
     QuakeRumble,
     /// A toilet was used.
@@ -195,6 +197,7 @@ impl Cue {
             Land,
             HazardSizzle,
             HazardZap,
+            HazardScorch,
             QuakeRumble,
             ToiletFlush,
             VendingDispense,
