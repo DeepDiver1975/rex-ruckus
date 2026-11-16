@@ -35,10 +35,10 @@ To build the Windows installer locally, install [Inno Setup 6.6+](https://jrsoft
 then:
 
     cargo build -p rr-game --release
-    iscc /DAppVersion=0.1.0 installer\rex-ruckus.iss
+    iscc /DAppVersion=0.2.0 installer\rex-ruckus.iss
 
 The installer is written to `installer\Output\`. To build the Linux tarball locally, run
-`scripts/package-linux.sh 0.1.0` after the release build; it lands in `dist/`. Pushing a `v*` tag
+`scripts/package-linux.sh 0.2.0` after the release build; it lands in `dist/`. Pushing a `v*` tag
 publishes the installer and the tarball as a GitHub release.
 
 ## License

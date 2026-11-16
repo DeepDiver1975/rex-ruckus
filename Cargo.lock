@@ -4760,7 +4760,7 @@ dependencies = [
 
 [[package]]
 name = "rr-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "earcutr",
  "glam",
@@ -4772,7 +4772,7 @@ dependencies = [
 
 [[package]]
 name = "rr-game"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "directories",
@@ -4786,7 +4786,7 @@ dependencies = [
 
 [[package]]
 name = "rr-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "gltf",
