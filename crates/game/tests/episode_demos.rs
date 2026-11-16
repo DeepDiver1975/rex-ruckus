@@ -39,8 +39,28 @@ fn route_completes(level: &str, max_secs: u32) {
         let world = app.world_mut();
         if trace && frame % 15 == 0 {
             let p = world.query::<&PlayerBody>().single(world).unwrap().0.pos;
+            let hp = world
+                .query::<&rr_game::combat::PlayerVitals>()
+                .single(world)
+                .map(|v| v.0.health.hp)
+                .ok();
+            let near = world
+                .resource::<rr_game::combat::LevelCombat>()
+                .0
+                .actors
+                .iter()
+                .filter(|a| a.alive())
+                .map(|a| {
+                    (
+                        a.body.pos.truncate().distance(p.truncate()),
+                        a.kind,
+                        a.state,
+                    )
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0));
             eprintln!(
-                "t={:6.1} ({:6.2},{:6.2},{:5.2}) s{:?}",
+                "near={near:?} hp={hp:?} {:?} t={:6.1} ({:6.2},{:6.2},{:5.2}) s{:?}",
+                world.resource::<PlayState>(),
                 frame as f32 / 30.0,
                 p.x,
                 p.y,

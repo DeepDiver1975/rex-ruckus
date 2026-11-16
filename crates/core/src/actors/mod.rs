@@ -268,6 +268,10 @@ fn angle_diff(a: f32, b: f32) -> f32 {
 /// Seconds a melee actor lunges before it swipes.
 pub const LUNGE_TIME: f32 = 0.2;
 
+/// Seconds an actor that aims first (`EnemyDef::aim_time`) keeps its gun up after its last shot,
+/// so the Attack clip's recoil plays out before the arm drops.
+pub const AIM_HOLD: f32 = 0.35;
+
 /// Seconds a swooping flyer dives before its first shot.
 pub const SWOOP_WINDUP: f32 = 0.3;
 /// How far below the player's eye a swooping flyer dives (m).
@@ -374,8 +378,11 @@ pub fn think(
         }
         AiState::Attack { t, left } => {
             if !sees {
-                // Lost the target mid-burst: give up the rest of it.
-                a.refire = def.attack_refire;
+                // Lost the target mid-burst: give up the rest of it. (`left == 0` is the
+                // recoil hold after the last shot, whose refire timer already runs.)
+                if left > 0 {
+                    a.refire = def.attack_refire;
+                }
                 a.state = AiState::Chase;
                 return idle;
             }
@@ -386,7 +393,7 @@ pub fn think(
                 return (lunge(def, flat), None);
             }
             if left == 0 {
-                a.refire = def.attack_refire;
+                // The recoil hold is over; `shoot` set the refire timer at the shot.
                 a.state = AiState::Chase;
                 return idle;
             }
@@ -408,6 +415,14 @@ pub fn think(
                     // A swooper dives first and fires when it is down (see `flyer_hover`).
                     a.state = AiState::Attack {
                         t: SWOOP_WINDUP,
+                        left: burst,
+                    };
+                    return (MoveInput::default(), None);
+                }
+                if def.aim_time > 0.0 {
+                    // Raise the gun first (the Attack clip's aim pose), then fire.
+                    a.state = AiState::Attack {
+                        t: def.aim_time,
                         left: burst,
                     };
                     return (MoveInput::default(), None);
@@ -438,7 +453,8 @@ fn lunge(def: &EnemyDef, flat: Vec2) -> MoveInput {
 }
 
 /// Fires one shot of a burst that had `left` (≥ 1) shots to go and moves on: to the next shot
-/// `burst_gap` later, or, after the last one, back to `Chase` with the refire timer reset.
+/// `burst_gap` later, or, after the last one, back to `Chase` with the refire timer reset. An
+/// actor that aims first (`aim_time`) holds the gun up for [`AIM_HOLD`] after the last shot.
 fn shoot(a: &mut Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng, left: u32) -> Vec3 {
     if left > 1 {
         a.state = AiState::Attack {
@@ -447,7 +463,14 @@ fn shoot(a: &mut Actor, def: &EnemyDef, p: &Perception, rng: &mut Rng, left: u32
         };
     } else {
         a.refire = def.attack_refire;
-        a.state = AiState::Chase;
+        a.state = if def.aim_time > 0.0 {
+            AiState::Attack {
+                t: AIM_HOLD,
+                left: 0,
+            }
+        } else {
+            AiState::Chase
+        };
     }
     aim(a, def, p, rng)
 }
@@ -1036,6 +1059,79 @@ mod tests {
         }
     }
 
+    /// The Enforcer: one hitscan blast, raising the gun `aim_time` first.
+    fn enforcer() -> EnemyDef {
+        let mut def = defs().enemy(ActorKind::Enforcer).clone();
+        def.strafe = false;
+        def
+    }
+
+    #[test]
+    fn shipped_gunners_aim_before_they_fire() {
+        assert!(grunt().aim_time > 0.0);
+        assert!(enforcer().aim_time > 0.0);
+    }
+
+    #[test]
+    fn aiming_actor_raises_gun_then_fires_then_holds() {
+        let map = pillar_room();
+        let def = enforcer();
+        let p = player_at(&map, 2.0, 8.0);
+        let mut a = actor_at(&map, &def, 8.0, 8.0, PI, false);
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(3);
+        let aim = (def.aim_time / DT).round() as usize;
+        let hold = (AIM_HOLD / DT).round() as usize;
+        let mut first_shot = None;
+        let mut attack_ticks = 0usize;
+        for i in 0..(aim + hold + 10) {
+            let (input, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+            if matches!(a.state, AiState::Attack { .. }) {
+                attack_ticks += 1;
+                assert_eq!(input.wish, Vec2::ZERO, "aiming actors stand still");
+            }
+            if fire.is_some() {
+                assert!(first_shot.is_none(), "one shot per burst");
+                first_shot = Some(i);
+            }
+        }
+        let shot = first_shot.expect("it fires");
+        // The gun goes up first...
+        assert!(shot.abs_diff(aim) <= 1, "shot at tick {shot}, aim {aim}");
+        // ...stays up through the recoil, then the actor chases again with its refire running.
+        assert!(
+            attack_ticks.abs_diff(aim + hold) <= 2,
+            "{attack_ticks} attack ticks"
+        );
+        assert_eq!(a.state, AiState::Chase);
+        assert!(a.refire > 0.0 && a.refire < def.attack_refire);
+    }
+
+    #[test]
+    fn losing_sight_while_aiming_cancels_the_shot() {
+        let map = pillar_room();
+        let def = enforcer();
+        let p = player_at(&map, 2.0, 8.0);
+        let mut a = actor_at(&map, &def, 8.0, 8.0, PI, false);
+        a.state = AiState::Chase;
+        let mut rng = Rng::new(3);
+        let (_, fire) = think(&mut a, &def, &map, &p, &mut rng, DT);
+        assert!(fire.is_none());
+        assert!(matches!(a.state, AiState::Attack { left: 1, .. }));
+        // The player ducks behind the pillar (the line (8,8) → (2,2) crosses it).
+        let hidden = player_at(&map, 2.0, 2.0);
+        assert!(!crate::trace::can_see(
+            &map,
+            a.eye(),
+            a.body.sector,
+            hidden.eye
+        ));
+        let (_, fire) = think(&mut a, &def, &map, &hidden, &mut rng, DT);
+        assert!(fire.is_none(), "no shot at a target it cannot see");
+        assert_eq!(a.state, AiState::Chase);
+        assert_eq!(a.refire, def.attack_refire);
+    }
+
     #[test]
     fn kill_during_pain_goes_to_dying() {
         let map = pillar_room();
@@ -1322,7 +1418,8 @@ mod tests {
         let mut a = actor_at(&map, &def, 4.0, 5.0, 0.0, false);
         a.state = AiState::Chase;
         let mut rng = Rng::new(1);
-        run(&mut a, &def, &map, &p, &mut rng, 300);
+        // 8 s: it stands still while it aims and shoots, which it keeps doing on the way.
+        run(&mut a, &def, &map, &p, &mut rng, 480);
         assert_eq!(a.body.sector, 1, "the grunt walked into the tunnel");
     }
 }

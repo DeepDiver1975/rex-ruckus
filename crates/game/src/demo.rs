@@ -43,6 +43,10 @@ pub struct Segment {
     /// short way round.
     pub face_deg: Option<f32>,
     pub fire: bool,
+    /// Each tick, turn (at most `HUNT_TURN_RATE`) and pitch toward the nearest visible enemy
+    /// within `HUNT_RANGE` (barrels excluded), firing while one is in sight. Holds still
+    /// otherwise. Keeps fights robust to enemy timing; `fire` and `turn_deg` are ignored.
+    pub hunt: bool,
     pub jump: bool,
     pub crouch: bool,
     pub use_key: bool,
@@ -57,6 +61,13 @@ pub struct Segment {
 
 /// Turn rate a `goto` steers with, rad/s.
 pub const GOTO_TURN_RATE: f32 = 4.7;
+/// Turn rate a `hunt` aims with, rad/s.
+pub const HUNT_TURN_RATE: f32 = 6.0;
+/// How far a `hunt` looks for enemies, metres.
+pub const HUNT_RANGE: f32 = 30.0;
+/// A `hunt` fires once its heading is within this of the target's, radians.
+const HUNT_FIRE_CONE: f32 = 0.08;
+
 /// A `goto` has arrived within this distance, metres.
 pub const GOTO_ARRIVE: f32 = 0.4;
 
@@ -148,7 +159,15 @@ impl DemoPlayback {
 
     /// Applies one fixed tick of the script to the player's input and view, then advances.
     /// Returns false once the script has ended (and leaves the input idle).
-    pub fn step(&mut self, input: &mut PendingInput, look: &mut Look, pos: Vec2) -> bool {
+    /// `prey` is the aim point (core coordinates) of the enemy a `hunt` segment would target,
+    /// as seen from `eye`.
+    pub fn step(
+        &mut self,
+        input: &mut PendingInput,
+        look: &mut Look,
+        pos: Vec2,
+        hunt: Option<(Vec3, Vec3)>,
+    ) -> bool {
         let Some(seg) = self.script.segments.get(self.segment) else {
             *input = PendingInput::default();
             return false;
@@ -184,6 +203,17 @@ impl DemoPlayback {
                 let (a, f) = steer_to(look.angle, pos, target, GOTO_TURN_RATE / TICK_HZ);
                 look.angle = a;
                 input.forward = f;
+            }
+        } else if seg.hunt {
+            input.fire = false;
+            if let Some((eye, prey)) = hunt {
+                let d = prey - eye;
+                let want = d.y.atan2(d.x);
+                let diff = wrap(want - look.angle);
+                let max_turn = HUNT_TURN_RATE / TICK_HZ;
+                look.angle += diff.clamp(-max_turn, max_turn);
+                look.pitch = d.z.atan2(d.truncate().length());
+                input.fire = diff.abs() <= HUNT_FIRE_CONE;
             }
         } else {
             look.angle += seg.turn_deg.to_radians() / ticks as f32;
@@ -256,16 +286,44 @@ type DemoPlayer = (
     Option<&'static mut PlayerVitals>,
 );
 
+/// The eye and the aim point of the nearest living enemy the player can see within
+/// [`HUNT_RANGE`] (barrels and other static bodies excluded), for a `hunt` segment.
+fn hunt_target(
+    map: &rr_core::map::Map,
+    combat: &rr_core::combat::Combat,
+    body: &rr_core::collide::Body,
+) -> Option<(Vec3, Vec3)> {
+    let eye = crate::combat::eye_of(body);
+    combat
+        .actors
+        .iter()
+        .filter(|a| a.targetable() && a.locomotion != rr_core::defs::Locomotion::Static)
+        .map(|a| a.body.pos + Vec3::Z * 0.6 * a.body.height)
+        .filter(|aim| aim.distance(eye) <= HUNT_RANGE)
+        .filter(|aim| rr_core::trace::can_see(map, eye, body.sector, *aim))
+        .min_by(|a, b| a.distance(eye).total_cmp(&b.distance(eye)))
+        .map(|aim| (eye, aim))
+}
+
 /// Logs where each segment ends, which is what script authoring needs.
-fn drive_player(mut playback: ResMut<DemoPlayback>, mut player: Query<DemoPlayer, With<Player>>) {
+fn drive_player(
+    mut playback: ResMut<DemoPlayback>,
+    mut player: Query<DemoPlayer, With<Player>>,
+    map: Option<Res<crate::level::CurrentMap>>,
+    combat: Option<Res<crate::combat::LevelCombat>>,
+) {
     if let Ok((mut input, mut look, body, vitals)) = player.single_mut() {
+        let hunt = match (&map, &combat) {
+            (Some(map), Some(combat)) => hunt_target(&map.0, &combat.0, &body.0),
+            _ => None,
+        };
         if playback.script.invulnerable
             && let Some(mut vitals) = vitals
         {
             vitals.0.heal_to(PLAYER_MAX_HEALTH, PLAYER_MAX_HEALTH);
         }
         let segment = playback.segment;
-        if playback.step(&mut input, &mut look, body.0.pos.truncate())
+        if playback.step(&mut input, &mut look, body.0.pos.truncate(), hunt)
             && playback.segment != segment
         {
             let p = body.0.pos;
@@ -349,9 +407,9 @@ mod tests {
             ],
         });
         let (mut input, mut look) = (PendingInput::default(), look());
-        p.step(&mut input, &mut look, Vec2::new(0.0, 0.0));
+        p.step(&mut input, &mut look, Vec2::new(0.0, 0.0), None);
         assert_eq!(p.segment, 0);
-        p.step(&mut input, &mut look, Vec2::new(0.8, 0.0)); // within 0.4 m
+        p.step(&mut input, &mut look, Vec2::new(0.8, 0.0), None); // within 0.4 m
         assert_eq!(p.segment, 1, "arrived: next segment");
         assert_eq!(p.goto_timeouts(), 0);
     }
@@ -368,7 +426,7 @@ mod tests {
         });
         let (mut input, mut look) = (PendingInput::default(), look());
         for _ in 0..6 {
-            p.step(&mut input, &mut look, Vec2::ZERO);
+            p.step(&mut input, &mut look, Vec2::ZERO, None);
         }
         assert!(p.finished(), "a blocked goto ends at its secs timeout");
         assert_eq!(p.goto_timeouts(), 1, "the timeout is counted");
@@ -387,11 +445,40 @@ mod tests {
             }],
         });
         let (mut input, mut look) = (PendingInput::default(), look());
-        p.step(&mut input, &mut look, Vec2::new(1.0, 1.0));
+        p.step(&mut input, &mut look, Vec2::new(1.0, 1.0), None);
         assert!(input.use_pressed);
         assert_eq!(input.forward, 0.0);
         assert_eq!(look.angle, 0.0, "no turn on the arrival tick");
         assert!(p.finished());
+    }
+
+    #[test]
+    fn hunt_turns_toward_prey_and_fires_only_once_on_target() {
+        let mut p = DemoPlayback::new(DemoScript {
+            segments: vec![Segment {
+                secs: 2.0,
+                hunt: true,
+                fire: true,
+                ..Segment::default()
+            }],
+            ..DemoScript::default()
+        });
+        let (mut input, mut look) = (PendingInput::default(), look());
+        // Prey due north and a little up: the first tick turns by the capped rate, no shot yet.
+        let prey = Some((Vec3::ZERO, Vec3::new(0.0, 10.0, 1.0)));
+        p.step(&mut input, &mut look, Vec2::ZERO, prey);
+        assert!((look.angle - HUNT_TURN_RATE / TICK_HZ).abs() < 1e-5);
+        assert!(look.pitch > 0.0);
+        assert!(!input.fire, "not on target yet");
+        for _ in 0..30 {
+            p.step(&mut input, &mut look, Vec2::ZERO, prey);
+        }
+        assert!((look.angle - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
+        assert!(input.fire, "on target: fire");
+        // Nothing in sight: hold fire and the heading.
+        p.step(&mut input, &mut look, Vec2::ZERO, None);
+        assert!(!input.fire);
+        assert!((look.angle - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
     }
 
     #[test]
@@ -411,12 +498,12 @@ mod tests {
                 pitch: 0.0,
             },
         );
-        p.step(&mut input, &mut look, Vec2::ZERO);
+        p.step(&mut input, &mut look, Vec2::ZERO, None);
         assert!(
             look.angle > 170f32.to_radians(),
             "turns left through 180°, not right"
         );
-        while p.step(&mut input, &mut look, Vec2::ZERO) {}
+        while p.step(&mut input, &mut look, Vec2::ZERO, None) {}
         let d = (look.angle - (-170f32).to_radians()).rem_euclid(std::f32::consts::TAU);
         assert!(
             !(1e-3..=std::f32::consts::TAU - 1e-3).contains(&d),
@@ -459,12 +546,12 @@ mod tests {
         let mut pb = DemoPlayback::new(script);
         let (mut input, mut look) = (PendingInput::default(), look());
         for _ in 0..30 {
-            assert!(pb.step(&mut input, &mut look, Vec2::ZERO));
+            assert!(pb.step(&mut input, &mut look, Vec2::ZERO, None));
             assert_eq!(input.forward, 1.0);
         }
         assert!((look.angle - 90f32.to_radians()).abs() < 1e-4);
         assert!(pb.finished());
-        assert!(!pb.step(&mut input, &mut look, Vec2::ZERO));
+        assert!(!pb.step(&mut input, &mut look, Vec2::ZERO, None));
         assert_eq!(input.forward, 0.0);
     }
 
@@ -481,13 +568,13 @@ mod tests {
         };
         let mut pb = DemoPlayback::new(script);
         let (mut input, mut look) = (PendingInput::default(), look());
-        pb.step(&mut input, &mut look, Vec2::ZERO);
+        pb.step(&mut input, &mut look, Vec2::ZERO, None);
         assert!(input.use_pressed);
         assert_eq!(input.select, Some(WeaponId::Rockets));
         // The sim consumes latches; later ticks of the segment must not set them again.
         input.use_pressed = false;
         input.select = None;
-        pb.step(&mut input, &mut look, Vec2::ZERO);
+        pb.step(&mut input, &mut look, Vec2::ZERO, None);
         assert!(!input.use_pressed);
         assert_eq!(input.select, None);
     }
@@ -505,11 +592,11 @@ mod tests {
         let mut pb = DemoPlayback::new(script);
         let (mut input, mut look) = (PendingInput::default(), look());
         for _ in 0..30 {
-            pb.step(&mut input, &mut look, Vec2::ZERO);
+            pb.step(&mut input, &mut look, Vec2::ZERO, None);
         }
         assert!((look.pitch - (-10f32).to_radians()).abs() < 1e-4);
         for _ in 0..30 {
-            pb.step(&mut input, &mut look, Vec2::ZERO);
+            pb.step(&mut input, &mut look, Vec2::ZERO, None);
         }
         assert!((look.pitch - (-20f32).to_radians()).abs() < 1e-4);
     }

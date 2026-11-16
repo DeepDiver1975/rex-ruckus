@@ -101,6 +101,11 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - `chase` charges a seen player only when the straight line is passable (`steer::path_open`);
   otherwise it follows the route, and with no route it faces the player and strafes in place (so it
   keeps firing) instead of grinding on the opening.
+- A gunner with `aim_time > 0` (`enemies.ron`; Grunt, Enforcer) stands in `AiState::Attack` to raise its
+  gun before a burst and holds it `AIM_HOLD` after; the game holds the Attack clip's first frame (the aim
+  pose) until `ActorFired`. Tests that need a shot on the first tick set `aim_time = 0`.
+- Demo segments may use `hunt: true` (turn toward the nearest visible enemy and fire when on target) for
+  fights, so a route survives changes in enemy timing better than a scripted sweep.
 - Demo segments may use `goto: Some((x, y))` (walk there; ends on arrival or at `secs`; `forward` and `turn_deg` are ignored while `goto` is set) and `face_deg` (absolute heading, short way). A `goto` that times out is counted (`DemoPlayback::goto_timeouts`); `episode_demos` fails a route with any.
 - Level sources and level files reject unknown fields (`deny_unknown_fields`), so a typo fails the
   build instead of being dropped. `rr-tools build` labels errors with the source path and names

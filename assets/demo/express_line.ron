@@ -64,10 +64,13 @@
         (secs: 1.2, use_key: true),
         // The tower base: onto the lift, up to the relay room.
         (secs: 1.5, goto: Some((105.0, 9.5))),
-        (secs: 1.5, fire: true),
+        (secs: 4.0, hunt: true),
+        (secs: 0.3, pitch_deg: Some(0.0)),
         (secs: 2.5, goto: Some((114.5, 11.0))),
         (secs: 1.5, goto: Some((114.5, 13.5))),
-        (secs: 0.4, face_deg: Some(90.0)),
+        // A body on the lift's edge stops it: clear it first.
+        (secs: 3.0, hunt: true),
+        (secs: 0.4, face_deg: Some(90.0), pitch_deg: Some(0.0)),
         (secs: 1.0, use_key: true),
         (secs: 3.5),
         // Relay room: between the racks to the Red key in the fuse bay.
