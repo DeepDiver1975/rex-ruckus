@@ -1,0 +1,104 @@
+// Route through undertow.ron (episode 2, level 3), replayed by `rex-ruckus --demo` and checked
+// headless by crates/game/tests/episode_demos.rs. Headings are core degrees (0 = east, 90 =
+// north, CCW); `goto` points are core (x, y).
+(
+    invulnerable: true,
+    segments: [
+        (secs: 0.3),
+        // Gate yard: the shotgun in the guard booth, then east through the gatehouse.
+        (secs: 3.0, goto: Some((20.0, 20.0))),
+        (secs: 2.0, goto: Some((23.0, 26.0))),
+        (secs: 1.5, goto: Some((24.0, 28.5))),
+        (secs: 2.0, goto: Some((24.0, 22.0))),
+        (secs: 2.0, goto: Some((27.0, 12.0))),
+        (secs: 1.5, goto: Some((31.0, 12.0))),
+        // Lobby: the chaingun behind the reception desk, then the lab door.
+        (secs: 2.0, goto: Some((33.0, 16.0))),
+        (secs: 1.5, goto: Some((37.0, 16.2))),
+        (secs: 2.0, goto: Some((43.0, 15.0))),
+        (secs: 1.5, goto: Some((44.3, 11.5))),
+        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 1.2, use_key: true),
+        // Lab: around the puddles, over the last one into the clean bay (Blue key, channel 1).
+        (secs: 1.5, goto: Some((48.0, 13.2))),
+        (secs: 2.0, goto: Some((55.0, 13.0))),
+        (secs: 1.5, goto: Some((59.2, 13.0))),
+        (secs: 1.5, goto: Some((63.3, 11.0))),
+        // Back through the lobby, north up the corridor to the blue door.
+        (secs: 1.5, goto: Some((59.2, 13.0))),
+        (secs: 2.0, goto: Some((55.0, 13.0))),
+        (secs: 2.0, goto: Some((48.0, 13.2))),
+        (secs: 1.5, goto: Some((44.0, 11.5))),
+        (secs: 2.0, goto: Some((42.5, 18.0))),
+        (secs: 2.0, goto: Some((37.0, 21.0))),
+        (secs: 4.0, goto: Some((37.0, 37.8))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.2, use_key: true),
+        // Intake hall: the south cross walkway, east along the middle walkway.
+        (secs: 2.0, goto: Some((37.0, 41.0))),
+        (secs: 2.0, goto: Some((45.0, 44.0))),
+        (secs: 2.0, goto: Some((45.0, 51.5))),
+        (secs: 5.0, goto: Some((70.0, 51.5))),
+        // Tank 1: over the bridge to the island (the rocket launcher, channel 2), on east.
+        (secs: 2.0, goto: Some((78.5, 51.0))),
+        (secs: 2.0, goto: Some((88.0, 51.0))),
+        (secs: 2.0, goto: Some((97.5, 51.0))),
+        // Tank 2: round the ring's west side and north into the pump hall.
+        (secs: 2.0, goto: Some((102.5, 51.0))),
+        (secs: 1.5, goto: Some((102.5, 54.5))),
+        (secs: 2.0, goto: Some((106.5, 58.8))),
+        (secs: 2.0, goto: Some((112.0, 60.5))),
+        (secs: 2.0, goto: Some((112.0, 67.0))),
+        // Pump hall: west between the pumps to the lift, up to the gallery.
+        (secs: 3.0, goto: Some((91.0, 68.0))),
+        (secs: 2.0, goto: Some((91.0, 78.0))),
+        (secs: 3.0, goto: Some((81.5, 84.0))),
+        (secs: 1.5, goto: Some((81.5, 86.5))),
+        (secs: 1.0, use_key: true),
+        (secs: 2.5),
+        // The galleries east and south to the valve deck: the Red key (channel 3).
+        (secs: 2.0, goto: Some((81.5, 90.5))),
+        (secs: 7.0, goto: Some((121.0, 90.5))),
+        (secs: 5.0, goto: Some((121.0, 67.5))),
+        // Off the deck, west through the maintenance passage to the intake hall.
+        (secs: 2.0, goto: Some((115.5, 67.5))),
+        (secs: 6.0, goto: Some((78.0, 66.5))),
+        (secs: 2.0, goto: Some((75.0, 64.0))),
+        (secs: 2.0, goto: Some((75.0, 60.5))),
+        (secs: 2.0, goto: Some((69.0, 60.5))),
+        (secs: 5.0, goto: Some((38.0, 60.5))),
+        (secs: 1.0, goto: Some((38.0, 61.6))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.2, use_key: true),
+        // The control room: the sluice switch (channel 5).
+        (secs: 2.0, goto: Some((38.0, 64.5))),
+        (secs: 2.0, goto: Some((38.0, 68.0))),
+        (secs: 2.0, goto: Some((44.0, 68.5))),
+        (secs: 2.0, goto: Some((45.0, 74.0))),
+        (secs: 1.0, goto: Some((47.0, 75.2))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.2, use_key: true),
+        (secs: 2.0),
+        // Through the burst pipe wall, down into the basin, over the bridge.
+        (secs: 1.5, goto: Some((44.0, 75.0))),
+        (secs: 2.0, goto: Some((44.0, 79.0))),
+        (secs: 2.0, goto: Some((44.5, 83.5))),
+        (secs: 3.0),
+        (secs: 2.0, goto: Some((44.8, 88.0))),
+        (secs: 2.0, goto: Some((41.0, 93.0))),
+        // The open sluice mouth and the outflow tunnel.
+        (secs: 2.0, goto: Some((41.0, 97.0))),
+        (secs: 4.0, goto: Some((41.0, 109.0))),
+        (secs: 2.0, goto: Some((38.0, 115.0))),
+        (secs: 5.0, goto: Some((15.0, 115.0))),
+        (secs: 5.0, goto: Some((15.0, 137.0))),
+        // The hive chamber, round the brood pool to the throat and the exit switch.
+        (secs: 2.0, goto: Some((19.5, 143.0))),
+        (secs: 2.0, goto: Some((19.5, 154.0))),
+        (secs: 2.0, goto: Some((17.0, 157.0))),
+        (secs: 1.5, goto: Some((17.0, 161.2))),
+        (secs: 0.4, face_deg: Some(90.0)),
+        (secs: 1.2, use_key: true),
+        (secs: 2.0),
+    ],
+)
