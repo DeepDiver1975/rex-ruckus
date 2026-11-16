@@ -76,6 +76,8 @@ fn main() {
     });
     let mut window = Window {
         title: "Rex Ruckus: Meltdown".into(),
+        // X11 WM_CLASS and Wayland app_id; matches the Linux `.desktop` file.
+        name: Some("rex-ruckus".into()),
         ..default()
     };
     // Demo runs get a fixed size so recordings are reproducible.
@@ -106,6 +108,7 @@ fn main() {
                     ..default()
                 }),
         )
+        .add_plugins(rr_game::icon::IconPlugin)
         .add_plugins(GamePlugin {
             level,
             episode,

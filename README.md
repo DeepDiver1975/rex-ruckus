@@ -14,10 +14,12 @@ Test: `cargo test --workspace`
 
 Grab the latest build from the [latest release](https://github.com/DeepDiver1975/rex-ruckus/releases/latest).
 
-- **Windows:** `rex-ruckus-<version>-windows-x64-setup.exe` installs the game with a Start Menu
-  entry and an uninstaller.
+- **Windows:** `rex-ruckus-<version>-windows-x64-setup.exe` installs the game for your user (no
+  admin rights needed; the installer can install for all users instead) with a Start Menu entry.
+  Uninstall it from *Settings > Apps*.
 - **Linux:** unpack `rex-ruckus-<version>-linux-x86_64.tar.gz` and run `./rex-ruckus.sh` from the
-  unpacked folder (it needs ALSA and a Wayland or X11 session).
+  unpacked folder (it needs ALSA and a Wayland or X11 session). `./install-desktop-entry.sh` adds
+  it to your application menu with its icon.
 
 Every pull request and push to `main` also builds both; they are attached to the run of the
 *Release builds* workflow as artifacts.
@@ -29,7 +31,7 @@ development packages, e.g. on Debian/Ubuntu:
 
     sudo apt install libasound2-dev libudev-dev pkg-config
 
-To build the Windows installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php),
+To build the Windows installer locally, install [Inno Setup 6.6+](https://jrsoftware.org/isinfo.php),
 then:
 
     cargo build -p rr-game --release

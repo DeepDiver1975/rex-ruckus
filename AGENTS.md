@@ -19,6 +19,7 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
 | `assets/episode.ron` | The episodes in menu order, each with its name and levels in play order (no levels = "coming soon"). |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
+| `assets/icon/` | App icon sources (`rex-ruckus.svg`, `rex-ruckus-small.svg` for 16-32 px) and the built 256 px PNG. |
 | `levels/src/*.ron` | Level sources for `rr-tools build`: sectors as `rect`/`poly` coordinates with ids, named materials, `stairs`; built into `assets/levels/` (never hand-edit a built level). |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). Built from `levels/src/` for the episode levels; the dev levels (`arsenal_depot`, `combat_arena`, `engine_lab`, …) are hand-written. |
 | `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons, pickups and gag props to models (scale, placement, clip names, muzzles). |
@@ -27,8 +28,8 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | `assets/sounds/` | `bank.ron` (event to sound map), `synth.ron` recipes, `synth/` rendered output, `cc0/` curated CC0 recordings. |
 | `assets/music/` | Level music (OGG). |
 | `assets/quips/` | Hero voice quips (OGG) and `quips.ron` (texts). |
-| `scripts/` | `gen-quips.sh` + `quips_kokoro.py` (Kokoro voice quips), `import-sfx.sh` (CC0 import via sox), `import-models.sh` (CC0 model import; uses `blend_to_glb.py`, a Blender conversion for models shipped only as `.blend`), `build-models.sh` + `models/` (original models as headless-Blender Python scripts, sharing `models/rrkit.py`), `record-demo.sh` (README demo). |
-| `installer/` | Inno Setup script for the Windows installer. |
+| `scripts/` | `gen-quips.sh` + `quips_kokoro.py` (Kokoro voice quips), `import-sfx.sh` (CC0 import via sox), `import-models.sh` (CC0 model import; uses `blend_to_glb.py`, a Blender conversion for models shipped only as `.blend`), `build-models.sh` + `models/` (original models as headless-Blender Python scripts, sharing `models/rrkit.py`), `record-demo.sh` (README demo), `build-icons.sh` (icon, `.ico` and installer wizard images from `assets/icon/*.svg`). |
+| `installer/` | Inno Setup 6.6+ script for the Windows installer, `rex-ruckus.ico` and `wizard/` images (built). |
 
 Assets are found via `$RR_ASSETS`, else the workspace `assets/`, else `assets/` next to the exe.
 
@@ -122,6 +123,12 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   `floor_mat`): `Slime` → `slime`, `Electric` → `electric`, `Burn` → `magma`. A plain `magma` or
   `water` floor does not hurt.
 - Material names must be in `rr_core::map::KNOWN_MATERIALS` (each has a `texel()` arm); `validate` rejects others. Fill lights set `shadows: false`; keep ≤ 12 shadowed lights per level.
+
+- The app icon is built offline by `scripts/build-icons.sh` (rsvg-convert, icotool, ImageMagick 7)
+  and its outputs are committed; edit the SVGs, never the PNG/ICO. The game embeds
+  `assets/icon/rex-ruckus-256.png` as the window icon (`src/icon.rs`, X11/Windows; Wayland shows
+  the `.desktop` icon matched by the `rex-ruckus` app id), and `crates/game/build.rs` embeds the
+  `.ico` and version info in the Windows exe (only when building on Windows).
 
 ## Git and pull requests
 
