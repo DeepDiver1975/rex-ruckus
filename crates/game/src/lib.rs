@@ -13,6 +13,7 @@ pub mod episode;
 pub mod flow;
 pub mod fx;
 pub mod hud;
+pub mod icon;
 pub mod inventory;
 pub mod level;
 pub mod lowres;
