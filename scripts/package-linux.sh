@@ -24,7 +24,33 @@ cat > "$stage/rex-ruckus.sh" <<'LAUNCHER'
 here=$(dirname "$(readlink -f "$0")")
 exec "$here/rex-ruckus" "$@"
 LAUNCHER
-chmod +x "$stage/rex-ruckus.sh" "$stage/rex-ruckus"
+cp "$root/assets/icon/rex-ruckus-256.png" "$stage/rex-ruckus.png"
+cat > "$stage/rex-ruckus.desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Rex Ruckus: Meltdown
+Comment=Fast 90s-style 3D shooter
+Exec=rex-ruckus.sh
+Icon=rex-ruckus
+Terminal=false
+Categories=Game;ActionGame;
+StartupWMClass=rex-ruckus
+DESKTOP
+cat > "$stage/install-desktop-entry.sh" <<'INSTALL'
+#!/bin/sh
+# Adds Rex Ruckus to your desktop's application menu, pointing at this folder.
+# Rerun it after moving the folder; delete the two files it names to undo.
+set -eu
+here=$(dirname "$(readlink -f "$0")")
+apps=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+icons=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps
+mkdir -p "$apps" "$icons"
+cp "$here/rex-ruckus.png" "$icons/rex-ruckus.png"
+sed "s|^Exec=.*|Exec=\"$here/rex-ruckus.sh\"|" "$here/rex-ruckus.desktop" > "$apps/rex-ruckus.desktop"
+command -v update-desktop-database >/dev/null && update-desktop-database "$apps" 2>/dev/null || true
+echo "installed $apps/rex-ruckus.desktop and $icons/rex-ruckus.png"
+INSTALL
+chmod +x "$stage/rex-ruckus.sh" "$stage/rex-ruckus" "$stage/install-desktop-entry.sh"
 
 tar -C "$root/dist" -czf "$root/dist/$name.tar.gz" "$name"
 echo "$root/dist/$name.tar.gz"
