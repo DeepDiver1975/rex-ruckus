@@ -107,6 +107,7 @@ impl Plugin for GamePlugin {
             automap::AutomapSimPlugin,
             automap::AutomapRenderPlugin,
             net::host::NetHostPlugin,
+            net::client::NetClientPlugin,
         ));
         // The episode starts at the title screen; direct-level and demo runs go straight to play.
         if self.episode.is_some() && self.demo.is_none() {

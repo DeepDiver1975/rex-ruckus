@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 
+pub mod client;
 pub mod host;
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]

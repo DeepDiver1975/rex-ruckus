@@ -352,7 +352,7 @@ pub fn run_menu_action(world: &mut World) {
 }
 
 /// Back to the title screen: level 0 of the episode, frozen, with the starting loadout.
-fn quit_to_menu(world: &mut World) {
+pub(crate) fn quit_to_menu(world: &mut World) {
     if !world.contains_resource::<Episode>() {
         return;
     }
