@@ -853,7 +853,8 @@ mod tests {
             assert_eq!(AmmoKind::ALL[k.index()], k);
         }
         assert_eq!(d.enemy(ActorKind::Grunt).health, 30);
-        assert_eq!(d.weapon(WeaponId::Shotgun).clip, None);
+        assert_eq!(d.weapon(WeaponId::Shotgun).clip, Some(6));
+        assert_eq!(d.weapon(WeaponId::PipeBombs).clip, None);
         assert_eq!(d.weapon(WeaponId::Pistol).clip, Some(12));
         let t = d.enemy(ActorKind::Grunt).tuning();
         assert_eq!(t.max_speed, 3.5);

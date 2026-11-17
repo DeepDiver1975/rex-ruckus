@@ -22,13 +22,13 @@
         (
             id: Shotgun, name: "Shotgun",
             attack: Hitscan(damage: 8, pellets: 7, spread_deg: 6.0, range: 200.0),
-            refire: 0.9, ammo: Some(Shells), clip: None, reload: 0.0,
+            refire: 0.9, ammo: Some(Shells), clip: Some(6), reload: 2.0,
             switch_time: 0.3, noise: 30.0, pickup_ammo: 10, priority: 3,
         ),
         (
             id: Chaingun, name: "Chaingun",
             attack: Hitscan(damage: 9, pellets: 1, spread_deg: 2.5, range: 200.0),
-            refire: 0.07, ammo: Some(Bullets), clip: None, reload: 0.0,
+            refire: 0.07, ammo: Some(Bullets), clip: Some(100), reload: 2.4,
             switch_time: 0.4, noise: 30.0, pickup_ammo: 50, priority: 4,
         ),
         (
@@ -37,7 +37,7 @@
                 speed: 30.0, damage: 20, radius: 0.15, life: 5.0,
                 splash: Some((radius: 5.0, damage: 80, self_scale: 0.5)),
             )),
-            refire: 0.8, ammo: Some(Rockets), clip: None, reload: 0.0,
+            refire: 0.8, ammo: Some(Rockets), clip: Some(3), reload: 1.8,
             switch_time: 0.5, noise: 30.0, pickup_ammo: 5, priority: 0,
         ),
         (

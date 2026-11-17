@@ -23,6 +23,7 @@ pub mod models;
 pub mod paths;
 pub mod player;
 pub mod props;
+pub mod reload_anim;
 pub mod settings;
 pub mod textures;
 pub mod viewmodel;
