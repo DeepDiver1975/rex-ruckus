@@ -12,11 +12,15 @@ use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin};
 use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState, RESTART_DELAY, StateAge};
 use rr_game::hud::{HudPlugin, HudRoot};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
+use rr_game::menu::multiplayer::{HostPort, JoinAddress, roster_names};
 use rr_game::menu::{
     Capture, MenuAction, MenuInput, MenuPlugin, MenuRoot, MenuScreen, MenuSelection, Notice,
     Screen, Setting,
 };
-use rr_game::player::{PendingInput, PlayerBody, PlayerSimPlugin};
+use rr_game::net::NetMode;
+use rr_game::net::client::{NetClient, NetClientPlugin, NetNotice};
+use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity};
+use rr_game::player::{LocalPlayer, PendingInput, PlayerBody, PlayerSimPlugin};
 use rr_game::settings::{Settings, SettingsPlugin};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -78,7 +82,12 @@ fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
         EpisodePlugin,
         HudPlugin,
         MenuPlugin { enabled: true },
+        NetHostPlugin,
+        NetClientPlugin,
     ));
+    // Tests host on a free port, so they never meet each other or a real game.
+    app.insert_resource(HostPort(0));
+    app.world_mut().resource_mut::<Settings>().player_name = "Tester".into();
     // The headless player plugin leaves the pause key out; Esc tests need it.
     app.add_systems(Update, rr_game::player::pause_on_escape);
     app.update();
@@ -718,4 +727,434 @@ fn options_say_when_settings_are_not_saved() {
     let mut saved = menu_app(vec![combat_room()]);
     open_options(&mut saved);
     assert!(!texts(&mut saved).iter().any(|t| t.contains("not saved")));
+}
+
+fn net_mode(app: &App) -> NetMode {
+    app.world()
+        .get_resource::<NetMode>()
+        .copied()
+        .unwrap_or_default()
+}
+
+fn roster(app: &App) -> Vec<String> {
+    let w = app.world();
+    roster_names(
+        w.get_resource::<NetHost>(),
+        w.get_resource::<NetIdentity>(),
+        w.get_resource::<NetClient>(),
+    )
+}
+
+#[test]
+fn multiplayer_opens_from_main_and_goes_back() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
+    press(&mut app, MenuAction::Back);
+    assert_eq!(screen(&app), Some(Screen::Main));
+}
+
+/// The combat room under a level file name, so it can be hosted.
+fn host_map() -> Map {
+    let mut map = combat_room();
+    map.name = "combat_room.ron".into();
+    map
+}
+
+/// Main menu → Multiplayer → Host game → episode → difficulty: the lobby of a hosted game.
+fn host_lobby(app: &mut App) {
+    press(app, MenuAction::Multiplayer);
+    press(app, MenuAction::HostGame);
+    assert_eq!(screen(app), Some(Screen::Episodes));
+    press(app, MenuAction::PickEpisode(0));
+    assert_eq!(screen(app), Some(Screen::Difficulty));
+    press(app, MenuAction::PickDifficulty(Difficulty::Hard));
+    app.update();
+    assert_eq!(screen(app), Some(Screen::Lobby));
+}
+
+#[test]
+fn hosting_shows_the_lobby_and_leave_returns_to_multiplayer() {
+    let mut app = menu_app(vec![host_map()]);
+    host_lobby(&mut app);
+    assert_eq!(net_mode(&app), NetMode::Host);
+    assert_eq!(state(&app), PlayState::Menu);
+    assert_eq!(roster(&app), ["Tester"]);
+    assert!(texts(&mut app).iter().any(|t| t.contains("Tester")));
+    press(&mut app, MenuAction::Leave);
+    app.update();
+    assert_eq!(net_mode(&app), NetMode::Single);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
+    assert!(!app.world().contains_resource::<NetHost>());
+}
+
+/// A level the clients could not load by name is not hosted: the notice says why.
+#[test]
+fn hosting_a_level_without_a_file_name_shows_a_notice() {
+    // "combat room" is no file in assets/levels.
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    press(&mut app, MenuAction::HostGame);
+    press(&mut app, MenuAction::PickEpisode(0));
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Hard));
+    app.update();
+    assert_eq!(net_mode(&app), NetMode::Single);
+    assert!(!app.world().contains_resource::<NetHost>());
+    assert_eq!(screen(&app), Some(Screen::NetNotice));
+    let notice = app.world().resource::<NetNotice>().0.clone().unwrap();
+    assert!(notice.contains("cannot be hosted"), "{notice}");
+}
+
+/// A net game never pauses for focus loss: the host clicking into another window must not
+/// freeze the world for the clients.
+#[test]
+fn focus_loss_does_not_pause_a_hosted_game() {
+    let mut app = menu_app(vec![host_map()]);
+    host_lobby(&mut app);
+    press(&mut app, MenuAction::StartGame);
+    assert_eq!(state(&app), PlayState::Playing);
+    let window = app
+        .world_mut()
+        .spawn(Window {
+            focused: true,
+            ..default()
+        })
+        .id();
+    app.add_systems(Update, rr_game::player::pause_on_focus_loss);
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.update();
+    assert_eq!(state(&app), PlayState::Playing);
+    let start = player_pos(&mut app);
+    for _ in 0..30 {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+        q.single_mut(app.world_mut()).unwrap().forward = 1.0;
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+    assert_ne!(player_pos(&mut app), start, "the world froze");
+    assert_eq!(state(&app), PlayState::Playing);
+}
+
+fn player_count(app: &mut App) -> usize {
+    app.world_mut()
+        .query::<&rr_game::player::Player>()
+        .iter(app.world())
+        .count()
+}
+
+/// Both menu apps in step: a frame and a fixed tick each.
+fn pump_both(host: &mut App, client: &mut App) {
+    for app in [&mut *host, &mut *client] {
+        app.update();
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1));
+}
+
+/// A client waiting in the host's lobby leaves it for the level when the host presses Start.
+#[test]
+fn start_in_the_lobby_takes_the_client_into_the_level() {
+    // A real level file: the client loads the host's level by name from assets/levels.
+    let mut map = rr_game::level::load_map("test_yard.ron");
+    map.name = "test_yard.ron".into();
+    let mut host = menu_app(vec![map]);
+    host_lobby(&mut host);
+    let port = host.world().resource::<NetHost>().host.local_addr().port();
+    let mut client = menu_app(vec![combat_room()]);
+    press(&mut client, MenuAction::Multiplayer);
+    press(&mut client, MenuAction::JoinGame);
+    client.world_mut().resource_mut::<JoinAddress>().0 = format!("127.0.0.1:{port}");
+    press(&mut client, MenuAction::Connect);
+    let seated = |h: &App| h.world().resource::<NetHost>().seats.len() == 1;
+    for _ in 0..300 {
+        pump_both(&mut host, &mut client);
+        if seated(&host) && client.world().resource::<NetClient>().welcomed.is_some() {
+            break;
+        }
+    }
+    assert!(seated(&host), "the client never got a seat");
+    assert_eq!(state(&client), PlayState::Menu);
+    assert_eq!(screen(&client), Some(Screen::Lobby));
+    press(&mut host, MenuAction::StartGame);
+    assert_eq!(state(&host), PlayState::Playing);
+    for _ in 0..300 {
+        pump_both(&mut host, &mut client);
+        if state(&client) == PlayState::Playing && player_count(&mut client) == 2 {
+            break;
+        }
+    }
+    assert_eq!(state(&client), PlayState::Playing);
+    assert_eq!(screen(&client), None, "still in the lobby");
+    assert_eq!(
+        client
+            .world()
+            .resource::<rr_game::level::CurrentMap>()
+            .0
+            .name,
+        "Test Yard"
+    );
+    assert_eq!(
+        client.world().resource::<rr_game::flow::LevelFile>().0,
+        "test_yard.ron"
+    );
+    assert_eq!(player_count(&mut client), 2);
+    assert_eq!(player_count(&mut host), 2);
+    assert_eq!(net_mode(&client), NetMode::Client);
+}
+
+#[test]
+fn back_from_the_host_episodes_returns_to_multiplayer() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    press(&mut app, MenuAction::HostGame);
+    press(&mut app, MenuAction::Back);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
+    // New Game after that is a plain single-player game again.
+    press(&mut app, MenuAction::Back);
+    press(&mut app, MenuAction::NewGame);
+    press(&mut app, MenuAction::PickEpisode(0));
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Normal));
+    assert_eq!(state(&app), PlayState::Playing);
+    assert_eq!(net_mode(&app), NetMode::Single);
+}
+
+#[test]
+fn a_client_lobby_says_connecting_until_welcomed() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    press(&mut app, MenuAction::JoinGame);
+    assert_eq!(screen(&app), Some(Screen::Join));
+    app.world_mut().resource_mut::<JoinAddress>().0 = "127.0.0.1:9".into();
+    press(&mut app, MenuAction::Connect);
+    app.update();
+    assert_eq!(screen(&app), Some(Screen::Lobby));
+    assert_eq!(net_mode(&app), NetMode::Client);
+    assert!(texts(&mut app).iter().any(|t| t.contains("Connecting…")));
+    press(&mut app, MenuAction::Leave);
+    assert_eq!(net_mode(&app), NetMode::Single);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
+}
+
+#[test]
+fn connect_needs_a_valid_address() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    press(&mut app, MenuAction::JoinGame);
+    app.world_mut().resource_mut::<JoinAddress>().0 = "1.2.3".into();
+    press(&mut app, MenuAction::Connect);
+    assert_eq!(screen(&app), Some(Screen::Join));
+    assert_eq!(net_mode(&app), NetMode::Single);
+    press(&mut app, MenuAction::Back);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
+}
+
+#[test]
+fn a_net_notice_shows_and_ok_returns_to_main() {
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    app.world_mut().resource_mut::<NetNotice>().0 = Some("The game is full".into());
+    app.update();
+    assert_eq!(screen(&app), Some(Screen::NetNotice));
+    assert!(texts(&mut app).iter().any(|t| t == "The game is full"));
+    press(&mut app, MenuAction::NoticeOk);
+    assert_eq!(screen(&app), Some(Screen::Main));
+    assert_eq!(app.world().resource::<NetNotice>().0, None);
+}
+
+#[test]
+fn a_hosted_game_runs_under_the_pause_menu() {
+    let mut app = menu_app(vec![host_map()]);
+    host_lobby(&mut app);
+    press(&mut app, MenuAction::StartGame);
+    assert_eq!(state(&app), PlayState::Playing);
+    assert_eq!(
+        app.world().resource::<LevelDifficulty>().0,
+        Difficulty::Hard
+    );
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Paused);
+    assert_eq!(screen(&app), Some(Screen::Pause));
+    let t = texts(&mut app);
+    assert!(t.iter().any(|t| t == "Leave game"), "{t:?}");
+    assert!(!t.iter().any(|t| t == "Quit to menu"), "{t:?}");
+    assert!(t.iter().any(|t| t == "Restart level"), "{t:?}");
+    let start = player_pos(&mut app);
+    for _ in 0..30 {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+        q.single_mut(app.world_mut()).unwrap().forward = 1.0;
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+    assert_ne!(player_pos(&mut app), start, "the world froze");
+    press(&mut app, MenuAction::LeaveGame);
+    app.update();
+    assert_eq!(net_mode(&app), NetMode::Single);
+    assert_eq!(state(&app), PlayState::Menu);
+    assert_eq!(screen(&app), Some(Screen::Main));
+}
+
+/// Types a key as a window would: the `KeyboardInput` message (with `text`, if any) and the
+/// `ButtonInput<KeyCode>` press, released after the frame.
+fn type_key(app: &mut App, code: KeyCode, text: Option<&str>) {
+    use bevy::input::ButtonState;
+    use bevy::input::keyboard::{Key, KeyboardInput, NativeKey};
+    app.world_mut().write_message(KeyboardInput {
+        key_code: code,
+        logical_key: match text {
+            Some(t) => Key::Character(t.into()),
+            None => Key::Unidentified(NativeKey::Unidentified),
+        },
+        state: ButtonState::Pressed,
+        text: text.map(Into::into),
+        repeat: false,
+        window: Entity::PLACEHOLDER,
+    });
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(code);
+    app.update();
+    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+    keys.release(code);
+    keys.clear();
+}
+
+/// Opens the Multiplayer screen and starts editing the name ("Tester").
+fn edit_name(app: &mut App) {
+    press(app, MenuAction::Multiplayer);
+    press(app, MenuAction::Edit(rr_game::menu::Field::Name));
+}
+
+fn editing(app: &App) -> Option<rr_game::menu::Field> {
+    app.world().resource::<rr_game::menu::Editing>().0
+}
+
+#[test]
+fn the_name_field_takes_typed_text_until_enter() {
+    let mut app = menu_app(vec![combat_room()]);
+    edit_name(&mut app);
+    // The frame editing started in is skipped. W, S and Space type instead of moving the
+    // selection or choosing a button, M instead of muting.
+    type_key(&mut app, KeyCode::Backspace, None);
+    type_key(&mut app, KeyCode::KeyW, Some("w"));
+    type_key(&mut app, KeyCode::KeyS, Some("s"));
+    type_key(&mut app, KeyCode::Space, Some(" "));
+    type_key(&mut app, KeyCode::KeyM, Some("m"));
+    assert!(editing(&app).is_some(), "Space chose a button");
+    assert!(texts(&mut app).iter().any(|t| t == "Name: Testews m_"));
+    assert_eq!(app.world().resource::<MenuSelection>().0, 0);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
+    type_key(&mut app, KeyCode::Enter, None);
+    assert_eq!(editing(&app), None);
+    app.update();
+    assert_eq!(app.world().resource::<Settings>().player_name, "Testews m");
+    assert_eq!(
+        Settings::load_from(&settings_file(&app)).0.player_name,
+        "Testews m"
+    );
+}
+
+#[test]
+fn esc_ends_an_edit_without_leaving_the_screen() {
+    let mut app = menu_app(vec![combat_room()]);
+    edit_name(&mut app);
+    type_key(&mut app, KeyCode::Space, Some(" "));
+    type_key(&mut app, KeyCode::Escape, None);
+    assert_eq!(editing(&app), None);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer), "Esc went back");
+    assert_eq!(state(&app), PlayState::Menu);
+    // The trailing space is trimmed when the edit ends.
+    assert_eq!(app.world().resource::<Settings>().player_name, "Tester");
+    // The next Esc is plain navigation again.
+    type_key(&mut app, KeyCode::Escape, None);
+    assert_eq!(screen(&app), Some(Screen::Main));
+}
+
+/// A raw co-op client of the menu app's hosted game and every message it received.
+struct Peer {
+    client: rr_net::Client,
+    got: Vec<rr_net::ServerMsg>,
+}
+
+impl Peer {
+    fn loads(&self) -> usize {
+        self.got
+            .iter()
+            .filter(|m| matches!(m, rr_net::ServerMsg::Load(_)))
+            .count()
+    }
+}
+
+/// One frame and one fixed tick of the app, then the peer.
+fn pump(app: &mut App, peer: &mut Peer) {
+    app.update();
+    app.world_mut().run_schedule(FixedUpdate);
+    let msgs = peer.client.update(std::time::Duration::from_millis(16));
+    peer.got.extend(msgs);
+    peer.client.flush();
+    std::thread::sleep(std::time::Duration::from_millis(1));
+}
+
+/// Hosts from the menu, starts the game and seats a raw client that has its first `Load`.
+fn hosted_with_peer() -> (App, Peer) {
+    let mut app = menu_app(vec![host_map()]);
+    host_lobby(&mut app);
+    press(&mut app, MenuAction::StartGame);
+    let port = app.world().resource::<NetHost>().host.local_addr().port();
+    let mut peer = Peer {
+        client: rr_net::Client::connect(([127, 0, 0, 1], port).into()).expect("client"),
+        got: Vec::new(),
+    };
+    let id = app.world().resource::<NetIdentity>().clone();
+    let mut said_hello = false;
+    for _ in 0..300 {
+        pump(&mut app, &mut peer);
+        if !said_hello && peer.client.state() == rr_net::ClientState::Connected {
+            peer.client.send(&rr_net::ClientMsg::Hello(rr_net::Hello {
+                protocol: rr_net::PROTOCOL_VERSION,
+                game_version: id.game_version.clone(),
+                assets: id.assets,
+                name: "Peer".into(),
+            }));
+            peer.client.flush();
+            said_hello = true;
+        }
+        if peer.loads() > 0 {
+            return (app, peer);
+        }
+    }
+    panic!(
+        "the peer never got a Load: {:?} {:?}",
+        peer.client.state(),
+        peer.got
+            .iter()
+            .map(std::mem::discriminant)
+            .collect::<Vec<_>>()
+    );
+}
+
+/// "Main menu" on the stats or episode-end screen ends the hosted game: the title screen is
+/// single-player, and the level-0 reload sends no `Load` to the old clients.
+#[test]
+fn quitting_to_the_menu_ends_a_hosted_game() {
+    for over in [PlayState::Complete, PlayState::EpisodeEnd] {
+        let (mut app, mut peer) = hosted_with_peer();
+        *app.world_mut().resource_mut::<PlayState>() = over;
+        app.update();
+        app.world_mut().resource_mut::<StateAge>().0 = RESTART_DELAY;
+        let loads = peer.loads();
+        press(&mut app, MenuAction::QuitToMenu);
+        assert_eq!(net_mode(&app), NetMode::Single, "{over:?}");
+        assert_eq!(state(&app), PlayState::Menu, "{over:?}");
+        assert_eq!(screen(&app), Some(Screen::Main), "{over:?}");
+        assert!(!app.world().contains_resource::<NetHost>(), "{over:?}");
+        for _ in 0..20 {
+            pump(&mut app, &mut peer);
+        }
+        assert_eq!(peer.loads(), loads, "{over:?}: a Load after the quit");
+        assert_eq!(screen(&app), Some(Screen::Main), "{over:?}");
+    }
 }

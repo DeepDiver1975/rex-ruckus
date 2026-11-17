@@ -39,11 +39,35 @@ pub fn level_path(arg: &str, assets: &Path) -> PathBuf {
     }
 }
 
+/// Loads a level, refusing a name that is not a plain level file name (a co-op host names the
+/// level, so the name must not reach outside `assets/levels/`). Reads only from there: unlike
+/// [`level_path`], a same-named file in the working directory is never preferred.
+pub fn try_load_map(file: &str) -> Result<Map, String> {
+    try_load_map_in(file, &assets_dir())
+}
+
+fn try_load_map_in(file: &str, assets: &Path) -> Result<Map, String> {
+    if !rr_net::valid_level_name(file) {
+        return Err(format!("invalid level name {file:?}"));
+    }
+    read_map(&assets.join("levels").join(file))
+}
+
+fn read_map(path: &Path) -> Result<Map, String> {
+    let src = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read level {}: {e}", path.display()))?;
+    Map::from_ron(&src).map_err(|e| format!("invalid level {}: {e}", path.display()))
+}
+
+/// Loads a level named on the command line: a file path as given, else a name under
+/// `assets/levels/` (checked like [`try_load_map`]). Panics on failure.
 pub fn load_map(file: &str) -> Map {
-    let path = level_path(file, &assets_dir());
-    let src = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read level {}: {e}", path.display()));
-    Map::from_ron(&src).unwrap_or_else(|e| panic!("invalid level {}: {e}", path.display()))
+    let result = if Path::new(file).is_file() {
+        read_map(Path::new(file))
+    } else {
+        try_load_map(file)
+    };
+    result.unwrap_or_else(|e| panic!("{e}"))
 }
 
 pub fn to_bevy_mesh(m: &MeshData) -> Mesh {
@@ -311,6 +335,28 @@ fn spawn_level(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn try_load_map_reads_only_the_assets() {
+        // A level of that name in the working directory must not shadow the assets: the host
+        // names it, and `level_path` would prefer a direct file.
+        let name = "rr_try_load_map_cwd_test.ron";
+        let src = std::fs::read_to_string(assets_dir().join("levels/test_yard.ron")).unwrap();
+        std::fs::write(name, src).unwrap();
+        let assets = std::env::temp_dir().join(format!("rr_assets_{}", std::process::id()));
+        let shadowed = level_path(name, &assets) == Path::new(name);
+        let result = try_load_map_in(name, &assets);
+        std::fs::remove_file(name).unwrap();
+        assert!(shadowed, "level_path prefers the direct file");
+        assert!(result.is_err(), "loaded the working directory's file");
+    }
+
+    #[test]
+    fn try_load_map_refuses_bad_names() {
+        assert!(try_load_map("../episode.ron").is_err());
+        assert!(try_load_map("nope.ron").is_err());
+        assert!(try_load_map("test_yard.ron").is_ok());
+    }
 
     #[test]
     fn only_animated_materials_scroll() {

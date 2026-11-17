@@ -4,7 +4,7 @@
 use crate::combat::{
     CombatSet, FxQueue, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
 };
-use crate::flow::{LevelDifficulty, PlayState, SpawnLevel, load_level};
+use crate::flow::{LevelDifficulty, LevelFile, PlayState, SpawnLevel, load_level, sim_ticks};
 use crate::level::load_map;
 use crate::paths::assets_dir;
 use crate::player::LocalPlayer;
@@ -123,6 +123,14 @@ impl Episode {
         self.len() == 0
     }
 
+    /// The file name of level `i` (the map's own name when test `maps` are set).
+    pub fn file(&self, i: usize) -> String {
+        match &self.maps {
+            Some(maps) => maps[i].name.clone(),
+            None => self.def.levels[i].clone(),
+        }
+    }
+
     /// The authored map of level `i`.
     pub fn map(&self, i: usize) -> Map {
         match &self.maps {
@@ -139,13 +147,14 @@ pub struct Stats(pub LevelStats);
 /// Starts the episode over on `d`: level 0 with the starting loadout and zeroed totals.
 pub fn start_episode(world: &mut World, d: Difficulty) {
     world.resource_mut::<LevelDifficulty>().0 = d;
-    let map = {
+    let (file, map) = {
         let mut ep = world.resource_mut::<Episode>();
         ep.index = 0;
         ep.entry = None;
         ep.totals = LevelStats::default();
-        ep.map(0)
+        (ep.file(0), ep.map(0))
     };
+    world.insert_resource(LevelFile(file));
     load_level(world, map);
 }
 
@@ -162,10 +171,13 @@ pub fn advance(world: &mut World) {
         ep.totals.add(&stats);
         ep.entry = carry;
         ep.index += 1;
-        (ep.index < ep.len()).then(|| ep.map(ep.index))
+        (ep.index < ep.len()).then(|| (ep.file(ep.index), ep.map(ep.index)))
     };
     match next {
-        Some(map) => load_level(world, map),
+        Some((file, map)) => {
+            world.insert_resource(LevelFile(file));
+            load_level(world, map)
+        }
         None => *world.resource_mut::<PlayState>() = PlayState::EpisodeEnd,
     }
 }
@@ -177,12 +189,7 @@ impl Plugin for EpisodePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Stats>()
             .add_systems(SpawnLevel, reset_stats.after(crate::combat::spawn_combat))
-            .add_systems(
-                FixedUpdate,
-                record_stats
-                    .after(CombatSet)
-                    .run_if(resource_equals(PlayState::Playing)),
-            );
+            .add_systems(FixedUpdate, record_stats.after(CombatSet).run_if(sim_ticks));
     }
 }
 

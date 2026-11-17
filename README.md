@@ -69,6 +69,21 @@ Set `$RR_SETTINGS` to use another file. A missing file means defaults. Running a
 (`rex-ruckus LEVEL`) or a demo (`--demo`) skips the menu, uses default settings and never reads or
 writes the settings file.
 
+## Multiplayer (LAN)
+
+Up to four players can play the episode together in co-op. **Multiplayer** on the main menu holds
+your player name (saved with the settings), **Host game** (pick the episode and difficulty, wait in
+the lobby, then **Start**) and **Join game** (pick a game found on the LAN, or type the host's
+address and **Connect**). The host runs the game; players can join mid-level, and **Leave game** in
+the pause menu ends your session.
+
+- The game uses UDP port 27960 (play) and 27961 (LAN discovery); allow both through the firewall.
+- Over the internet, join by the host's IP address; the host forwards UDP port 27960.
+- For testing: `--host [LEVEL]` hosts at once (LEVEL is a file in `assets/levels/`), `--join
+  ADDRESS` joins at once, `--name NAME` sets the name for that run only.
+- Current limits: clients get no sounds or effects yet, and the world pauses for clients while the
+  host is on the death or stats screen.
+
 ## Controls
 
 Defaults (the actions are rebindable under Options, except Esc; the M, `[` and `]` sound keys are fixed, and yield to any action bound to them). Click to capture the mouse (that first click does not fire) · Esc pauses and releases the mouse · WASD move · Mouse look · Space jump · C / Left Ctrl crouch · E use (doors, lifts, switches) · LMB fire · R reload · F quick-kick · 1–6 or the mouse wheel switch weapons (1 boot, 2 pistol, 3 shotgun, 4 chaingun, 5 rocket launcher, 6 pipe bombs; with bombs out, a fresh fire press detonates them) · Q use the medkit · J toggle the jetpack (Space climbs, C / Left Ctrl descends) · N toggle night vision · Tab toggle the automap (rotates with you; walls appear as you see them; the game keeps running) · M mute / unmute · `[` and `]` lower / raise the master volume by 10%

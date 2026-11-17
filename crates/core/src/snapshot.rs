@@ -362,6 +362,15 @@ impl Snapshot {
             }),
             "projectile sector or owner out of range",
         )?;
+        // Players are the game's to apply, but their sectors and ids index the client's level
+        // and per-player slices. Everything else a player carries is fixed-size arrays and
+        // enums, bounded by decoding.
+        shape(
+            self.players
+                .iter()
+                .all(|p| p.body.sector < sectors && usize::from(p.id.0) < MAX_PLAYERS),
+            "player sector or id out of range",
+        )?;
         let w = &self.world;
         shape(w.movers.len() == mech.movers.len(), "mover count differs")?;
         shape(
@@ -906,9 +915,36 @@ mod tests {
         host.combat
             .projectiles
             .push(bolt(5, Vec3::new(1.0, 1.0, 1.0)));
-        let good = host.capture(1);
+        let mut good = host.capture(1);
+        let start = host.map.player_start.pos;
+        good.players.push(PlayerSnap {
+            id: PlayerId(0),
+            body: Body::spawn(&host.map, Vec2::new(start.0, start.1), 0.35, 1.8).unwrap(),
+            angle: 0.0,
+            pitch: 0.0,
+            vitals: Vitals::new(),
+            arsenal: crate::weapons::Arsenal::new(&defs),
+            inventory: Inventory::new(),
+            keys: KeySet::default(),
+            ack: 0,
+        });
         type Tamper = fn(&mut Snapshot);
-        let tampers: [(&str, Tamper); 13] = [
+        let tampers: [(&str, Tamper); 15] = [
+            ("player sector", |s| {
+                let mut p = s.players[0].clone();
+                p.body.sector = 9999;
+                s.players.push(PlayerSnap {
+                    id: PlayerId(1),
+                    ..p
+                });
+            }),
+            ("player id", |s| {
+                let p = s.players[0].clone();
+                s.players.push(PlayerSnap {
+                    id: PlayerId(MAX_PLAYERS as u8),
+                    ..p
+                });
+            }),
             ("mover count", |s| {
                 s.world.movers.pop();
             }),

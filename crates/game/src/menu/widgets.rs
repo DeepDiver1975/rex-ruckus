@@ -61,6 +61,17 @@ pub fn label(parent: &mut ChildSpawnerCommands, ui: &UiFont, text: &str, px: f32
 
 /// A clickable row that performs `action`.
 pub fn button(parent: &mut ChildSpawnerCommands, ui: &UiFont, text: &str, action: MenuAction) {
+    button_marked(parent, ui, text, action, ());
+}
+
+/// A [`button`] whose text carries `marker`, for a system that keeps the text current.
+pub fn button_marked(
+    parent: &mut ChildSpawnerCommands,
+    ui: &UiFont,
+    text: &str,
+    action: MenuAction,
+    marker: impl Bundle,
+) {
     parent
         .spawn((
             Button,
@@ -71,7 +82,14 @@ pub fn button(parent: &mut ChildSpawnerCommands, ui: &UiFont, text: &str, action
             BackgroundColor(IDLE),
             action,
         ))
-        .with_children(|b| label(b, ui, text, 26.0, Color::WHITE));
+        .with_children(|b| {
+            b.spawn((
+                Text::new(text),
+                font(ui, 26.0),
+                TextColor(Color::WHITE),
+                marker,
+            ));
+        });
 }
 
 /// Buttons side by side (they stay in spawn order for navigation).

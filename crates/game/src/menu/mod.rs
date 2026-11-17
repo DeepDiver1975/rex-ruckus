@@ -1,5 +1,6 @@
-//! Menus: main, episode, difficulty, pause, options, controls and the stats screens, drawn with
-//! `bevy_ui` over the frozen level.
+//! Menus: main, episode, difficulty, pause, options, controls, the stats screens and the co-op
+//! screens (`multiplayer`), drawn with `bevy_ui` over the frozen level (or, in a net game, over
+//! the running one).
 //!
 //! Every way of choosing a button (mouse click, Enter) ends in [`MenuInput::activate`]; the one
 //! exclusive system [`run_menu_action`] performs it, so tests can drive the menus without a
@@ -9,12 +10,16 @@
 
 pub mod controls;
 pub mod main_menu;
+pub mod multiplayer;
 pub mod options;
 pub mod pause;
 pub mod stats;
+pub mod text_field;
 pub mod widgets;
 
 pub use controls::{Capture, Notice};
+pub use multiplayer::HostSetup;
+pub use text_field::{Editing, Field};
 
 use crate::bindings::{Action, Bindings};
 use crate::episode::{Episode, Stats, start_episode};
@@ -24,6 +29,9 @@ use crate::flow::{
 };
 use crate::hud::UiFont;
 use crate::level::CurrentMap;
+use crate::net::NetMode;
+use crate::net::client::NetNotice;
+use crate::net::lobby::{LanGames, browse_lan};
 use crate::player::{grab_cursor, pause_on_escape};
 use crate::settings::{Settings, SettingsPath};
 use bevy::ecs::system::SystemParam;
@@ -44,6 +52,14 @@ pub enum Screen {
     Stats,
     /// Episode totals after the last level.
     EpisodeEnd,
+    /// Name, Host game, Join game.
+    Multiplayer,
+    /// LAN games and an address to join.
+    Join,
+    /// A co-op game before its level starts: level, skill and players.
+    Lobby,
+    /// Why the last co-op session ended (`NetNotice`).
+    NetNotice,
 }
 
 impl Screen {
@@ -55,7 +71,23 @@ impl Screen {
             Screen::Options if state == PlayState::Paused => Some(Screen::Pause),
             Screen::Options => Some(Screen::Main),
             Screen::Controls => Some(Screen::Options),
-            Screen::Main | Screen::Pause | Screen::Stats | Screen::EpisodeEnd => None,
+            Screen::Multiplayer => Some(Screen::Main),
+            Screen::Join => Some(Screen::Multiplayer),
+            Screen::Main
+            | Screen::Pause
+            | Screen::Stats
+            | Screen::EpisodeEnd
+            | Screen::Lobby
+            | Screen::NetNotice => None,
+        }
+    }
+
+    /// [`Screen::back`], except that the episode picker of a game being set up for hosting goes
+    /// back to the Multiplayer screen.
+    pub fn back_from(self, state: PlayState, host_setup: bool) -> Option<Screen> {
+        match self {
+            Screen::Episodes if host_setup => Some(Screen::Multiplayer),
+            _ => self.back(state),
         }
     }
 
@@ -104,6 +136,38 @@ pub enum MenuAction {
     ResetBindings,
     Adjust(Setting, i8),
     Toggle(Setting),
+    Multiplayer,
+    /// Episode and difficulty, then the Lobby of a hosted game.
+    HostGame,
+    JoinGame,
+    /// Join a LAN game.
+    JoinLan(std::net::SocketAddr),
+    /// Join the typed address.
+    Connect,
+    /// The host starts the level for everyone.
+    StartGame,
+    /// Leave the Lobby.
+    Leave,
+    /// Leave a net game from the pause menu.
+    LeaveGame,
+    NoticeOk,
+    /// Start (or end) typing into a field.
+    Edit(Field),
+}
+
+/// Whether keys are being typed rather than pressed: a rebind waits for its key, or a text field
+/// is being edited. Navigation, pause and the fixed sound keys stay out of the way meanwhile.
+#[derive(SystemParam)]
+pub struct KeysTyped<'w> {
+    capture: Option<Res<'w, Capture>>,
+    editing: Option<Res<'w, Editing>>,
+}
+
+impl KeysTyped<'_> {
+    pub fn active(&self) -> bool {
+        self.capture.as_ref().is_some_and(|c| c.0.is_some())
+            || self.editing.as_ref().is_some_and(|e| e.0.is_some())
+    }
 }
 
 /// The screen being shown, if any.
@@ -152,6 +216,13 @@ impl Plugin for MenuPlugin {
             .init_resource::<MenuSelection>()
             .init_resource::<Capture>()
             .init_resource::<Notice>()
+            .init_resource::<Editing>()
+            .init_resource::<HostSetup>()
+            .init_resource::<multiplayer::HostPort>()
+            .init_resource::<text_field::JoinAddress>()
+            .init_resource::<LanGames>()
+            .init_resource::<NetNotice>()
+            .add_message::<bevy::input::keyboard::KeyboardInput>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Bindings>()
@@ -169,10 +240,16 @@ impl Plugin for MenuPlugin {
                     run_menu_action.after(grab_cursor),
                     // After the action: the frame a capture starts is skipped.
                     controls::capture_input,
+                    text_field::text_input,
                     sync_screen,
+                    // After the state's default screen: a notice wins over the title screen.
+                    multiplayer::show_notice,
+                    browse_lan,
                     rebuild_screen.run_if(resource_changed::<MenuScreen>),
                     options::refresh_values,
                     controls::refresh_rows,
+                    text_field::refresh_fields,
+                    multiplayer::refresh_texts,
                     options::save_on_leave,
                     highlight,
                 )
@@ -206,7 +283,7 @@ fn keyboard_nav(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<Bindings>,
-    capture: Res<Capture>,
+    (typed, host_setup): (KeysTyped, Res<HostSetup>),
     state: Res<PlayState>,
     buttons: MenuButtons,
     mut selection: ResMut<MenuSelection>,
@@ -214,7 +291,8 @@ fn keyboard_nav(
     mut screen: ResMut<MenuScreen>,
 ) {
     let Some(current) = screen.0 else { return };
-    if capture.0.is_some() {
+    // Keys go to a rebind or a text field instead.
+    if typed.active() {
         return;
     }
     let items = buttons.list();
@@ -230,7 +308,7 @@ fn keyboard_nav(
         input.activate = Some(*action);
     }
     if bindings.just_pressed(Action::Pause, &keys, &mouse)
-        && let Some(back) = current.back(*state)
+        && let Some(back) = current.back_from(*state, host_setup.0)
     {
         screen.0 = Some(back);
     }
@@ -281,9 +359,14 @@ pub fn run_menu_action(world: &mut World) {
     if skips_stats && world.resource::<StateAge>().0 < RESTART_DELAY {
         return;
     }
+    // Any button ends typing into a field.
+    text_field::edit_action(world, action);
     let screen = |world: &mut World, s: Option<Screen>| world.resource_mut::<MenuScreen>().0 = s;
     match action {
-        MenuAction::NewGame => screen(world, Some(Screen::Episodes)),
+        MenuAction::NewGame => {
+            world.resource_mut::<HostSetup>().0 = false;
+            screen(world, Some(Screen::Episodes));
+        }
         MenuAction::PickEpisode(i) => {
             let chosen = world
                 .get_resource_mut::<Episode>()
@@ -293,7 +376,9 @@ pub fn run_menu_action(world: &mut World) {
             }
         }
         MenuAction::PickDifficulty(d) => {
-            if world.contains_resource::<Episode>() {
+            if world.resource::<HostSetup>().0 {
+                multiplayer::host_game(world, d);
+            } else if world.contains_resource::<Episode>() {
                 // Loads level 0 and sets `Playing`.
                 start_episode(world, d);
             }
@@ -303,10 +388,19 @@ pub fn run_menu_action(world: &mut World) {
             *world.resource_mut::<PlayState>() = from;
         }
         MenuAction::RestartLevel => {
-            // Rebuilds the level and sets `Playing`, so no tick of the old level runs.
-            restart_level(world);
+            // Rebuilds the level and sets `Playing`, so no tick of the old level runs. A co-op
+            // client never restarts: the host decides.
+            let mode = world.get_resource::<NetMode>().copied().unwrap_or_default();
+            if mode != NetMode::Client {
+                restart_level(world);
+            }
         }
-        MenuAction::QuitToMenu => quit_to_menu(world),
+        MenuAction::QuitToMenu => {
+            // A net game ends first: otherwise the title screen would still be hosting (or
+            // joined), and the host's level-0 reload would send the clients a `Load`.
+            multiplayer::stop_session(world);
+            quit_to_menu(world);
+        }
         MenuAction::QuitGame => {
             world.write_message(AppExit::Success);
         }
@@ -317,7 +411,8 @@ pub fn run_menu_action(world: &mut World) {
         }
         MenuAction::Back => {
             let current = world.resource::<MenuScreen>().0;
-            if let Some(back) = current.and_then(|s| s.back(state)) {
+            let host_setup = world.resource::<HostSetup>().0;
+            if let Some(back) = current.and_then(|s| s.back_from(state, host_setup)) {
                 screen(world, Some(back));
             }
         }
@@ -348,11 +443,28 @@ pub fn run_menu_action(world: &mut World) {
                 world.resource_mut::<AdvanceRequested>().0 = true;
             }
         }
+        MenuAction::Multiplayer => screen(world, Some(Screen::Multiplayer)),
+        MenuAction::HostGame => {
+            world.resource_mut::<HostSetup>().0 = true;
+            screen(world, Some(Screen::Episodes));
+        }
+        MenuAction::JoinGame => screen(world, Some(Screen::Join)),
+        MenuAction::JoinLan(addr) => multiplayer::join(world, addr),
+        MenuAction::Connect => multiplayer::connect(world),
+        MenuAction::StartGame => multiplayer::start_game(world),
+        MenuAction::Leave => multiplayer::leave_lobby(world),
+        MenuAction::LeaveGame => {
+            multiplayer::stop_session(world);
+            quit_to_menu(world);
+        }
+        MenuAction::NoticeOk => multiplayer::notice_ok(world),
+        // Handled by `edit_action` above.
+        MenuAction::Edit(_) => {}
     }
 }
 
 /// Back to the title screen: level 0 of the episode, frozen, with the starting loadout.
-fn quit_to_menu(world: &mut World) {
+pub(crate) fn quit_to_menu(world: &mut World) {
     if !world.contains_resource::<Episode>() {
         return;
     }
@@ -363,21 +475,27 @@ fn quit_to_menu(world: &mut World) {
     episode.index = 0;
     episode.entry = None;
     episode.totals = default();
-    let map = episode.map(0);
+    let (file, map) = (episode.file(0), episode.map(0));
+    world.insert_resource(crate::flow::LevelFile(file));
     load_level(world, map);
     *world.resource_mut::<PlayState>() = PlayState::Menu;
 }
 
-/// Shows the default screen of a new play state.
+/// Shows the default screen of a new play state; in a co-op session the menu state is its Lobby.
 fn sync_screen(
     state: Res<PlayState>,
     episode: Option<Res<Episode>>,
+    mode: Option<Res<NetMode>>,
     mut screen: ResMut<MenuScreen>,
 ) {
     if !state.is_changed() {
         return;
     }
-    let wanted = Screen::for_state(*state, episode.is_some());
+    let net = mode.is_some_and(|m| m.is_net());
+    let wanted = match Screen::for_state(*state, episode.is_some()) {
+        Some(Screen::Main) if net => Some(Screen::Lobby),
+        other => other,
+    };
     if screen.0 != wanted {
         screen.0 = wanted;
     }
@@ -395,6 +513,7 @@ fn rebuild_screen(
     difficulty: Res<LevelDifficulty>,
     paused_from: Res<PausedFrom>,
     settings_path: Option<Res<SettingsPath>>,
+    net: multiplayer::NetView,
     roots: Query<Entity, With<MenuRoot>>,
     mut selection: ResMut<MenuSelection>,
 ) {
@@ -432,6 +551,7 @@ fn rebuild_screen(
             &ui,
             episode.is_some(),
             paused_from.0 == PlayState::Playing,
+            net.mode(),
         ),
         Some(Screen::Options) => options::spawn_options(&mut commands, &ui, saved),
         Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
@@ -446,6 +566,7 @@ fn rebuild_screen(
                 .unwrap_or_default();
             stats::spawn_episode_end(&mut commands, &ui, name, difficulty.0, &totals);
         }
+        Some(other) => multiplayer::spawn(&mut commands, &ui, other, &net),
         None => {}
     }
 }
@@ -497,6 +618,24 @@ mod tests {
             Some(Screen::Options)
         );
         assert_eq!(Screen::Pause.back(PlayState::Paused), None);
+        assert_eq!(
+            Screen::Multiplayer.back(PlayState::Menu),
+            Some(Screen::Main)
+        );
+        assert_eq!(
+            Screen::Join.back(PlayState::Menu),
+            Some(Screen::Multiplayer)
+        );
+        assert_eq!(Screen::Lobby.back(PlayState::Menu), None);
+        assert_eq!(Screen::NetNotice.back(PlayState::Menu), None);
+        assert_eq!(
+            Screen::Episodes.back_from(PlayState::Menu, true),
+            Some(Screen::Multiplayer)
+        );
+        assert_eq!(
+            Screen::Episodes.back_from(PlayState::Menu, false),
+            Some(Screen::Main)
+        );
     }
 
     #[test]

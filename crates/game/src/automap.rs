@@ -4,10 +4,11 @@
 //! their own render layer through a `Camera2d` above the 3D view and the UI.
 
 use crate::combat::eye_of;
-use crate::flow::{PlayState, SpawnLevel};
+use crate::flow::{PausedFrom, PlayState, SpawnLevel, world_live, world_running};
 use crate::level::CurrentMap;
 use crate::mechanics::LevelMechanics;
 use crate::menu::MenuScreen;
+use crate::net::NetMode;
 use crate::player::{LocalPlayer, Look, PendingInput, PlayerBody, PlayerSimSet, spawn_player};
 use bevy::camera::ClearColorConfig;
 use bevy::camera::visibility::RenderLayers;
@@ -54,11 +55,7 @@ impl Plugin for AutomapSimPlugin {
             .add_systems(SpawnLevel, reset_automap.after(spawn_player))
             .add_systems(
                 FixedUpdate,
-                (
-                    toggle_automap,
-                    reveal.run_if(resource_equals(PlayState::Playing)),
-                )
-                    .after(PlayerSimSet),
+                (toggle_automap, reveal.run_if(world_running)).after(PlayerSimSet),
             );
     }
 }
@@ -83,11 +80,14 @@ fn reset_automap(
 /// dead) is dropped rather than applied on resume.
 fn toggle_automap(
     state: Res<PlayState>,
+    from: Res<PausedFrom>,
+    mode: Option<Res<NetMode>>,
     mut view: ResMut<AutomapView>,
     mut q: Query<&mut PendingInput, With<LocalPlayer>>,
 ) {
+    let live = world_live(*state, *from, mode.is_some_and(|m| m.is_net()));
     for mut input in &mut q {
-        if std::mem::take(&mut input.toggle_map) && *state == PlayState::Playing {
+        if std::mem::take(&mut input.toggle_map) && live {
             view.open = !view.open;
         }
     }
@@ -164,11 +164,14 @@ fn setup_automap(mut commands: Commands, mut config_store: ResMut<GizmoConfigSto
 fn show_overlay(
     view: Res<AutomapView>,
     state: Res<PlayState>,
+    from: Res<PausedFrom>,
+    mode: Option<Res<NetMode>>,
     screen: Option<Res<MenuScreen>>,
     mut cameras: Query<&mut Camera, With<AutomapCamera>>,
     mut backdrops: Query<&mut Visibility, With<AutomapBackdrop>>,
 ) {
-    let shown = view.open && *state == PlayState::Playing && screen.is_none_or(|s| s.0.is_none());
+    let live = world_live(*state, *from, mode.is_some_and(|m| m.is_net()));
+    let shown = view.open && live && screen.is_none_or(|s| s.0.is_none());
     for mut camera in &mut cameras {
         if camera.is_active != shown {
             camera.is_active = shown;

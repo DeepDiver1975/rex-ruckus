@@ -7,7 +7,10 @@ use rr_core::snapshot::Snapshot;
 use serde::{Deserialize, Serialize};
 
 /// Bump whenever any wire type or snapshot type changes shape.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
+/// Netcode protocol id, "RRNCOOP1". Never changes, so a version mismatch always reaches
+/// [`check_hello`] and gets a clear refusal instead of a silent netcode deny.
+pub const NETCODE_PROTOCOL_ID: u64 = 0x5252_4E43_4F4F_5031;
 /// Game UDP port.
 pub const GAME_PORT: u16 = 27960;
 /// LAN beacon UDP port.
@@ -40,6 +43,19 @@ impl InputFrame {
             && self.strafe.is_finite()
             && self.angle.is_finite()
             && self.pitch.is_finite()
+    }
+
+    /// A copy with every field in range: `forward`/`strafe` in [-1, 1], `pitch` within
+    /// ±`pitch_limit`, `angle` in [0, TAU), `cycle` in [-1, 1]. Call it on finite frames only.
+    pub fn clamped(&self, pitch_limit: f32) -> InputFrame {
+        InputFrame {
+            forward: self.forward.clamp(-1.0, 1.0),
+            strafe: self.strafe.clamp(-1.0, 1.0),
+            pitch: self.pitch.clamp(-pitch_limit, pitch_limit),
+            angle: self.angle.rem_euclid(std::f32::consts::TAU),
+            cycle: self.cycle.clamp(-1, 1),
+            ..self.clone()
+        }
     }
 }
 
@@ -78,6 +94,32 @@ pub struct Welcome {
     pub skill: Difficulty,
 }
 
+/// The host (re)started `level`; snapshots with `tick <= Load.tick` belong to the old run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Load {
+    pub level: String,
+    pub skill: Difficulty,
+    pub tick: u32,
+}
+
+/// Whether `name` is a level file name a peer may ask for: 1-64 bytes of `[a-z0-9_]` then `.ron`.
+/// A player name: 1 to [`MAX_NAME`] bytes, no control characters.
+pub fn valid_player_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_NAME && !name.chars().any(char::is_control)
+}
+
+pub fn valid_level_name(name: &str) -> bool {
+    match name.strip_suffix(".ron") {
+        Some(stem) => {
+            (1..=64).contains(&stem.len())
+                && stem
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        }
+        None => false,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Refusal {
     Protocol { host: u16 },
@@ -92,7 +134,14 @@ pub enum Refusal {
 pub enum ServerMsg {
     Welcome(Welcome),
     Refused(Refusal),
-    Snapshot(Snapshot),
+    /// `you` is the receiver's own seat, so a client always knows its id.
+    Snapshot {
+        you: PlayerId,
+        snap: Snapshot,
+    },
+    /// Every player's name, index = `PlayerId`.
+    Roster(Vec<String>),
+    Load(Load),
 }
 
 /// A host's LAN announcement.
@@ -111,6 +160,16 @@ impl Beacon {
     /// Whether this beacon is from a compatible game; readers ignore any other.
     pub fn is_ours(&self) -> bool {
         self.magic == BEACON_MAGIC && self.protocol == PROTOCOL_VERSION
+    }
+
+    /// Ours, and fit for the game list: a player name, a level file name and a player count
+    /// within [`MAX_PLAYERS`].
+    pub fn is_listable(&self) -> bool {
+        self.is_ours()
+            && valid_player_name(&self.name)
+            && valid_level_name(&self.level)
+            && self.players <= self.max
+            && usize::from(self.max) <= MAX_PLAYERS
     }
 }
 
@@ -143,19 +202,38 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, NetError> {
 }
 
 /// [`decode`] for what clients receive: a snapshot with a NaN or infinity, or one out of
-/// bounds ([`Snapshot::is_sane`]), is rejected.
+/// bounds ([`Snapshot::is_sane`], or `you` not a seat in it), is rejected; so are a roster that
+/// is too long or has an over-long name, a `Welcome` to a seat past `MAX_PLAYERS`, and a
+/// `Welcome`/`Load` with a bad level name.
 pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
     let msg: ServerMsg = decode(bytes)?;
     match &msg {
-        ServerMsg::Snapshot(s) if !s.is_sane() => Err(NetError::Invalid),
-        ServerMsg::Snapshot(s) if !s.is_finite() => Err(NetError::NonFinite),
+        ServerMsg::Snapshot { you, snap }
+            if !snap.is_sane() || you.0 as usize >= snap.players.len() =>
+        {
+            Err(NetError::Invalid)
+        }
+        ServerMsg::Snapshot { snap, .. } if !snap.is_finite() => Err(NetError::NonFinite),
+        ServerMsg::Roster(names)
+            if names.len() > MAX_PLAYERS || names.iter().any(|n| n.len() > MAX_NAME) =>
+        {
+            Err(NetError::Invalid)
+        }
+        ServerMsg::Welcome(Welcome { player, .. }) if usize::from(player.0) >= MAX_PLAYERS => {
+            Err(NetError::Invalid)
+        }
+        ServerMsg::Welcome(Welcome { level, .. }) | ServerMsg::Load(Load { level, .. })
+            if !valid_level_name(level) =>
+        {
+            Err(NetError::Invalid)
+        }
         _ => Ok(msg),
     }
 }
 
 /// [`decode`] for what the host receives: the host uses it for every datagram. An `Input` with a
-/// NaN or infinity is rejected. Clamping `forward`/`strafe` to [-1, 1] and `pitch` to its range
-/// happens where the host applies the input (PR 5), not here.
+/// NaN or infinity is rejected. Clamping to range lives in [`InputFrame::clamped`], which the
+/// host calls where it applies the input, not here.
 pub fn decode_client(bytes: &[u8]) -> Result<ClientMsg, NetError> {
     let msg: ClientMsg = decode(bytes)?;
     match &msg {
@@ -183,7 +261,7 @@ pub fn check_hello(
     if hello.assets != assets {
         return Err(Refusal::Assets);
     }
-    if hello.name.is_empty() || hello.name.len() > MAX_NAME {
+    if !valid_player_name(&hello.name) {
         return Err(Refusal::BadName);
     }
     if players >= MAX_PLAYERS {
@@ -285,6 +363,13 @@ mod tests {
         snapshot_of("combat_arena.ron", Vec2::new(5.0, 10.0), 120, 2, 3)
     }
 
+    fn snap_msg(snap: Snapshot) -> ServerMsg {
+        ServerMsg::Snapshot {
+            you: PlayerId(0),
+            snap,
+        }
+    }
+
     fn hello() -> Hello {
         Hello {
             protocol: PROTOCOL_VERSION,
@@ -299,7 +384,7 @@ mod tests {
         let s = arena_snapshot();
         assert_eq!(s.players.len(), 2);
         assert!(!s.projectiles.is_empty());
-        let msg = ServerMsg::Snapshot(s);
+        let msg = snap_msg(s);
         let back: ServerMsg = decode(&encode(&msg)).unwrap();
         assert_eq!(back, msg);
         assert_eq!(decode_server(&encode(&msg)).unwrap(), msg);
@@ -328,7 +413,13 @@ mod tests {
             }),
             ServerMsg::Refused(Refusal::Protocol { host: 3 }),
             ServerMsg::Refused(Refusal::Full),
-            ServerMsg::Snapshot(arena_snapshot()),
+            snap_msg(arena_snapshot()),
+            ServerMsg::Roster(vec!["Rex".into(), "Pal".into()]),
+            ServerMsg::Load(Load {
+                level: "arsenal_depot.ron".into(),
+                skill: Difficulty::Easy,
+                tick: 77,
+            }),
         ];
         for m in servers {
             assert_eq!(decode::<ServerMsg>(&encode(&m)).unwrap(), m);
@@ -363,7 +454,7 @@ mod tests {
             let _ = decode::<ClientMsg>(&bytes);
             let _ = decode::<Beacon>(&bytes);
         }
-        let good = encode(&ServerMsg::Snapshot(arena_snapshot()));
+        let good = encode(&snap_msg(arena_snapshot()));
         assert!(decode::<ServerMsg>(&good[..good.len() / 2]).is_err());
         assert!(decode_server(&good[..good.len() - 1]).is_err());
     }
@@ -372,7 +463,7 @@ mod tests {
     fn decode_rejects_non_finite_snapshot() {
         let mut s = arena_snapshot();
         s.actors[0].angle = f32::NAN;
-        let bytes = encode(&ServerMsg::Snapshot(s));
+        let bytes = encode(&snap_msg(s));
         assert!(matches!(decode_server(&bytes), Err(NetError::NonFinite)));
         // The generic decode does not look inside.
         assert!(decode::<ServerMsg>(&bytes).is_ok());
@@ -396,18 +487,18 @@ mod tests {
     #[test]
     fn decode_server_rejects_insane_snapshot() {
         let good = arena_snapshot();
-        assert!(decode_server(&encode(&ServerMsg::Snapshot(good.clone()))).is_ok());
+        assert!(decode_server(&encode(&snap_msg(good.clone()))).is_ok());
         let mut s = good.clone();
         s.players[1].id = s.players[0].id;
         assert!(matches!(
-            decode_server(&encode(&ServerMsg::Snapshot(s))),
+            decode_server(&encode(&snap_msg(s))),
             Err(NetError::Invalid)
         ));
         let mut s = good;
         let last = s.actors.last().unwrap().clone();
         s.actors.resize(rr_core::snapshot::MAX_ACTORS + 1, last);
         assert!(matches!(
-            decode_server(&encode(&ServerMsg::Snapshot(s))),
+            decode_server(&encode(&snap_msg(s))),
             Err(NetError::Invalid)
         ));
     }
@@ -444,9 +535,127 @@ mod tests {
         assert_eq!(s.actors.len(), 66);
         assert_eq!(s.players.len(), 4);
         assert_eq!(s.projectiles.len(), 32);
-        let n = encode(&ServerMsg::Snapshot(s.clone())).len();
+        let n = encode(&snap_msg(s.clone())).len();
         eprintln!("undertow snapshot: {} actors, {n} bytes", s.actors.len());
         assert!(n <= SNAPSHOT_BUDGET, "{n} bytes");
+    }
+
+    #[test]
+    fn level_names() {
+        assert!(valid_level_name("undertow.ron"));
+        assert!(valid_level_name("arsenal_depot.ron"));
+        for bad in [
+            "",
+            ".ron",
+            "../x.ron",
+            "a/b.ron",
+            "a\\b.ron",
+            "Undertow.ron",
+            "x.txt",
+            "x.ron\0",
+        ] {
+            assert!(!valid_level_name(bad), "{bad:?}");
+        }
+        assert!(valid_level_name(&format!("{}.ron", "a".repeat(64))));
+        assert!(!valid_level_name(&format!("{}.ron", "a".repeat(65))));
+    }
+
+    #[test]
+    fn clamped_input() {
+        let f = InputFrame {
+            seq: 1,
+            forward: 3.0,
+            strafe: -9.0,
+            angle: -0.5,
+            pitch: 2.0,
+            buttons: 0,
+            select: None,
+            cycle: 5,
+        };
+        let c = f.clamped(1.45);
+        assert_eq!(c.forward, 1.0);
+        assert_eq!(c.strafe, -1.0);
+        assert_eq!(c.pitch, 1.45);
+        assert!((c.angle - (std::f32::consts::TAU - 0.5)).abs() < 1e-5);
+        assert_eq!(c.cycle, 1);
+        let low = InputFrame {
+            pitch: -2.0,
+            cycle: -7,
+            ..f
+        };
+        let c = low.clamped(1.45);
+        assert_eq!(c.pitch, -1.45);
+        assert_eq!(c.cycle, -1);
+    }
+
+    #[test]
+    fn snapshot_you_out_of_range_is_invalid() {
+        let snap = arena_snapshot();
+        assert_eq!(snap.players.len(), 2);
+        let bad = ServerMsg::Snapshot {
+            you: PlayerId(2),
+            snap: snap.clone(),
+        };
+        assert!(matches!(
+            decode_server(&encode(&bad)),
+            Err(NetError::Invalid)
+        ));
+        let ok = ServerMsg::Snapshot {
+            you: PlayerId(1),
+            snap,
+        };
+        assert!(decode_server(&encode(&ok)).is_ok());
+    }
+
+    #[test]
+    fn bad_level_in_welcome_or_load_is_invalid() {
+        for level in ["../x.ron", ""] {
+            let w = ServerMsg::Welcome(Welcome {
+                player: PlayerId(1),
+                level: level.into(),
+                skill: Difficulty::Normal,
+            });
+            assert!(matches!(decode_server(&encode(&w)), Err(NetError::Invalid)));
+            let l = ServerMsg::Load(Load {
+                level: level.into(),
+                skill: Difficulty::Normal,
+                tick: 0,
+            });
+            assert!(matches!(decode_server(&encode(&l)), Err(NetError::Invalid)));
+        }
+    }
+
+    #[test]
+    fn welcome_to_a_seat_past_the_last_is_invalid() {
+        let w = |id: usize| {
+            encode(&ServerMsg::Welcome(Welcome {
+                player: PlayerId(id as u8),
+                level: "test_yard.ron".into(),
+                skill: Difficulty::Normal,
+            }))
+        };
+        assert!(decode_server(&w(MAX_PLAYERS - 1)).is_ok());
+        for id in [MAX_PLAYERS, 255] {
+            assert!(
+                matches!(decode_server(&w(id)), Err(NetError::Invalid)),
+                "seat {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_roster_is_invalid() {
+        let names = |n: usize| vec!["Rex".to_string(); n];
+        assert!(decode_server(&encode(&ServerMsg::Roster(names(MAX_PLAYERS)))).is_ok());
+        assert!(matches!(
+            decode_server(&encode(&ServerMsg::Roster(names(MAX_PLAYERS + 1)))),
+            Err(NetError::Invalid)
+        ));
+        let long = ServerMsg::Roster(vec!["x".repeat(MAX_NAME + 1)]);
+        assert!(matches!(
+            decode_server(&encode(&long)),
+            Err(NetError::Invalid)
+        ));
     }
 
     #[test]
@@ -471,6 +680,14 @@ mod tests {
         assert_eq!(check_hello(&h, "0.2.0", 99, 1), Err(Refusal::BadName));
         h.name = String::new();
         assert_eq!(check_hello(&h, "0.2.0", 99, 1), Err(Refusal::BadName));
+        for bad in ["Rex\n", "\u{1b}[2J", "A\u{7f}"] {
+            h.name = bad.into();
+            assert_eq!(
+                check_hello(&h, "0.2.0", 99, 1),
+                Err(Refusal::BadName),
+                "{bad:?}"
+            );
+        }
         h.name = "x".repeat(24);
         assert_eq!(check_hello(&h, "0.2.0", 99, 1), Ok(()));
         assert_eq!(
@@ -505,5 +722,54 @@ mod tests {
             }
             .is_ours()
         );
+    }
+
+    #[test]
+    fn only_sane_beacons_are_listable() {
+        let b = Beacon {
+            magic: BEACON_MAGIC,
+            protocol: PROTOCOL_VERSION,
+            name: "Rex".into(),
+            level: "undertow.ron".into(),
+            players: 4,
+            max: 4,
+            port: GAME_PORT,
+        };
+        assert!(b.is_listable());
+        let bad = [
+            Beacon {
+                magic: 1,
+                ..b.clone()
+            },
+            Beacon {
+                name: "x".repeat(MAX_NAME + 1),
+                ..b.clone()
+            },
+            Beacon {
+                name: String::new(),
+                ..b.clone()
+            },
+            Beacon {
+                name: "R\nex".into(),
+                ..b.clone()
+            },
+            Beacon {
+                level: "../x.ron".into(),
+                ..b.clone()
+            },
+            Beacon {
+                players: 5,
+                max: 4,
+                ..b.clone()
+            },
+            Beacon {
+                players: 2,
+                max: MAX_PLAYERS as u8 + 1,
+                ..b.clone()
+            },
+        ];
+        for bad in bad {
+            assert!(!bad.is_listable(), "{bad:?}");
+        }
     }
 }

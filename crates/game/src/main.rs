@@ -8,12 +8,15 @@ use rr_game::GamePlugin;
 use rr_game::audio::AudioOptions;
 use rr_game::demo::{DemoPlugin, load_script};
 use rr_game::episode::load_episodes;
-use std::path::PathBuf;
+use rr_game::menu::text_field::clean_name;
+use rr_game::net::NetStart;
+use rr_net::{MAX_NAME, parse_addr, valid_level_name};
+use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]] [--partners 1|2|3]";
+const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]] [--partners 1|2|3]\n       [--host | --join ADDRESS] [--name NAME]";
 
 /// Command line: `[LEVEL] [--mute] [--difficulty D] [--demo SCRIPT [--record DIR]]
-/// [--partners N]`.
+/// [--partners N] [--host | --join ADDRESS] [--name NAME]`.
 #[derive(Debug, PartialEq)]
 struct Args {
     /// `None` plays the episode (or the depot, for a demo).
@@ -25,6 +28,10 @@ struct Args {
     difficulty: Difficulty,
     /// Dev aid: stand-in co-op partners to spawn (1-3), 0 for none.
     partners: u8,
+    /// Host (the level, or the episode's first) or join a co-op game at once.
+    net: Option<NetStart>,
+    /// The co-op name for this run (not saved).
+    name: Option<String>,
 }
 
 impl Args {
@@ -45,7 +52,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         mute: false,
         difficulty: Difficulty::default(),
         partners: 0,
+        net: None,
+        name: None,
     };
+    let mut host = false;
+    let mut join = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -69,6 +80,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                     .filter(|n| (1..=3).contains(n))
                     .ok_or("--partners needs 1, 2 or 3")?;
             }
+            "--host" => host = true,
+            "--join" => {
+                let value = args.next().ok_or("--join needs an address")?;
+                join = Some(parse_addr(&value).ok_or(format!("bad address {value:?}"))?);
+            }
+            "--name" => {
+                let value = args
+                    .next()
+                    .and_then(|n| clean_name(&n))
+                    .ok_or(format!("--name needs 1 to {MAX_NAME} bytes"))?;
+                out.name = Some(value);
+            }
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => out.level = Some(arg),
         }
@@ -76,8 +99,47 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     if out.record.is_some() && out.demo.is_none() {
         return Err("--record needs --demo".into());
     }
+    out.net = match (host, join) {
+        (true, Some(_)) => return Err("--host and --join exclude each other".into()),
+        (true, None) => Some(NetStart::Host),
+        (false, join) => join.map(NetStart::Join),
+    };
+    if out.net.is_some() && (out.demo.is_some() || out.partners > 0) {
+        return Err("--host and --join exclude --demo and --partners".into());
+    }
+    if host && let Some(level) = &out.level {
+        out.level = Some(host_level(level)?);
+    }
     out.mute |= out.record.is_some();
     Ok(out)
+}
+
+/// The level a `--host` game advertises: clients load it by file name from their own
+/// `assets/levels/`, so a path is accepted only when it points into that folder.
+fn host_level(level: &str) -> Result<String, String> {
+    if valid_level_name(level) {
+        return Ok(level.into());
+    }
+    let refuse = || {
+        format!(
+            "--host plays a level from assets/levels (a name like test_yard.ron), not {level:?}"
+        )
+    };
+    let path = Path::new(level);
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(refuse)?;
+    let levels = rr_game::paths::assets_dir().join("levels");
+    let in_levels = match (path.canonicalize(), levels.canonicalize()) {
+        (Ok(file), Ok(dir)) => file.parent() == Some(dir.as_path()),
+        _ => false,
+    };
+    if in_levels && valid_level_name(name) {
+        Ok(name.into())
+    } else {
+        Err(refuse())
+    }
 }
 
 fn main() {
@@ -128,6 +190,8 @@ fn main() {
             difficulty: args.difficulty,
             settings,
             partners: args.partners,
+            net: args.net,
+            name: args.name,
         })
         .run();
 }
@@ -212,6 +276,68 @@ mod tests {
             parse(&["--partners"]),
             Err("--partners needs 1, 2 or 3".into())
         );
+    }
+
+    #[test]
+    fn host_and_join_flags() {
+        let a = parse(&["--host"]).unwrap();
+        assert_eq!((a.net, a.level), (Some(NetStart::Host), None));
+        let a = parse(&["--host", "test_yard.ron"]).unwrap();
+        assert_eq!(a.level.as_deref(), Some("test_yard.ron"));
+        let a = parse(&["--join", "10.0.0.2", "--name", "Ann"]).unwrap();
+        assert_eq!(
+            a.net,
+            Some(NetStart::Join("10.0.0.2:27960".parse().unwrap()))
+        );
+        assert_eq!(a.name.as_deref(), Some("Ann"));
+        assert_eq!(parse(&[]).unwrap().net, None);
+    }
+
+    #[test]
+    fn rejects_bad_net_usage() {
+        let long = "x".repeat(25);
+        for bad in [
+            &["--join"][..],
+            &["--join", "x"],
+            &["--host", "--join", "1.2.3.4"],
+            &["--host", "--partners", "1"],
+            &["--join", "1.2.3.4", "--demo", "d.ron"],
+            &["--name", ""],
+            &["--name", &long],
+            &["--name"],
+            &["--name", " \t "],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+        assert!(parse(&["--name", &"x".repeat(24)]).is_ok());
+        // The same filter as the name field: trimmed, control characters dropped.
+        assert_eq!(
+            parse(&["--name", " Ann\u{7} "]).unwrap().name.as_deref(),
+            Some("Ann")
+        );
+    }
+
+    #[test]
+    fn host_level_must_be_a_level_file_name() {
+        let path = rr_game::paths::assets_dir().join("levels/test_yard.ron");
+        let path = path.to_str().unwrap();
+        // A path into assets/levels is advertised by its file name.
+        assert_eq!(
+            parse(&["--host", path]).unwrap().level.as_deref(),
+            Some("test_yard.ron")
+        );
+        // A single-player run takes the path as given.
+        assert_eq!(parse(&[path]).unwrap().level.as_deref(), Some(path));
+        let outside = std::env::temp_dir().join("test_yard.ron");
+        for bad in [
+            "Test Yard.ron",
+            "test_yard",
+            "../levels/x.ron",
+            "/tmp/nope/x.ron",
+        ] {
+            assert!(parse(&["--host", bad]).is_err(), "{bad}");
+        }
+        assert!(parse(&["--host", outside.to_str().unwrap()]).is_err());
     }
 
     #[test]

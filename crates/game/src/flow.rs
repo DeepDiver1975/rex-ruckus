@@ -10,16 +10,19 @@ use crate::episode::Episode;
 use crate::mechanics::{
     DirtySectors, HudMessage, HudSubtitle, UsePrompt, fresh_level, pickup_items,
 };
+use crate::net::{NetMode, not_client};
 use crate::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
+use rr_core::players::PlayerId;
 
 /// Seconds a death or completion screen stays up before a press may restart.
 pub const RESTART_DELAY: f32 = 1.0;
 
-/// Whether the simulation runs. Every fixed-tick sim system is gated on `Playing`.
+/// Where play stands. Fixed-tick sim systems run on [`sim_ticks`]: `Playing`, or `Paused` from
+/// `Playing` in a net game (the host's pause menu does not stop the world for its clients).
 #[derive(Resource, PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum PlayState {
     /// Main menu over the frozen first level.
@@ -59,6 +62,43 @@ pub struct RestartRequested(pub bool);
 #[derive(Resource, Default, PartialEq, Eq, Debug)]
 pub struct AdvanceRequested(pub bool);
 
+/// The level file being played (a name under `assets/levels/`).
+#[derive(Resource, Default, Debug, Clone, PartialEq, Eq)]
+pub struct LevelFile(pub String);
+
+/// How many times the level has been (re)started; a co-op host broadcasts a load when it changes.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LevelRuns(pub u32);
+
+/// The seat the local player takes (`PlayerId(0)` unless a co-op host assigned another).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalSeat(pub PlayerId);
+
+/// Whether the world is live: playing, or in a net game under the pause menu (a net game never
+/// stops for a menu).
+pub fn world_running(
+    state: Res<PlayState>,
+    from: Res<PausedFrom>,
+    mode: Option<Res<NetMode>>,
+) -> bool {
+    world_live(*state, *from, mode.is_some_and(|m| m.is_net()))
+}
+
+/// [`world_running`] on plain values.
+pub fn world_live(state: PlayState, from: PausedFrom, net: bool) -> bool {
+    match state {
+        PlayState::Playing => true,
+        PlayState::Paused => net && from.0 == PlayState::Playing,
+        _ => false,
+    }
+}
+
+/// Whether this process steps the simulation: the world is running and it is not a co-op client.
+pub fn sim_ticks(state: Res<PlayState>, from: Res<PausedFrom>, mode: Option<Res<NetMode>>) -> bool {
+    let client = mode.as_deref() == Some(&NetMode::Client);
+    !client && world_running(state, from, mode)
+}
+
 /// The level as authored (doors open), kept so a restart can rebuild it.
 #[derive(Resource)]
 pub struct LevelSource(pub Map);
@@ -88,7 +128,8 @@ pub fn restart_requested(
 }
 
 /// Owns the play state, the level-spawn schedule and restarts. Needs `insert_level`; the sim
-/// plugins gate their fixed-tick systems on [`PlayState::Playing`].
+/// plugins gate their fixed-tick systems on [`sim_ticks`] and the world's presentation on
+/// [`world_running`] (both: [`PlayState::Playing`], or a net game under the pause menu).
 pub struct FlowPlugin;
 
 impl Plugin for FlowPlugin {
@@ -99,12 +140,15 @@ impl Plugin for FlowPlugin {
             .init_resource::<RestartRequested>()
             .init_resource::<AdvanceRequested>()
             .init_resource::<LevelDifficulty>()
+            .init_resource::<LevelFile>()
+            .init_resource::<LevelRuns>()
+            .init_resource::<LocalSeat>()
             .init_schedule(SpawnLevel)
             .add_systems(Startup, run_spawn_level)
             .add_systems(
                 FixedUpdate,
                 freeze_interpolation
-                    .run_if(not(resource_equals(PlayState::Playing)))
+                    .run_if(not(world_running))
                     .before(PlayerSimSet)
                     .before(restart_on_press),
             )
@@ -112,14 +156,16 @@ impl Plugin for FlowPlugin {
                 FixedUpdate,
                 (
                     check_player_death
-                        .run_if(resource_equals(PlayState::Playing))
+                        .run_if(sim_ticks)
                         .after(PlayerSimSet)
                         .after(CombatSet)
                         .after(pickup_items),
                     tick_state_age,
-                    restart_on_press.run_if(|s: Res<PlayState>| {
-                        matches!(*s, PlayState::Dead | PlayState::Complete)
-                    }),
+                    restart_on_press
+                        .run_if(|s: Res<PlayState>| {
+                            matches!(*s, PlayState::Dead | PlayState::Complete)
+                        })
+                        .run_if(not_client),
                     restart_level.run_if(resource_equals(RestartRequested(true))),
                     advance_level.run_if(resource_equals(AdvanceRequested(true))),
                 )
@@ -134,7 +180,10 @@ pub fn run_spawn_level(world: &mut World) {
 }
 
 /// Play is over once every player is dead; a living co-op partner plays on.
-fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerVitals, With<Player>>) {
+pub(crate) fn check_player_death(
+    mut state: ResMut<PlayState>,
+    q: Query<&PlayerVitals, With<Player>>,
+) {
     if !q.is_empty() && q.iter().all(|v| !v.0.health.alive()) {
         *state = PlayState::Dead;
     }
@@ -145,7 +194,9 @@ fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerVitals, With
 /// previous position would make the frame loop redraw the last tick's step over and over
 /// (visible shake on the death camera, chasing Grunts and bolts). Runs at the start of the
 /// tick, so frames up to the first frozen tick still interpolate the final step normally.
-fn freeze_interpolation(
+/// A co-op client runs it too on every tick that applied no snapshot (`net::client`): it never
+/// steps the sim, so the last snapshot's step would replay the same way.
+pub(crate) fn freeze_interpolation(
     combat: Option<ResMut<LevelCombat>>,
     mut players: Query<(&PlayerBody, &mut PrevFeet)>,
 ) {
@@ -209,7 +260,7 @@ pub fn load_level(world: &mut World, map: Map) {
 }
 
 /// Moves the episode on after a completed level.
-fn advance_level(world: &mut World) {
+pub(crate) fn advance_level(world: &mut World) {
     world.resource_mut::<AdvanceRequested>().0 = false;
     crate::episode::advance(world);
 }
@@ -277,6 +328,7 @@ pub fn restart_level(world: &mut World) {
     world.insert_resource(PausedFrom::default());
     world.resource_mut::<StateAge>().0 = 0.0;
     world.resource_mut::<RestartRequested>().0 = false;
+    world.resource_mut::<LevelRuns>().0 += 1;
     world.run_schedule(SpawnLevel);
 }
 

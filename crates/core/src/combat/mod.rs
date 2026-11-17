@@ -240,6 +240,42 @@ impl Combat {
         }
     }
 
+    /// Player `id` leaves; every player `j > id` becomes `j - 1`. Their projectiles (bombs
+    /// included) vanish, their pending blasts become the level's, and actors that hunted them
+    /// go back to player 0 with no grudge. The caller drops the player's body and vitals.
+    pub fn remove_player(&mut self, id: PlayerId) {
+        let gone = |s: Shooter| s == Shooter::Player(id);
+        let shift = |s: Shooter| match s {
+            Shooter::Player(PlayerId(j)) if j > id.0 => Shooter::Player(PlayerId(j - 1)),
+            s => s,
+        };
+        self.projectiles.retain(|p| !gone(p.owner));
+        for p in &mut self.projectiles {
+            p.owner = shift(p.owner);
+        }
+        for pb in &mut self.pending_blasts {
+            pb.blast.owner = if gone(pb.blast.owner) {
+                Shooter::World
+            } else {
+                shift(pb.blast.owner)
+            };
+        }
+        for a in &mut self.actors {
+            if let Target::Player(PlayerId(j)) = a.target {
+                if j == id.0 {
+                    a.target = Target::Player(PlayerId(0));
+                    a.grudge = 0.0;
+                } else if j > id.0 {
+                    a.target = Target::Player(PlayerId(j - 1));
+                }
+            }
+        }
+        debug_assert!(usize::from(id.0) < MAX_PLAYERS, "no such player");
+        if (id.0 as usize) < self.hazard.len() {
+            self.hazard.remove(id.0 as usize);
+        }
+    }
+
     /// Breaks the glass in wall `w`, reporting `GlassBroken` if there was any.
     fn break_glass(&mut self, map: &mut Map, w: WallId, out: &mut Vec<CombatEvent>) {
         let dirty = self.destruct.break_glass(map, w);

@@ -20,6 +20,7 @@ pub mod lowres;
 pub mod mechanics;
 pub mod menu;
 pub mod models;
+pub mod net;
 pub mod partners;
 pub mod paths;
 pub mod player;
@@ -49,6 +50,11 @@ pub struct GamePlugin {
     pub settings: Option<std::path::PathBuf>,
     /// Dev aid: stand-in co-op partners (1-3, see `player::DevPartners`); 0 for none.
     pub partners: u8,
+    /// Host or join a co-op game at startup; a host starts playing at once, a client waits in
+    /// the Lobby for the host's level.
+    pub net: Option<net::NetStart>,
+    /// The co-op name for this run, instead of the saved one.
+    pub name: Option<String>,
 }
 
 impl Plugin for GamePlugin {
@@ -62,6 +68,11 @@ impl Plugin for GamePlugin {
             }
             None => load_map(&self.level),
         };
+        let first_file = match &self.episode {
+            Some(_) => app.world().resource::<episode::Episode>().file(0),
+            None => self.level.clone(),
+        };
+        app.insert_resource(flow::LevelFile(first_file));
         mechanics::insert_level(app, first, self.difficulty);
         if self.partners > 0 {
             app.insert_resource(player::DevPartners(self.partners));
@@ -100,10 +111,28 @@ impl Plugin for GamePlugin {
             lowres::LowResPlugin,
             automap::AutomapSimPlugin,
             automap::AutomapRenderPlugin,
+            net::host::NetHostPlugin,
+            net::client::NetClientPlugin,
         ));
         // The episode starts at the title screen; direct-level and demo runs go straight to play.
-        if self.episode.is_some() && self.demo.is_none() {
+        // A host plays at once; a client waits in the Lobby.
+        let menu = match self.net {
+            Some(net::NetStart::Host) => false,
+            Some(net::NetStart::Join(_)) => true,
+            None => self.episode.is_some() && self.demo.is_none(),
+        };
+        if menu {
             app.insert_resource(flow::PlayState::Menu);
+        }
+        if let Some(name) = &self.name {
+            app.insert_resource(menu::multiplayer::NameOverride(name.clone()));
+        }
+        if let Some(start) = self.net {
+            app.add_systems(
+                Startup,
+                (move |world: &mut World| menu::multiplayer::start_from_command_line(world, start))
+                    .after(flow::run_spawn_level),
+            );
         }
         app.add_plugins(menu::MenuPlugin {
             enabled: self.demo.is_none(),

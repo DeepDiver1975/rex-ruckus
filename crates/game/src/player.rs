@@ -4,7 +4,7 @@
 use crate::bindings::{Action, Bindings};
 use crate::combat::{GameDefs, PlayerInventory, PlayerVitals, player_loadout, spawn_combat};
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
-use crate::flow::{LevelEntity, PlayState, SpawnLevel};
+use crate::flow::{LevelEntity, LocalSeat, PlayState, SpawnLevel, sim_ticks};
 use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, use_key};
@@ -25,7 +25,7 @@ pub const PLAYER_RADIUS: f32 = 0.35;
 pub const EYE_BELOW_TOP: f32 = 0.15;
 /// The eye never gets closer than this to the ceiling above the player.
 pub const EYE_CEIL_MARGIN: f32 = 0.05;
-const PITCH_LIMIT: f32 = 1.45;
+pub const PITCH_LIMIT: f32 = 1.45;
 /// Rate (1/s) at which the eye eases to a new height after crouching or standing up.
 pub const EYE_EASE_RATE: f32 = 14.0;
 
@@ -242,18 +242,23 @@ impl Plugin for PlayerSimPlugin {
                 (use_inventory.after(use_key), simulate_player)
                     .chain()
                     .in_set(PlayerSimSet)
-                    .run_if(resource_equals(PlayState::Playing)),
+                    .run_if(sim_ticks),
             );
     }
 }
 
 /// Spawns a fresh local player (`PlayerId(0)`) at the level start (in [`SpawnLevel`]); combat
 /// adds its loadout.
-pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
+pub fn spawn_player(
+    mut commands: Commands,
+    map: Res<CurrentMap>,
+    tuning: Res<PlayerTuning>,
+    seat: Option<Res<LocalSeat>>,
+) {
     let start = map.0.player_start;
     let xy = Vec2::new(start.pos.0, start.pos.1);
     commands.spawn((
-        player_bundle(&map.0, &tuning.0, PlayerId(0), xy),
+        player_bundle(&map.0, &tuning.0, seat.map_or(PlayerId(0), |s| s.0), xy),
         LocalPlayer,
     ));
 }
@@ -485,7 +490,12 @@ pub fn pause_on_focus_loss(
     mut was_focused: Local<Option<bool>>,
     mut state: ResMut<PlayState>,
     mut from: ResMut<crate::flow::PausedFrom>,
+    mode: Option<Res<crate::net::NetMode>>,
 ) {
+    // A net game never stops for a menu.
+    if mode.is_some_and(|m| m.is_net()) {
+        return;
+    }
     let focused = window.focused;
     if *was_focused == Some(true) && !focused && *state == PlayState::Playing {
         from.0 = PlayState::Playing;
@@ -500,12 +510,12 @@ pub fn pause_on_escape(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     screen: Option<Res<MenuScreen>>,
-    capture: Option<Res<crate::menu::Capture>>,
+    typed: crate::menu::KeysTyped,
     mut state: ResMut<PlayState>,
     mut from: ResMut<crate::flow::PausedFrom>,
 ) {
-    // Esc cancels a key capture instead.
-    if capture.is_some_and(|c| c.0.is_some()) {
+    // Esc cancels a key capture or ends a text field's edit instead.
+    if typed.active() {
         return;
     }
     if !bindings.just_pressed(Action::Pause, &keys, &buttons) {
