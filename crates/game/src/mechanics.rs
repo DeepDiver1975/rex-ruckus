@@ -3,7 +3,7 @@
 use crate::combat::{
     CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
 };
-use crate::flow::{LevelDifficulty, LevelSource, PlayState};
+use crate::flow::{LevelDifficulty, LevelSource, PlayState, sim_ticks};
 use crate::level::CurrentMap;
 use crate::player::{Inventory, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
 use crate::textures;
@@ -148,14 +148,12 @@ impl Plugin for MechanicsSimPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    use_key
-                        .before(PlayerSimSet)
-                        .run_if(resource_equals(PlayState::Playing)),
+                    use_key.before(PlayerSimSet).run_if(sim_ticks),
                     // Gated one by one (not as a group) so a state change earlier in the tick
                     // stops every later system of the same tick.
                     (
-                        tick_movers.run_if(resource_equals(PlayState::Playing)),
-                        pickup_items.run_if(resource_equals(PlayState::Playing)),
+                        tick_movers.run_if(sim_ticks),
+                        pickup_items.run_if(sim_ticks),
                         // Ungated: drains events from every mechanics call this tick, including
                         // `use_key` (before the player) and combat (cracks, channel fire).
                         forward_mech_events,

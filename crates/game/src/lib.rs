@@ -20,6 +20,7 @@ pub mod lowres;
 pub mod mechanics;
 pub mod menu;
 pub mod models;
+pub mod net;
 pub mod partners;
 pub mod paths;
 pub mod player;
@@ -62,6 +63,11 @@ impl Plugin for GamePlugin {
             }
             None => load_map(&self.level),
         };
+        let first_file = match &self.episode {
+            Some(_) => app.world().resource::<episode::Episode>().file(0),
+            None => self.level.clone(),
+        };
+        app.insert_resource(flow::LevelFile(first_file));
         mechanics::insert_level(app, first, self.difficulty);
         if self.partners > 0 {
             app.insert_resource(player::DevPartners(self.partners));

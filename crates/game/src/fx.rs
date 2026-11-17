@@ -3,7 +3,7 @@
 
 use crate::combat::{FxQueue, FxReaders, eye_of};
 use crate::coords::to_bevy;
-use crate::flow::{LevelEntity, PlayState};
+use crate::flow::{LevelEntity, world_running};
 use crate::mechanics::LevelMechanics;
 use crate::player::{LocalPlayer, PlayerBody, PlayerCamera, update_camera};
 use bevy::light::NotShadowCaster;
@@ -86,12 +86,7 @@ impl Plugin for FxPlugin {
                 Update,
                 (age_explosions, decay_shake).after(spawn_explosions),
             )
-            .add_systems(
-                Update,
-                quake_shake
-                    .after(decay_shake)
-                    .run_if(resource_equals(PlayState::Playing)),
-            )
+            .add_systems(Update, quake_shake.after(decay_shake).run_if(world_running))
             .add_systems(
                 RunFixedMainLoop,
                 apply_shake

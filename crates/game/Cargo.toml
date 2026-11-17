@@ -18,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 directories = "6"
 # The window icon: the same versions Bevy already pulls in.
 image = { version = "0.25", default-features = false, features = ["png"] }
+rr-net = { path = "../net" }
 winit = { version = "0.30", default-features = false }
 
 [target.'cfg(windows)'.build-dependencies]

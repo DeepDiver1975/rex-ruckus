@@ -3,7 +3,7 @@
 //! [`clear_fx`] empties the queue after them.
 
 use crate::episode::Episode;
-use crate::flow::{LevelDifficulty, PlayState, SpawnLevel};
+use crate::flow::{LevelDifficulty, PlayState, SpawnLevel, sim_ticks};
 use crate::level::CurrentMap;
 use crate::mechanics::{DirtySectors, HudMessage, LevelMechanics, finish_level};
 use crate::paths::assets_dir;
@@ -147,10 +147,8 @@ impl Plugin for CombatSimPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    player_weapons.run_if(resource_equals(PlayState::Playing)),
-                    combat_tick
-                        .in_set(CombatSet)
-                        .run_if(resource_equals(PlayState::Playing)),
+                    player_weapons.run_if(sim_ticks),
+                    combat_tick.in_set(CombatSet).run_if(sim_ticks),
                 )
                     .chain()
                     .after(PlayerSimSet),

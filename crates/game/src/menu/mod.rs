@@ -363,7 +363,8 @@ fn quit_to_menu(world: &mut World) {
     episode.index = 0;
     episode.entry = None;
     episode.totals = default();
-    let map = episode.map(0);
+    let (file, map) = (episode.file(0), episode.map(0));
+    world.insert_resource(crate::flow::LevelFile(file));
     load_level(world, map);
     *world.resource_mut::<PlayState>() = PlayState::Menu;
 }
