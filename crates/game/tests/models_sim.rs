@@ -74,5 +74,5 @@ fn spawn_model_creates_a_placed_scene_root() {
     assert_eq!(t.scale, Vec3::splat(2.0));
     assert_eq!(t.translation, Vec3::Y);
     let slot = e.get::<ModelSlot>().unwrap();
-    assert!(slot.enemy.is_none() && !slot.no_shadows);
+    assert!(slot.rig.is_none() && !slot.no_shadows);
 }

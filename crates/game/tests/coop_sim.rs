@@ -20,12 +20,15 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerInventory, PlayerVitals, clear_fx,
     insert_defs,
 };
+use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::models::{ModelSlot, ModelsPlugin, Rig};
+use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
-    Inventory, LocalPlayer, LookSettings, PLAYER_RADIUS, PendingInput, Player, PlayerBody,
+    Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player, PlayerBody,
     PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
 };
 use rr_game::viewmodel::{ViewState, read_fx};
@@ -44,6 +47,7 @@ fn app(map: Map) -> App {
         PlayerSimPlugin,
         MechanicsSimPlugin,
         CombatSimPlugin,
+        PartnersPlugin,
     ));
     app.update();
     app
@@ -451,4 +455,107 @@ fn the_dead_drop_out_of_the_sky_and_toggle_nothing() {
     ticks(&mut app, 1);
     let c = carried(&mut app, PlayerId(1)).0;
     assert!(!c.jetpack_on && !c.nv_on, "{c:?}");
+}
+
+/// Every partner visual root and the player it shows.
+fn partner_visuals(app: &mut App) -> Vec<(Entity, Entity)> {
+    let mut q = app.world_mut().query::<(Entity, &PartnerVisual)>();
+    q.iter(app.world()).map(|(e, v)| (e, v.player)).collect()
+}
+
+#[test]
+fn partner_gets_a_visual_local_does_not() {
+    let mut app = app(combat_room());
+    app.update();
+    assert!(partner_visuals(&mut app).is_empty(), "single player: none");
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    app.update();
+    let shown = partner_visuals(&mut app);
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert_eq!(shown[0].1, player(&mut app, PlayerId(1)));
+}
+
+#[test]
+fn partner_visual_follows_body() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    place(&mut app, PlayerId(1), 6.0, 2.5);
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut().get_mut::<Look>(e).unwrap().angle = 1.0;
+    app.update();
+    let feet = body(&mut app, PlayerId(1)).pos;
+    let (root, _) = partner_visuals(&mut app)[0];
+    let t = *app.world().get::<Transform>(root).unwrap();
+    assert!(
+        t.translation.abs_diff_eq(to_bevy(feet), 1e-4),
+        "{} vs {}",
+        t.translation,
+        to_bevy(feet)
+    );
+    let want = Quat::from_rotation_y(core_angle_to_yaw(1.0));
+    assert!(t.rotation.abs_diff_eq(want, 1e-4), "{:?}", t.rotation);
+}
+
+#[test]
+fn partner_visual_despawns_with_player() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    assert_eq!(partner_visuals(&mut app).len(), 1);
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut().despawn(e);
+    app.update();
+    assert!(partner_visuals(&mut app).is_empty());
+}
+
+#[test]
+fn restart_drops_partner_visuals() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    assert_eq!(partner_visuals(&mut app).len(), 1);
+    kill(&mut app, PlayerId(0));
+    kill(&mut app, PlayerId(1));
+    ticks(&mut app, 70);
+    input(&mut app, PlayerId(0)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    app.update();
+    assert!(partner_visuals(&mut app).is_empty());
+}
+
+#[test]
+fn partner_visual_holds_the_rex_model() {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        // The asset types ModelsPlugin loads (no loaders: loads just fail).
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_asset::<bevy::gltf::Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        ModelsPlugin,
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    let (root, _) = partner_visuals(&mut app)[0];
+    let mut q = app.world_mut().query::<(&ChildOf, &ModelSlot)>();
+    let rigs: Vec<_> = q
+        .iter(app.world())
+        .filter(|(c, _)| c.parent() == root)
+        .map(|(_, s)| s.rig)
+        .collect();
+    assert_eq!(rigs, [Some(Rig::Player)]);
 }

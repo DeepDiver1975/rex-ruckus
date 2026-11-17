@@ -20,6 +20,7 @@ pub mod lowres;
 pub mod mechanics;
 pub mod menu;
 pub mod models;
+pub mod partners;
 pub mod paths;
 pub mod player;
 pub mod props;
@@ -77,7 +78,7 @@ impl Plugin for GamePlugin {
                 scripted: self.demo.is_some(),
             },
             props::PropsPlugin,
-            actors::ActorVisualsPlugin,
+            (actors::ActorVisualsPlugin, partners::PartnersPlugin),
             fx::FxPlugin,
             decals::DecalsPlugin,
             breakables::BreakablesPlugin,
