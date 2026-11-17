@@ -6,8 +6,8 @@
 #   MODEL is a script name without .py (default: all of them).
 #   --preview DIR also writes turnaround and per-clip contact sheets (PNG) into DIR.
 #
-# Built with Blender 5.0.1. A rebuild reproduces the committed files byte for byte with the same
-# Blender version, not across versions.
+# Built with Blender 5.0.1, except rex (Blender 5.2.2). A rebuild reproduces the committed files
+# byte for byte with the same Blender version, not across versions.
 # BLENDER overrides the binary. It runs with a minimal PATH because Blender's embedded Python
 # finds its standard library through PATH, and a user-installed python3.x (pyenv, uv) would
 # shadow the one Blender was built against.
@@ -29,6 +29,7 @@ declare -A out=(
     [arcade]=models/props/arcade.glb
     [jukebox]=models/props/jukebox.glb
     [payphone]=models/props/payphone.glb
+    [rex]=models/players/rex.glb
 )
 
 preview=()
