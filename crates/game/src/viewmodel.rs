@@ -119,6 +119,8 @@ pub struct ViewState {
     pub flash: f32,
     /// Seconds of kick thrust left.
     pub kick: f32,
+    /// Seconds of the Boot's swing left (its attack, not the quick-kick).
+    pub stomp: f32,
     /// Chaingun cluster angle (radians) and angular speed (rad/s).
     pub spin: f32,
     pub spin_rate: f32,
@@ -170,6 +172,19 @@ pub fn press_dip(left: f32) -> f32 {
     ((1.0 - (left / PRESS_SECS).clamp(0.0, 1.0)) * PI).sin() * PRESS_DEPTH
 }
 
+/// The boot's thrust with `left` seconds of a kick (or the Boot's swing) to go: out along the
+/// view and up, toe tipping up, then back. Rest pose at both ends.
+pub fn kick_pose(left: f32) -> (Vec3, Quat) {
+    if left <= 0.0 {
+        return (Vec3::ZERO, Quat::IDENTITY);
+    }
+    let s = ((1.0 - (left / KICK_SECS).clamp(0.0, 1.0)) * PI).sin();
+    (
+        Vec3::new(0.02 * s, 0.04 * s, -KICK_REACH * s),
+        Quat::from_rotation_x(0.35 * s),
+    )
+}
+
 /// How far a switch has dipped the model, 0 (raised) to 1 (fully lowered).
 pub fn switch_dip(left: f32, total: f32) -> f32 {
     if total <= 0.0 {
@@ -203,36 +218,146 @@ pub fn shown_weapon(current: WeaponId, phase: WeaponPhase, to_switch_time: f32) 
 #[derive(Clone, Copy)]
 enum Shape {
     Cuboid(f32, f32, f32),
-    /// Cylinder along the view axis: radius, length.
-    Barrel(f32, f32),
 }
 
-/// One code-built part (boot, kick leg, bomb fist): shape and centre relative to the rig.
+/// What a code-built part is made of (see `spawn_viewmodel` for the colours).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Mat {
+    /// Brown leather: the glove and the boot's upper.
+    Leather,
+    /// Black rubber sole and heel.
+    Sole,
+    /// The boot's steel toe cap.
+    Steel,
+    /// Pale laces.
+    Lace,
+}
+
+impl Mat {
+    pub const ALL: [Mat; 4] = [Mat::Leather, Mat::Sole, Mat::Steel, Mat::Lace];
+
+    fn material(self) -> StandardMaterial {
+        let (color, roughness, metallic) = match self {
+            Mat::Leather => (Color::srgb(0.45, 0.28, 0.14), 0.7, 0.0),
+            Mat::Sole => (Color::srgb(0.05, 0.05, 0.05), 0.9, 0.0),
+            Mat::Steel => (Color::srgb(0.62, 0.64, 0.66), 0.35, 0.8),
+            Mat::Lace => (Color::srgb(0.85, 0.80, 0.62), 0.9, 0.0),
+        };
+        StandardMaterial {
+            base_color: color,
+            perceptual_roughness: roughness,
+            metallic,
+            ..default()
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+/// One code-built part (boot, kick leg, bomb fist): shape, material, centre and orientation
+/// relative to the rig.
 pub struct Part {
     shape: Shape,
+    pub mat: Mat,
     pub at: Vec3,
+    pub rot: Quat,
 }
 
-const fn part(shape: Shape, x: f32, y: f32, z: f32) -> Part {
+const fn part(shape: Shape, mat: Mat, x: f32, y: f32, z: f32) -> Part {
     Part {
         shape,
+        mat,
         at: Vec3::new(x, y, z),
+        rot: Quat::IDENTITY,
     }
 }
 
 const PIPE_HAND: &[Part] = &[
     // Fist and wrist.
-    part(Shape::Cuboid(0.06, 0.05, 0.06), 0.0, -0.03, 0.0),
-    part(Shape::Cuboid(0.05, 0.05, 0.1), 0.0, -0.05, 0.07),
+    part(
+        Shape::Cuboid(0.06, 0.05, 0.06),
+        Mat::Leather,
+        0.0,
+        -0.03,
+        0.0,
+    ),
+    part(
+        Shape::Cuboid(0.05, 0.05, 0.1),
+        Mat::Leather,
+        0.0,
+        -0.05,
+        0.07,
+    ),
 ];
-const BOOT: &[Part] = &[
-    part(Shape::Cuboid(0.042, 0.03, 0.09), 0.0, -0.035, -0.04),
-    part(Shape::Cuboid(0.036, 0.054, 0.036), 0.0, 0.0, 0.0),
+/// Where the boot sits in the rig (low, left of centre) and how it is turned: toe swung to the
+/// left (`BOOT_YAW`) so the player sees its profile (sole, heel, toe cap, shaft), toe tipped up
+/// a little (`BOOT_TILT`).
+const BOOT_AT: Vec3 = Vec3::new(-0.055, -0.058, -0.07);
+const BOOT_YAW: f32 = 1.15;
+const BOOT_TILT: f32 = 0.2;
+/// A combat boot in its own frame (toe toward -z, sole on y = 0): sole with a toe lip, heel,
+/// upper, steel toe cap, laces and ankle shaft. Placed by `BOOT_AT`, `BOOT_YAW`, `BOOT_TILT`.
+const BOOT_LOCAL: [Part; 7] = [
+    part(
+        Shape::Cuboid(0.05, 0.014, 0.13),
+        Mat::Sole,
+        0.0,
+        0.007,
+        -0.035,
+    ),
+    part(
+        Shape::Cuboid(0.05, 0.024, 0.034),
+        Mat::Sole,
+        0.0,
+        0.012,
+        0.016,
+    ),
+    part(
+        Shape::Cuboid(0.046, 0.036, 0.08),
+        Mat::Leather,
+        0.0,
+        0.032,
+        -0.025,
+    ),
+    part(
+        Shape::Cuboid(0.048, 0.03, 0.036),
+        Mat::Steel,
+        0.0,
+        0.029,
+        -0.08,
+    ),
+    part(
+        Shape::Cuboid(0.02, 0.008, 0.05),
+        Mat::Lace,
+        0.0,
+        0.052,
+        -0.035,
+    ),
+    part(
+        Shape::Cuboid(0.046, 0.075, 0.046),
+        Mat::Leather,
+        0.0,
+        0.075,
+        0.008,
+    ),
+    part(
+        Shape::Cuboid(0.05, 0.012, 0.05),
+        Mat::Sole,
+        0.0,
+        0.112,
+        0.008,
+    ),
 ];
-const LEG: &[Part] = &[
-    part(Shape::Cuboid(0.042, 0.03, 0.072), 0.0, -0.07, 0.0),
-    part(Shape::Barrel(0.021, 0.132), 0.0, -0.055, 0.08),
-];
+static BOOT: std::sync::LazyLock<Vec<Part>> = std::sync::LazyLock::new(|| {
+    let rot = Quat::from_rotation_y(BOOT_YAW) * Quat::from_rotation_x(BOOT_TILT);
+    BOOT_LOCAL
+        .iter()
+        .map(|p| Part {
+            at: BOOT_AT + rot * p.at,
+            rot: rot * p.rot,
+            ..*p
+        })
+        .collect()
+});
 
 /// Muzzle flash position relative to the rig, from the model definitions; `None` for weapons
 /// without a flash (boot, pipe bombs).
@@ -248,14 +373,15 @@ pub fn muzzle(defs: &ModelDefs, w: WeaponId) -> Option<Vec3> {
 /// (empty for every glTF weapon; the kick leg is separate: [`leg_parts`]).
 pub fn weapon_parts(w: WeaponId) -> &'static [Part] {
     match w {
-        WeaponId::Boot => BOOT,
+        WeaponId::Boot => &BOOT,
         WeaponId::PipeBombs => PIPE_HAND,
         _ => &[],
     }
 }
 
+/// The quick-kick leg: the same boot, thrust out by [`kick_pose`].
 pub fn leg_parts() -> &'static [Part] {
-    LEG
+    &BOOT
 }
 
 /// Render plugin: needs `Assets<Mesh>`, `Assets<StandardMaterial>`, the [`ModelLibrary`]
@@ -286,11 +412,10 @@ fn spawn_viewmodel(
     lib: Res<ModelLibrary>,
 ) {
     for cam in &cameras {
-        let boot = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.25, 0.17, 0.1),
-            perceptual_roughness: 0.8,
-            ..default()
-        });
+        let mats: std::collections::HashMap<Mat, Handle<StandardMaterial>> = Mat::ALL
+            .into_iter()
+            .map(|m| (m, materials.add(m.material())))
+            .collect();
         let flash_mesh = meshes.add(Sphere::new(0.02));
         let flash_mat = materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.8, 0.3),
@@ -309,16 +434,11 @@ fn spawn_viewmodel(
             for p in parts {
                 let mesh = match p.shape {
                     Shape::Cuboid(x, y, z) => meshes.add(Cuboid::new(x, y, z)),
-                    Shape::Barrel(r, len) => meshes.add(Cylinder::new(r, len)),
                 };
-                let rot = match p.shape {
-                    // Cylinders stand along Y; lay them along the view axis.
-                    Shape::Barrel(..) => Quat::from_rotation_x(PI / 2.0),
-                    Shape::Cuboid(..) => Quat::IDENTITY,
-                };
+                let rot = p.rot;
                 commands.spawn((
                     Mesh3d(mesh),
-                    MeshMaterial3d(boot.clone()),
+                    MeshMaterial3d(mats[&p.mat].clone()),
                     Transform::from_translation(p.at).with_rotation(rot),
                     NotShadowCaster,
                     ChildOf(parent),
@@ -436,6 +556,11 @@ fn read_fx(fx: Res<FxQueue>, mut state: ResMut<ViewState>) {
     for ev in &fx.weapon {
         match ev {
             // Launch (rockets, bombs) kicks like a shot; the chaingun also keeps spinning.
+            // The boot swings out instead of kicking back like a gun.
+            WeaponEvent::Fire {
+                weapon: WeaponId::Boot,
+                ..
+            } => state.stomp = KICK_SECS,
             WeaponEvent::Fire { weapon, .. } => {
                 state.recoil.z += RECOIL_Z;
                 state.recoil.pitch += RECOIL_PITCH_DEG.to_radians();
@@ -481,6 +606,7 @@ fn advance_state(
     state.recoil = decay_recoil(state.recoil, dt);
     state.flash = (state.flash - dt).max(0.0);
     state.kick = (state.kick - dt).max(0.0);
+    state.stomp = (state.stomp - dt).max(0.0);
     state.press = (state.press - dt).max(0.0);
     (state.spin, state.spin_rate) =
         spin_step(state.spin, state.spin_rate, state.spin_hold > 0.0, dt);
@@ -528,7 +654,7 @@ fn pose_weapons(
     state: Res<ViewState>,
     defs: Res<GameDefs>,
     player: Single<&PlayerArsenal, With<Player>>,
-    mut roots: Query<(&ViewModel, &mut Visibility), Without<MuzzleFlash>>,
+    mut roots: Query<(&ViewModel, &mut Visibility, &mut Transform), Without<MuzzleFlash>>,
     mut flashes: Query<&mut Visibility, With<MuzzleFlash>>,
 ) {
     let a = &player.0;
@@ -537,7 +663,10 @@ fn pose_weapons(
         _ => 0.0,
     };
     let shown = shown_weapon(a.current, a.phase, switch_time);
-    for (m, mut v) in &mut roots {
+    for (m, mut v, mut tf) in &mut roots {
+        if m.0 == WeaponId::Boot {
+            (tf.translation, tf.rotation) = kick_pose(state.stomp);
+        }
         *v = if m.0 == shown {
             Visibility::Inherited
         } else {
@@ -596,8 +725,7 @@ fn pose_leg(
 ) {
     let (tf, vis) = &mut *leg;
     if state.kick > 0.0 {
-        let p = 1.0 - state.kick / KICK_SECS;
-        tf.translation = Vec3::new(0.0, 0.0, -KICK_REACH * (p * PI).sin());
+        (tf.translation, tf.rotation) = kick_pose(state.kick);
         **vis = Visibility::Inherited;
     } else {
         tf.translation = Vec3::ZERO;
@@ -634,6 +762,30 @@ mod tests {
         let b = decay_recoil(decay_recoil(r, 0.025), 0.025);
         assert!((a.z - b.z).abs() < 1e-6, "frame-rate independent");
         assert!(decay_recoil(r, 1.0).z < 1e-6);
+    }
+
+    #[test]
+    fn kick_pose_thrusts_out_and_returns_to_rest() {
+        assert_eq!(kick_pose(0.0), (Vec3::ZERO, Quat::IDENTITY));
+        let (start, _) = kick_pose(KICK_SECS);
+        assert!(start.length() < 1e-6, "starts at rest");
+        let (mid, tip) = kick_pose(KICK_SECS / 2.0);
+        assert!(
+            (mid.z + KICK_REACH).abs() < 1e-6,
+            "full reach forward at mid-swing"
+        );
+        assert!(
+            mid.y > 0.0 && tip.to_euler(EulerRot::XYZ).0 > 0.0,
+            "up, toe tipping up"
+        );
+    }
+
+    #[test]
+    fn the_boot_is_a_boot() {
+        let mats: Vec<Mat> = weapon_parts(WeaponId::Boot).iter().map(|p| p.mat).collect();
+        for m in Mat::ALL {
+            assert!(mats.contains(&m), "boot has no {m:?} part");
+        }
     }
 
     #[test]

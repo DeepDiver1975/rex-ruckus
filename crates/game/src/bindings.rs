@@ -72,7 +72,7 @@ impl Action {
             Action::Medkit => "Medkit",
             Action::Jetpack => "Jetpack",
             Action::NightVision => "Night vision",
-            Action::Weapon1 => "Boot",
+            Action::Weapon1 => "Boot (melee)",
             Action::Weapon2 => "Pistol",
             Action::Weapon3 => "Shotgun",
             Action::Weapon4 => "Chaingun",
