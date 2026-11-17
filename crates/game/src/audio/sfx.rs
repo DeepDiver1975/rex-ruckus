@@ -9,7 +9,7 @@ use crate::combat::{FxQueue, LevelCombat, eye_of};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
-use crate::player::{Player, PlayerBody};
+use crate::player::{LocalPlayer, PlayerBody};
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -109,7 +109,7 @@ pub fn play_cues(
     mut src: CueSources,
     volumes: Res<AudioVolumes>,
     mut live: LiveSounds,
-    player: Query<&PlayerBody, With<Player>>,
+    player: Query<&PlayerBody, With<LocalPlayer>>,
 ) {
     let game = std::mem::take(&mut src.game.0);
     let Ok(body) = player.single() else { return };

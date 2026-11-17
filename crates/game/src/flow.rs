@@ -133,8 +133,9 @@ pub fn run_spawn_level(world: &mut World) {
     world.run_schedule(SpawnLevel);
 }
 
+/// Play is over once every player is dead; a living co-op partner plays on.
 fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerVitals, With<Player>>) {
-    if q.iter().any(|v| !v.0.health.alive()) {
+    if !q.is_empty() && q.iter().all(|v| !v.0.health.alive()) {
         *state = PlayState::Dead;
     }
 }

@@ -3,7 +3,7 @@
 
 use crate::combat::{PlayerInventory, PlayerVitals};
 use crate::mechanics::HudMessage;
-use crate::player::{PendingInput, Player};
+use crate::player::{LocalPlayer, PendingInput, Player};
 use bevy::light::GlobalAmbientLight;
 use bevy::prelude::*;
 use rr_core::inventory::{InvEvent, InvItem};
@@ -80,7 +80,7 @@ fn spawn_overlay(mut commands: Commands) {
 
 /// Switches the look to match the player's `nv_on`, remembering the exact prior brightness.
 fn apply_night_vision(
-    player: Query<&PlayerInventory, With<Player>>,
+    player: Query<&PlayerInventory, With<LocalPlayer>>,
     mut state: ResMut<NightVision>,
     mut ambient: ResMut<GlobalAmbientLight>,
     mut overlay: Single<&mut Visibility, With<NightVisionOverlay>>,

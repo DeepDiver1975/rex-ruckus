@@ -8,7 +8,7 @@ use crate::level::CurrentMap;
 use crate::mechanics::{DirtySectors, HudMessage, LevelMechanics, finish_level};
 use crate::paths::assets_dir;
 use crate::player::{
-    EYE_BELOW_TOP, Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player,
+    EYE_BELOW_TOP, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player,
 };
 use bevy::prelude::*;
 use rr_core::collide::Body;
@@ -151,15 +151,15 @@ pub fn clear_fx(mut fx: ResMut<FxQueue>) {
     fx.stats_seen = 0;
 }
 
-/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and the player's loadout (the episode's
-/// carried one when there is one).
+/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and every player's loadout (the local
+/// player's is the episode's carried one when there is one).
 pub fn spawn_combat(
     mut commands: Commands,
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
     difficulty: Option<Res<LevelDifficulty>>,
     episode: Option<Res<Episode>>,
-    players: Query<Entity, With<Player>>,
+    players: Query<(Entity, Has<LocalPlayer>), With<Player>>,
 ) {
     let (mut combat, rng) = level_combat(&map.0, &defs.0);
     // `Combat::spawn` resets the scale and the skill, so set them on every spawn, restarts
@@ -170,8 +170,8 @@ pub fn spawn_combat(
     commands.insert_resource(rng);
     // Past the first level the player arrives with what they carried out of the last one.
     let carried = episode.and_then(|ep| ep.entry.clone());
-    for e in &players {
-        match &carried {
+    for (e, local) in &players {
+        match carried.as_ref().filter(|_| local) {
             Some(c) => commands.entity(e).insert((
                 PlayerVitals(c.vitals),
                 PlayerArsenal(c.arsenal.clone()),
@@ -191,19 +191,20 @@ fn player_weapons(
     mut combat: ResMut<LevelCombat>,
     mut rng: ResMut<PlayRng>,
     mut fx: ResMut<FxQueue>,
-    mut q: Query<
-        (
-            &PlayerBody,
-            &Look,
-            &PlayerVitals,
-            &mut PlayerArsenal,
-            &mut PendingInput,
-        ),
-        With<Player>,
-    >,
+    mut q: Query<(
+        &Player,
+        &PlayerBody,
+        &Look,
+        &PlayerVitals,
+        &mut PlayerArsenal,
+        &mut PendingInput,
+    )>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (body, look, vitals, mut arsenal, mut input) in &mut q {
+    // In id order: the players share `PlayRng`, so its draws must not follow entity order.
+    let mut players: Vec<_> = q.iter_mut().collect();
+    players.sort_by_key(|(p, ..)| p.id);
+    for (player, body, look, vitals, mut arsenal, mut input) in players {
         // Consume the latches every tick so presses never pile up.
         // The inventory taps (Q, J, N) belong to `use_inventory`.
         let input = WeaponInput {
@@ -220,8 +221,7 @@ fn player_weapons(
         }
         let aim = aim_dir(look.angle, look.pitch);
         // Bombs still in the world keep the launcher armed for detonation.
-        // Every player entity is `PlayerId(0)` until co-op gives them real ids.
-        arsenal.0.live_bombs = combat.0.live_bombs(PlayerId(0));
+        arsenal.0.live_bombs = combat.0.live_bombs(player.id);
         let events = arsenal.0.tick(&defs.0, &input, aim, &mut rng.0, dt);
         let eye = eye_of(&body.0);
         for ev in &events {
@@ -232,14 +232,10 @@ fn player_weapons(
                     | WeaponEvent::Launch { .. }
                     | WeaponEvent::Detonate
             ) {
-                let out = combat.0.player_attack(
-                    &mut map.0,
-                    &defs.0,
-                    PlayerId(0),
-                    eye,
-                    body.0.sector,
-                    ev,
-                );
+                let out =
+                    combat
+                        .0
+                        .player_attack(&mut map.0, &defs.0, player.id, eye, body.0.sector, ev);
                 mark_dirty(&out, &mut dirty);
                 fx.combat.extend(out);
             }
@@ -259,13 +255,22 @@ fn combat_tick(
     mut fx: ResMut<FxQueue>,
     mut state: ResMut<PlayState>,
     mut msg: ResMut<HudMessage>,
-    mut q: Query<(&mut PlayerBody, &mut PlayerVitals), With<Player>>,
+    mut q: Query<(&Player, &mut PlayerBody, &mut PlayerVitals)>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    // One tick for every player; query order is the player id.
-    let mut players: Vec<PlayerTarget> = q
-        .iter_mut()
-        .map(|(body, vitals)| {
+    // One target for every player, in id order: `players[k]` is `PlayerId(k)`.
+    let mut sorted: Vec<_> = q.iter_mut().collect();
+    sorted.sort_by_key(|(p, ..)| p.id);
+    debug_assert!(
+        sorted
+            .iter()
+            .enumerate()
+            .all(|(k, (p, ..))| p.id == PlayerId(k as u8)),
+        "player ids are not 0..n"
+    );
+    let mut players: Vec<PlayerTarget> = sorted
+        .into_iter()
+        .map(|(_, body, vitals)| {
             let (body, vitals) = (body.into_inner(), vitals.into_inner());
             let eye = eye_of(&body.0);
             PlayerTarget {

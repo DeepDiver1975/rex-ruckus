@@ -2,7 +2,7 @@
 //! and the camera interpolated between ticks.
 
 use crate::bindings::{Action, Bindings};
-use crate::combat::PlayerInventory;
+use crate::combat::{PlayerInventory, PlayerVitals, player_loadout};
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::inventory::use_inventory;
@@ -14,9 +14,10 @@ use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::collide::{Body, z_range};
-use rr_core::defs::WeaponId;
-use rr_core::map::KeySet;
+use rr_core::defs::{Defs, WeaponId};
+use rr_core::map::{KeySet, Map};
 use rr_core::movement::{MoveInput, Tuning, step_player};
+use rr_core::players::{PlayerId, coop_spot};
 
 pub const PLAYER_RADIUS: f32 = 0.35;
 /// Eyes sit this far below the top of the body.
@@ -74,8 +75,15 @@ fn grab_change(
     }
 }
 
+/// A player in the level; `id` is its index in every core per-player slice.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Player {
+    pub id: PlayerId,
+}
+
+/// The player this machine controls and shows (input, camera, HUD, viewmodel, audio).
 #[derive(Component)]
-pub struct Player;
+pub struct LocalPlayer;
 
 #[derive(Component)]
 pub struct PlayerBody(pub Body);
@@ -218,52 +226,90 @@ impl Plugin for PlayerSimPlugin {
     }
 }
 
-/// Spawns a fresh player at the level start (in [`SpawnLevel`]); combat adds its loadout.
+/// Spawns a fresh local player (`PlayerId(0)`) at the level start (in [`SpawnLevel`]); combat
+/// adds its loadout.
 pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<PlayerTuning>) {
     let start = map.0.player_start;
-    let body = Body::spawn(
-        &map.0,
+    let xy = Vec2::new(start.pos.0, start.pos.1);
+    commands.spawn((
+        player_bundle(&map.0, &tuning.0, PlayerId(0), xy),
+        LocalPlayer,
+    ));
+}
+
+/// Spawns co-op player `id` (not the local one) at its [`coop_spot`], facing the start angle,
+/// with the default loadout.
+pub fn spawn_coop_player(
+    commands: &mut Commands,
+    map: &Map,
+    tuning: &Tuning,
+    defs: &Defs,
+    id: PlayerId,
+) -> Entity {
+    let start = map.player_start;
+    let xy = coop_spot(
+        map,
         Vec2::new(start.pos.0, start.pos.1),
+        start.angle_deg.to_radians(),
+        id,
         PLAYER_RADIUS,
-        tuning.0.stand_height,
-    )
-    .unwrap_or_else(|| {
+        tuning.stand_height,
+    );
+    commands
+        .spawn((player_bundle(map, tuning, id, xy), player_loadout(defs)))
+        .id()
+}
+
+/// Every component a player starts with but its loadout, standing at `xy`.
+fn player_bundle(map: &Map, tuning: &Tuning, id: PlayerId, xy: Vec2) -> impl Bundle {
+    let body = Body::spawn(map, xy, PLAYER_RADIUS, tuning.stand_height).unwrap_or_else(|| {
         panic!(
-            "level '{}': player_start {:?} is outside every sector",
-            map.0.name, start.pos
+            "level '{}': player {id:?} at {xy} is outside every sector",
+            map.name
         )
     });
-    commands.spawn((
-        Player,
+    (
+        Player { id },
         LevelEntity,
         PrevFeet(body.pos),
         PlayerBody(body),
         Look {
-            angle: start.angle_deg.to_radians(),
+            angle: map.player_start.angle_deg.to_radians(),
             pitch: 0.0,
         },
         PendingInput::default(),
         Inventory::default(),
-        EyeHeight(tuning.0.stand_height - EYE_BELOW_TOP),
-    ));
+        EyeHeight(tuning.stand_height - EYE_BELOW_TOP),
+    )
 }
+
+/// What `simulate_player` reads per player; the loadout is optional so headless tests may omit it.
+type MoveQuery = (
+    &'static mut PlayerBody,
+    &'static mut PrevFeet,
+    &'static PendingInput,
+    &'static Look,
+    Option<&'static PlayerInventory>,
+    Option<&'static PlayerVitals>,
+);
 
 fn simulate_player(
     map: Res<CurrentMap>,
     tuning: Res<PlayerTuning>,
     time: Res<Time<Fixed>>,
-    mut q: Query<(
-        &mut PlayerBody,
-        &mut PrevFeet,
-        &PendingInput,
-        &Look,
-        Option<&PlayerInventory>,
-    )>,
+    mut q: Query<MoveQuery>,
 ) {
     // `timestep()` (not `delta`) so the system also works when FixedUpdate is run by hand in tests.
     let dt = time.timestep().as_secs_f32();
-    for (mut body, mut prev, input, look, carried) in &mut q {
+    for (mut body, mut prev, input, look, carried, vitals) in &mut q {
         prev.0 = body.0.pos;
+        // The dead (a co-op partner still plays on) ignore their input but still fall.
+        let alive = vitals.is_none_or(|v| v.0.health.alive());
+        let input = if alive {
+            input
+        } else {
+            &PendingInput::default()
+        };
         let forward = forward_2d(look.angle);
         let right = Vec2::new(forward.y, -forward.x);
         let wish = forward * input.forward + right * input.strafe;
@@ -320,7 +366,7 @@ impl Plugin for PlayerControlPlugin {
 }
 
 /// The first-person camera. Spawned once at startup and kept across restarts: it is not a
-/// [`LevelEntity`], and `update_camera` follows whichever player exists.
+/// [`LevelEntity`], and `update_camera` follows whichever local player exists.
 pub fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
@@ -440,7 +486,7 @@ pub fn read_input(
     look_settings: Res<LookSettings>,
     cursor: Single<&CursorOptions>,
     state: Res<PlayState>,
-    player: Single<(&mut PendingInput, &mut Look), With<Player>>,
+    player: Single<(&mut PendingInput, &mut Look), With<LocalPlayer>>,
     mut fire_armed: Local<bool>,
 ) {
     let (mut input, mut look) = player.into_inner();
@@ -517,7 +563,7 @@ pub(crate) fn update_camera(
     frame_time: Res<Time>,
     map: Res<CurrentMap>,
     state: Res<PlayState>,
-    player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<Player>>,
+    player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<LocalPlayer>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
     mut roll: ResMut<ViewRoll>,
 ) {

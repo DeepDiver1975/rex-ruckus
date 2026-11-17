@@ -8,7 +8,7 @@ use crate::flow::{PlayState, SpawnLevel};
 use crate::level::CurrentMap;
 use crate::mechanics::LevelMechanics;
 use crate::menu::MenuScreen;
-use crate::player::{Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player};
+use crate::player::{LocalPlayer, Look, PendingInput, PlayerBody, PlayerSimSet, spawn_player};
 use bevy::camera::ClearColorConfig;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -69,7 +69,7 @@ fn reset_automap(
     mut commands: Commands,
     map: Res<CurrentMap>,
     mut view: ResMut<AutomapView>,
-    players: Query<&PlayerBody, With<Player>>,
+    players: Query<&PlayerBody, With<LocalPlayer>>,
 ) {
     let mut am = Automap::new(&map.0);
     for b in &players {
@@ -84,7 +84,7 @@ fn reset_automap(
 fn toggle_automap(
     state: Res<PlayState>,
     mut view: ResMut<AutomapView>,
-    mut q: Query<&mut PendingInput, With<Player>>,
+    mut q: Query<&mut PendingInput, With<LocalPlayer>>,
 ) {
     for mut input in &mut q {
         if std::mem::take(&mut input.toggle_map) && *state == PlayState::Playing {
@@ -98,7 +98,7 @@ fn reveal(
     mut tick: Local<u32>,
     map: Res<CurrentMap>,
     am: Option<ResMut<LevelAutomap>>,
-    q: Query<&PlayerBody, With<Player>>,
+    q: Query<&PlayerBody, With<LocalPlayer>>,
 ) {
     *tick += 1;
     let Some(mut am) = am else { return };
@@ -188,7 +188,7 @@ fn draw_automap(
     map: Res<CurrentMap>,
     mech: Res<LevelMechanics>,
     am: Option<Res<LevelAutomap>>,
-    player: Query<(&PlayerBody, &Look), With<Player>>,
+    player: Query<(&PlayerBody, &Look), With<LocalPlayer>>,
     mut gizmos: Gizmos<AutomapGizmos>,
 ) {
     let (Some(am), Ok((body, look))) = (am, player.single()) else {

@@ -10,7 +10,7 @@ use crate::combat::{
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, HudSubtitle, LevelMechanics, UsePrompt};
-use crate::player::{Inventory, Player};
+use crate::player::{Inventory, LocalPlayer};
 use crate::props::key_color;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
@@ -577,7 +577,7 @@ fn update_subtitle(
 /// Health, ammo, weapon name and slot highlighting. Skips frames without a player.
 fn update_status(
     defs: Res<GameDefs>,
-    player: Query<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<Player>>,
+    player: Query<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<LocalPlayer>>,
     mut cells: Query<(&StatusCell, &mut Text, &mut TextColor)>,
 ) {
     let Ok((health, arsenal, carried)) = player.single() else {
@@ -613,7 +613,7 @@ fn update_status(
 }
 
 fn update_keycards(
-    player: Query<&Inventory, With<Player>>,
+    player: Query<&Inventory, With<LocalPlayer>>,
     mut cards: Query<(&KeyCard, &mut BackgroundColor)>,
 ) {
     let Ok(inv) = player.single() else { return };

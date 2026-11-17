@@ -7,7 +7,7 @@ use crate::combat::{
 use crate::flow::{LevelDifficulty, PlayState, SpawnLevel, load_level};
 use crate::level::load_map;
 use crate::paths::assets_dir;
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use bevy::prelude::*;
 use rr_core::carry::CarryOver;
 use rr_core::difficulty::Difficulty;
@@ -152,7 +152,7 @@ pub fn start_episode(world: &mut World, d: Difficulty) {
 /// After a completed level: carry the loadout on and load the next level, or end the episode.
 pub fn advance(world: &mut World) {
     let carry = world
-        .query_filtered::<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<Player>>()
+        .query_filtered::<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<LocalPlayer>>()
         .iter(world)
         .next()
         .map(|(v, a, i)| CarryOver::take(&v.0, &a.0, &i.0));

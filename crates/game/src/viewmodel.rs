@@ -21,7 +21,7 @@
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal};
 use crate::flow::PlayState;
 use crate::models::{ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
-use crate::player::{Look, Player, PlayerBody, PlayerCamera, PlayerTuning};
+use crate::player::{LocalPlayer, Look, PlayerBody, PlayerCamera, PlayerTuning};
 use crate::reload_anim::{self, ReloadHand, ReloadProp};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -592,7 +592,7 @@ fn advance_state(
     time: Res<Time>,
     tuning: Res<PlayerTuning>,
     mut state: ResMut<ViewState>,
-    player: Single<(&PlayerBody, &Look), With<Player>>,
+    player: Single<(&PlayerBody, &Look), With<LocalPlayer>>,
 ) {
     let dt = time.delta_secs();
     let (body, look) = player.into_inner();
@@ -624,7 +624,7 @@ fn pose_rig(
     play: Res<PlayState>,
     defs: Res<GameDefs>,
     tuning: Res<PlayerTuning>,
-    player: Single<(&PlayerBody, &PlayerArsenal), With<Player>>,
+    player: Single<(&PlayerBody, &PlayerArsenal), With<LocalPlayer>>,
     mut rig: Single<(&mut Transform, &mut Visibility), With<ViewRig>>,
 ) {
     let (body, arsenal) = player.into_inner();
@@ -655,7 +655,7 @@ fn pose_rig(
 fn pose_weapons(
     state: Res<ViewState>,
     defs: Res<GameDefs>,
-    player: Single<&PlayerArsenal, With<Player>>,
+    player: Single<&PlayerArsenal, With<LocalPlayer>>,
     mut roots: Query<(&ViewModel, &mut Visibility, &mut Transform), Without<MuzzleFlash>>,
     mut flashes: Query<&mut Visibility, With<MuzzleFlash>>,
 ) {
@@ -688,7 +688,7 @@ fn pose_weapons(
 #[allow(clippy::type_complexity)]
 fn pose_extras(
     state: Res<ViewState>,
-    player: Single<&PlayerArsenal, With<Player>>,
+    player: Single<&PlayerArsenal, With<LocalPlayer>>,
     mut clusters: Query<(&mut Transform, &BarrelCluster)>,
     mut parts: Query<
         (&mut Transform, &mut Visibility, Option<&HeldBomb>),
@@ -726,7 +726,7 @@ fn pose_extras(
 #[allow(clippy::type_complexity)]
 fn pose_reload(
     defs: Res<GameDefs>,
-    player: Single<&PlayerArsenal, With<Player>>,
+    player: Single<&PlayerArsenal, With<LocalPlayer>>,
     mut hand: Single<(&mut Transform, &mut Visibility), (With<ReloadHand>, Without<ReloadProp>)>,
     mut props: Query<(&ReloadProp, &mut Transform, &mut Visibility), Without<ReloadHand>>,
 ) {

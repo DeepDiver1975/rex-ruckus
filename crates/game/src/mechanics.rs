@@ -5,7 +5,7 @@ use crate::combat::{
 };
 use crate::flow::{LevelDifficulty, LevelSource, PlayState};
 use crate::level::CurrentMap;
-use crate::player::{Inventory, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
+use crate::player::{Inventory, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
 use crate::textures;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -189,6 +189,7 @@ pub fn prop_message(o: PropOutcome) -> Option<String> {
 
 /// What `use_key` reads per player; vitals are optional so headless tests may omit them.
 type UseQuery = (
+    Has<LocalPlayer>,
     &'static PlayerBody,
     &'static Look,
     &'static Inventory,
@@ -205,10 +206,14 @@ pub fn use_key(
     mut state: ResMut<PlayState>,
     mut q: Query<UseQuery, With<Player>>,
 ) {
-    for (body, look, inv, mut input, mut vitals) in &mut q {
+    for (local, body, look, inv, mut input, mut vitals) in &mut q {
         let target = use_target(&map.0, &mech.0, &body.0, look.angle);
-        prompt.0 = target;
-        if !std::mem::take(&mut input.use_pressed) {
+        if local {
+            prompt.0 = target;
+        }
+        // The dead (a co-op partner still plays on) use nothing.
+        let alive = vitals.as_ref().is_none_or(|v| v.0.health.alive());
+        if !std::mem::take(&mut input.use_pressed) || !alive {
             continue;
         }
         let Some(t) = target else { continue };
@@ -240,10 +245,13 @@ fn tick_movers(
     mut dirty: ResMut<DirtySectors>,
     mut state: ResMut<PlayState>,
     mut msg: ResMut<HudMessage>,
-    mut q: Query<&mut PlayerBody>,
+    mut q: Query<(&Player, &mut PlayerBody)>,
 ) {
-    // Bodies slice: players first, then the living actors.
-    let mut bodies: Vec<_> = q.iter().map(|b| b.0).collect();
+    // Bodies slice: players first in id order (`bodies[k]` is `PlayerId(k)`), then the living
+    // actors.
+    let mut sorted: Vec<_> = q.iter_mut().collect();
+    sorted.sort_by_key(|(p, _)| p.id);
+    let mut bodies: Vec<_> = sorted.iter().map(|(_, b)| b.0).collect();
     let players = bodies.len();
     let (idx, actors) = combat.0.living_bodies();
     bodies.extend(actors);
@@ -256,7 +264,7 @@ fn tick_movers(
     let changed = mech
         .0
         .tick(&mut map.0, &mut bodies, time.timestep().as_secs_f32());
-    for (mut b, moved) in q.iter_mut().zip(&bodies) {
+    for ((_, b), moved) in sorted.iter_mut().zip(&bodies) {
         b.0 = *moved;
     }
     combat.0.write_back(&idx, &bodies[players..]);
@@ -276,6 +284,7 @@ pub fn pickup_items(
     mut mech: ResMut<LevelMechanics>,
     mut msg: ResMut<HudMessage>,
     mut q: Query<(
+        &Player,
         &PlayerBody,
         &mut Inventory,
         &mut PlayerVitals,
@@ -283,7 +292,10 @@ pub fn pickup_items(
         &mut PlayerInventory,
     )>,
 ) {
-    for (body, mut inv, mut health, mut arsenal, mut carried) in &mut q {
+    // In id order, so two players on one item settle it the same way on every machine.
+    let mut players: Vec<_> = q.iter_mut().collect();
+    players.sort_by_key(|(p, ..)| p.id);
+    for (_, body, mut inv, mut health, mut arsenal, mut carried) in players {
         if !health.0.health.alive() {
             continue;
         }

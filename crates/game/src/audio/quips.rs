@@ -8,7 +8,7 @@ use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
 use crate::mechanics::HudSubtitle;
 use crate::paths::assets_dir;
-use crate::player::Player;
+use crate::player::LocalPlayer;
 use bevy::audio::Volume;
 use bevy::prelude::*;
 use rr_core::audio::{LowHealthWatch, QuipDirector, QuipTable, QuipTrigger};
@@ -96,7 +96,7 @@ pub fn play_quips(
     volumes: Res<AudioVolumes>,
     mut state: ResMut<QuipState>,
     mut subtitle: ResMut<HudSubtitle>,
-    player: Query<(&PlayerVitals, &PlayerArsenal), With<Player>>,
+    player: Query<(&PlayerVitals, &PlayerArsenal), With<LocalPlayer>>,
 ) {
     let state = &mut *state;
     state.clock += time.delta_secs();
