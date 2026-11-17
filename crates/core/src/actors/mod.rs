@@ -290,7 +290,13 @@ impl Actor {
                 .max(floor);
             body.on_ground = false;
         }
-        Some(Actor {
+        Some(Actor::with_body(def, spawn, body))
+    }
+
+    /// An actor for `spawn` with `body` as given: no sector lookup and no flyer placement (a
+    /// snapshot apply overwrites the body with the host's anyway).
+    pub(crate) fn with_body(def: &EnemyDef, spawn: &ActorSpawn, body: Body) -> Actor {
+        Actor {
             kind: spawn.kind,
             body,
             prev_pos: body.pos,
@@ -318,7 +324,7 @@ impl Actor {
             burrow_at: None,
             summoner: None,
             grudge: 0.0,
-        })
+        }
     }
 
     /// Eye point: feet + 0.9 · height.

@@ -357,6 +357,24 @@ impl Mechanics {
         exit
     }
 
+    /// Elapsed seconds of each authored quake while it runs (map order), for snapshots.
+    pub(crate) fn quake_times(&self) -> Vec<Option<f32>> {
+        self.quakes.iter().map(|&(_, t)| t).collect()
+    }
+
+    /// How many quakes the level authors.
+    pub(crate) fn quake_count(&self) -> usize {
+        self.quakes.len()
+    }
+
+    /// Sets each quake's elapsed time from a snapshot; `times` must hold one per quake.
+    pub(crate) fn set_quake_times(&mut self, times: &[Option<f32>]) {
+        debug_assert_eq!(times.len(), self.quakes.len());
+        for ((_, t), &s) in self.quakes.iter_mut().zip(times) {
+            *t = s;
+        }
+    }
+
     /// Current screen-shake strength in 0..=1: the strongest running quake, faded.
     pub fn quake_strength(&self) -> f32 {
         self.quakes
@@ -512,7 +530,7 @@ impl Mechanics {
             };
             if set_plane(map, mv, z, bodies) {
                 mv.z = z;
-                changed.push(mv.sector);
+                changed.push(moved_sector(mv));
                 if z == goal {
                     mv.motion = if goal == mv.end {
                         Motion::AtEnd { wait: 0.0 }
@@ -611,6 +629,13 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
         bodies.copy_from_slice(&saved);
     }
     !worse
+}
+
+/// The sector to report as changed when mover `mv` moves (`Mechanics::tick` and a snapshot
+/// apply share it): its own. A slider's track is its neighbour, so the renderer's rebuild of a
+/// changed sector and its neighbours covers it.
+pub(crate) fn moved_sector(mv: &Mover) -> SectorId {
+    mv.sector
 }
 
 /// Writes mover `mv`'s pose at `z` into the map: a door's or crack's ceiling, a lift's floor, or

@@ -13,13 +13,20 @@ use crate::defs::Defs;
 use crate::destruct::Destruct;
 use crate::difficulty::Difficulty;
 use crate::inventory::Inventory;
-use crate::map::{ActorKind, ActorSpawn, KeySet, Map, WallId};
-use crate::mechanics::{Mechanics, Motion, PropState, place_mover};
-use crate::players::PlayerId;
+use crate::map::{ActorKind, ActorSpawn, KeySet, Map, SectorId, WallId};
+use crate::mechanics::{Mechanics, Motion, PropState, moved_sector, place_mover};
+use crate::players::{MAX_PLAYERS, PlayerId};
 use crate::projectile::{Projectile, Shooter};
 use crate::vitals::Vitals;
 use crate::weapons::Arsenal;
 use serde::{Deserialize, Serialize};
+
+/// Most actors a snapshot may carry (authored ones plus spawned minions); a longer one is
+/// refused, so a hostile host cannot make a client grow without bound.
+pub const MAX_ACTORS: usize = 1024;
+
+/// How far a snapped mover pose may lie outside its travel (float slack).
+const MOVER_SLACK: f32 = 1e-3;
 
 /// The whole shared world on one host tick.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,7 +38,9 @@ pub struct Snapshot {
     pub players: Vec<PlayerSnap>,
 }
 
-/// What a client shows of one actor (index = `Combat::actors` index).
+/// What a client shows of one actor (index = `Combat::actors` index). Only these fields travel:
+/// the AI-only ones (target, summoner, refire/repath/pain/burrow/pound timers, route) stay at
+/// their defaults on the client, which never runs AI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActorSnap {
     pub kind: ActorKind,
@@ -59,6 +68,9 @@ pub struct WorldSnap {
     pub destruct: Destruct,
     /// Walls that were glass in the source map and are broken now (both twins).
     pub glass_broken: Vec<WallId>,
+    /// Per authored quake (map order): seconds since it started while it runs, as `Mechanics`
+    /// holds it.
+    pub quakes: Vec<Option<f32>>,
 }
 
 /// One player as the game holds it (built from its components in PR 5).
@@ -82,7 +94,54 @@ pub enum ApplyError {
     Shape(&'static str),
 }
 
+/// What an apply changed that the game must rebuild or react to. Every list is sorted and
+/// free of duplicates; a second apply of the same snapshot reports nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Changes {
+    /// Sectors whose geometry changed because a mover moved: the sectors `Mechanics::tick`
+    /// reports for it (rebuild them with their neighbours, as for a tick).
+    pub sectors: Vec<SectorId>,
+    /// Walls whose glass was broken by this apply (both twins).
+    pub glass: Vec<WallId>,
+    /// Lights (index in `Map::lights`) broken by this apply.
+    pub lights: Vec<usize>,
+    /// Crack walls (sectors) set off by this apply.
+    pub cracks: Vec<SectorId>,
+    /// Indices of the actors this apply appended to `Combat::actors`.
+    pub actors_added: std::ops::Range<usize>,
+}
+
+impl Changes {
+    /// Whether the apply changed nothing listed here.
+    pub fn is_empty(&self) -> bool {
+        self.sectors.is_empty()
+            && self.glass.is_empty()
+            && self.lights.is_empty()
+            && self.cracks.is_empty()
+            && self.actors_added.is_empty()
+    }
+}
+
+fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
 impl Snapshot {
+    /// Whether the snapshot's sizes and ids are within bounds: at most `MAX_PLAYERS` players
+    /// with unique ids below `MAX_PLAYERS`, and at most `MAX_ACTORS` actors. Checked on every
+    /// snapshot decoded from the network.
+    pub fn is_sane(&self) -> bool {
+        let mut seen = [false; MAX_PLAYERS];
+        let players = self.players.len() <= MAX_PLAYERS
+            && self.players.iter().all(|p| {
+                let i = usize::from(p.id.0);
+                i < MAX_PLAYERS && !std::mem::replace(&mut seen[i], true)
+            });
+        players && self.actors.len() <= MAX_ACTORS
+    }
+
     /// Whether every float in the snapshot is finite. A snapshot decoded from the network is
     /// untrusted: one NaN would poison positions and collision on the client.
     pub fn is_finite(&self) -> bool {
@@ -112,6 +171,11 @@ impl Snapshot {
                 }
         });
         let props = self.world.props.iter().all(|p| p.cooldown.is_finite());
+        let quakes = self
+            .world
+            .quakes
+            .iter()
+            .all(|q| q.is_none_or(f32::is_finite));
         let players = self.players.iter().all(|p| {
             use crate::weapons::WeaponPhase;
             body(&p.body)
@@ -126,7 +190,7 @@ impl Snapshot {
                     WeaponPhase::Switching { left, .. } => left.is_finite(),
                 }
         });
-        actors && shots && movers && props && players
+        actors && shots && movers && props && quakes && players
     }
 
     /// `source` is the authored map the live `map` started from (for broken glass).
@@ -138,6 +202,7 @@ impl Snapshot {
         source: &Map,
         players: Vec<PlayerSnap>,
     ) -> Snapshot {
+        debug_assert_eq!(map.walls.len(), source.walls.len(), "source is map's level");
         let actors = combat
             .actors
             .iter()
@@ -177,23 +242,50 @@ impl Snapshot {
                 props: mech.props.clone(),
                 destruct: combat.destruct.clone(),
                 glass_broken,
+                quakes: mech.quake_times(),
             },
             players,
         }
     }
 
     /// Writes actors (pos/body, prev_pos = the old pos, angle, state, hp, phase; appends missing
-    /// actors via `Actor::new` from `defs` and the snap), replaces projectiles, and applies
-    /// `world` to mech + map. Never runs AI, never touches rng. Validates every length/index
-    /// first; on Err nothing changed. Players are the game's job.
+    /// actors from `defs` and the snap), replaces projectiles, and applies `world` to mech + map.
+    /// Never runs AI, never touches rng. Validates every length/index first; on Err nothing
+    /// changed. Players are the game's job. Returns what changed for the game to rebuild.
+    ///
+    /// Callers must drop a snapshot whose `tick` is not newer than the last one applied (UDP
+    /// reorders): `prev_pos` is set to the pose being replaced, so an older snapshot would make
+    /// interpolation run backwards.
     pub fn apply(
         &self,
         combat: &mut Combat,
         mech: &mut Mechanics,
         map: &mut Map,
         defs: &Defs,
-    ) -> Result<(), ApplyError> {
+    ) -> Result<Changes, ApplyError> {
         let fresh = self.check(combat, mech, map, defs)?;
+        let w = &self.world;
+        // Work out what changes before writing anything.
+        let sectors = mech
+            .movers
+            .iter()
+            .zip(&w.movers)
+            .filter(|(mv, s)| mv.z != s.z)
+            .map(|(mv, _)| moved_sector(mv))
+            .collect();
+        let glass = w
+            .glass_broken
+            .iter()
+            .flat_map(|&g| std::iter::once(g).chain(map.walls[g].next_wall))
+            .filter(|&g| map.walls[g].glass)
+            .collect();
+        let lights = (0..map.lights.len())
+            .filter(|&i| !combat.destruct.light_broken(i) && w.destruct.light_broken(i))
+            .collect();
+        let cracks = (0..map.sectors.len())
+            .filter(|&s| !combat.destruct.crack_open(s) && w.destruct.crack_open(s))
+            .collect();
+        let added = combat.actors.len()..self.actors.len();
         // Everything below only writes: the snapshot fits.
         for (a, s) in combat.actors.iter_mut().zip(&self.actors) {
             a.prev_pos = a.body.pos;
@@ -201,7 +293,6 @@ impl Snapshot {
         }
         combat.actors.extend(fresh);
         combat.projectiles.clone_from(&self.projectiles);
-        let w = &self.world;
         for (mv, s) in mech.movers.iter_mut().zip(&w.movers) {
             mv.z = s.z;
             mv.motion = s.motion;
@@ -210,6 +301,7 @@ impl Snapshot {
         mech.switch_on.clone_from(&w.switch_on);
         mech.taken.clone_from(&w.taken);
         mech.props.clone_from(&w.props);
+        mech.set_quake_times(&w.quakes);
         combat.destruct.clone_from(&w.destruct);
         for &g in &w.glass_broken {
             map.walls[g].glass = false;
@@ -217,11 +309,17 @@ impl Snapshot {
                 map.walls[twin].glass = false;
             }
         }
-        Ok(())
+        Ok(Changes {
+            sectors: sorted(sectors),
+            glass: sorted(glass),
+            lights: sorted(lights),
+            cracks: sorted(cracks),
+            actors_added: added,
+        })
     }
 
-    /// Checks that the snapshot fits the client's level and builds the actors it appends (the
-    /// only part that can fail half-way), touching nothing.
+    /// Checks that the snapshot fits the client's level and builds the actors it appends,
+    /// touching nothing.
     fn check(
         &self,
         combat: &Combat,
@@ -237,6 +335,7 @@ impl Snapshot {
             }
         };
         let sectors = map.sectors.len();
+        shape(self.actors.len() <= MAX_ACTORS, "too many actors")?;
         shape(
             self.actors.len() >= combat.actors.len(),
             "fewer actors than the client has",
@@ -266,6 +365,13 @@ impl Snapshot {
         let w = &self.world;
         shape(w.movers.len() == mech.movers.len(), "mover count differs")?;
         shape(
+            w.movers.iter().zip(&mech.movers).all(|(s, mv)| {
+                let (lo, hi) = (mv.start.min(mv.end), mv.start.max(mv.end));
+                s.z >= lo - MOVER_SLACK && s.z <= hi + MOVER_SLACK
+            }),
+            "mover pose outside its travel",
+        )?;
+        shape(
             w.switch_on.len() == mech.switch_on.len(),
             "switch count differs",
         )?;
@@ -278,6 +384,7 @@ impl Snapshot {
                     .all(|(s, p)| s.kind == p.kind),
             "props differ",
         )?;
+        shape(w.quakes.len() == mech.quake_count(), "quake count differs")?;
         shape(
             combat.destruct.same_shape(&w.destruct),
             "destruction state differs",
@@ -286,7 +393,9 @@ impl Snapshot {
             w.glass_broken.iter().all(|&g| g < map.walls.len()),
             "glass wall out of range",
         )?;
-        self.actors[combat.actors.len()..]
+        // Appended actors take the snapped body as it is (its sector was checked above): no
+        // fresh sector lookup that could fail where the host's actor stands.
+        Ok(self.actors[combat.actors.len()..]
             .iter()
             .map(|s| {
                 let spawn = ActorSpawn {
@@ -294,16 +403,17 @@ impl Snapshot {
                     pos: s.body.pos.truncate(),
                     angle: s.angle,
                     asleep: false,
+                    // Placeholder: `Actor::with_body` ignores the spawn's skill (skill only
+                    // filters which authored spawns exist).
                     skill: Difficulty::Easy,
                     on_death: None,
                 };
-                let mut a = Actor::new(map, defs.enemy(s.kind), &spawn)
-                    .ok_or(ApplyError::Shape("appended actor outside every sector"))?;
+                let mut a = Actor::with_body(defs.enemy(s.kind), &spawn, s.body);
                 write_actor(&mut a, s);
                 a.prev_pos = s.body.pos;
-                Ok(a)
+                a
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -321,7 +431,8 @@ mod tests {
     use super::*;
     use crate::combat::{PlayerTarget, level_seed};
     use crate::defs::Defs;
-    use crate::map::MoverKind;
+    use crate::map::{MoverKind, SectorId};
+    use crate::players::MAX_PLAYERS;
     use crate::projectile::Targets;
     use crate::rng::Rng;
     use glam::{Vec2, Vec3};
@@ -365,7 +476,7 @@ mod tests {
             )
         }
 
-        fn apply(&mut self, snap: &Snapshot, defs: &Defs) -> Result<(), ApplyError> {
+        fn apply(&mut self, snap: &Snapshot, defs: &Defs) -> Result<Changes, ApplyError> {
             snap.apply(&mut self.combat, &mut self.mech, &mut self.map, defs)
         }
 
@@ -509,7 +620,8 @@ mod tests {
         host.combat.actors.push(minion.clone());
         let mut client = World::load(ARENA, &defs);
         let before = client.combat.actors.len();
-        client.apply(&host.capture(1), &defs).unwrap();
+        let changes = client.apply(&host.capture(1), &defs).unwrap();
+        assert_eq!(changes.actors_added, before..before + 1);
         assert_eq!(client.combat.actors.len(), before + 1);
         let got = client.combat.actors.last().unwrap();
         assert_eq!(got.kind, ActorKind::Slasher);
@@ -520,9 +632,163 @@ mod tests {
     }
 
     #[test]
-    fn apply_moves_map_geometry() {
+    fn appended_actor_needs_no_sector_lookup() {
+        let defs = Defs::builtin();
+        let mut host = fought_arena(&defs);
+        let spawn = ActorSpawn {
+            kind: ActorKind::Slasher,
+            pos: Vec2::new(5.0, 11.0),
+            angle: 1.0,
+            asleep: false,
+            skill: crate::difficulty::Difficulty::Easy,
+            on_death: None,
+        };
+        let mut minion =
+            Actor::new(&host.map, defs.enemy(ActorKind::Slasher), &spawn).expect("on the floor");
+        // Its snapped position lies outside every sector (a fresh `Body::spawn` there fails), but
+        // its sector is valid: the client takes the snapped body as it is.
+        minion.body.pos = Vec3::new(1.0e4, -1.0e4, 0.0);
+        assert!(Body::spawn(&host.map, minion.body.pos.truncate(), 0.35, 1.8).is_none());
+        host.combat.actors.push(minion.clone());
+        let mut client = World::load(ARENA, &defs);
+        client.apply(&host.capture(1), &defs).unwrap();
+        let got = client.combat.actors.last().unwrap();
+        assert_eq!(got.body, minion.body);
+        assert_eq!(got.prev_pos, minion.body.pos);
+    }
+
+    #[test]
+    fn apply_reports_changes() {
+        let defs = Defs::builtin();
+        let host = stirred_lab(&defs);
+        let mut client = World::load(ENGINE_LAB, &defs);
+        let snap = host.capture(20);
+        let changes = client.apply(&snap, &defs).unwrap();
+        let mut moved: Vec<SectorId> = host
+            .mech
+            .movers
+            .iter()
+            .filter(|m| m.z != m.start)
+            .map(|m| m.sector)
+            .collect();
+        moved.sort_unstable();
+        assert!(!moved.is_empty());
+        assert_eq!(changes.sectors, moved);
+        let of = |k: fn(&MoverKind) -> bool| {
+            host.mech
+                .movers
+                .iter()
+                .find(|m| k(&m.def.kind))
+                .map(|m| m.sector)
+                .unwrap()
+        };
+        assert!(
+            changes
+                .sectors
+                .contains(&of(|k| matches!(k, MoverKind::Door)))
+        );
+        assert!(
+            changes
+                .sectors
+                .contains(&of(|k| matches!(k, MoverKind::Slide { .. })))
+        );
+        let cracks: Vec<SectorId> = host
+            .mech
+            .movers
+            .iter()
+            .filter(|m| m.def.kind == MoverKind::Crack)
+            .map(|m| m.sector)
+            .collect();
+        assert!(!cracks.is_empty());
+        assert_eq!(changes.cracks, cracks);
+        assert!(changes.glass.is_empty() && changes.lights.is_empty());
+        assert!(changes.actors_added.is_empty());
+        assert!(
+            client.apply(&snap, &defs).unwrap().is_empty(),
+            "nothing new"
+        );
+
+        let mut host = World::load(DEPOT, &defs);
+        let w = (0..host.map.walls.len())
+            .find(|&w| host.map.walls[w].glass)
+            .expect("the depot has glass");
+        let twin = host.map.walls[w].next_wall.unwrap();
+        host.combat.destruct.break_glass(&mut host.map, w);
+        let light = host.map.lights.iter().position(|l| l.breakable).unwrap();
+        assert!(host.combat.destruct.break_light(&host.map, light));
+        let snap = host.capture(1);
+        let mut client = World::load(DEPOT, &defs);
+        let changes = client.apply(&snap, &defs).unwrap();
+        let mut glass = vec![w, twin];
+        glass.sort_unstable();
+        assert_eq!(changes.glass, glass);
+        assert_eq!(changes.lights, vec![light]);
+        assert!(changes.sectors.is_empty() && changes.cracks.is_empty());
+        let again = client.apply(&snap, &defs).unwrap();
+        assert!(again.is_empty(), "{again:?}");
+    }
+
+    #[test]
+    fn apply_copies_quakes() {
         let defs = Defs::builtin();
         let mut host = World::load(ENGINE_LAB, &defs);
+        host.mech.fire(7);
+        for _ in 0..150 {
+            host.mech.tick(&mut host.map, &mut [], DT);
+        }
+        let mid = host.mech.quake_strength();
+        assert!(mid > 0.0 && mid < 0.8, "mid-fade: {mid}");
+        let mut client = World::load(ENGINE_LAB, &defs);
+        client.apply(&host.capture(150), &defs).unwrap();
+        assert_eq!(client.mech.quake_strength(), mid);
+        for _ in 0..120 {
+            host.mech.tick(&mut host.map, &mut [], DT);
+        }
+        assert_eq!(host.mech.quake_strength(), 0.0);
+        client.apply(&host.capture(270), &defs).unwrap();
+        assert_eq!(client.mech.quake_strength(), 0.0);
+    }
+
+    #[test]
+    fn is_sane_bounds_players_and_actors() {
+        let defs = Defs::builtin();
+        let host = fought_arena(&defs);
+        let body = Body::spawn(&host.map, Vec2::new(5.0, 10.0), 0.35, 1.8).unwrap();
+        let player = |id: u8| PlayerSnap {
+            id: PlayerId(id),
+            body,
+            angle: 0.0,
+            pitch: 0.0,
+            vitals: Vitals::new(),
+            arsenal: Arsenal::new(&defs),
+            inventory: Inventory::new(),
+            keys: KeySet::default(),
+            ack: 0,
+        };
+        let mut snap = host.capture(1);
+        snap.players = (0..MAX_PLAYERS as u8).map(player).collect();
+        assert!(snap.is_sane());
+        let mut bad = snap.clone();
+        bad.players.push(player(0));
+        assert!(!bad.is_sane(), "too many players");
+        let mut bad = snap.clone();
+        bad.players[1].id = PlayerId(0);
+        assert!(!bad.is_sane(), "duplicate id");
+        let mut bad = snap.clone();
+        bad.players.truncate(1);
+        bad.players[0].id = PlayerId(MAX_PLAYERS as u8);
+        assert!(!bad.is_sane(), "id out of range");
+        let mut bad = snap.clone();
+        let last = bad.actors.last().unwrap().clone();
+        bad.actors.resize(MAX_ACTORS + 1, last);
+        assert!(!bad.is_sane(), "too many actors");
+        bad.actors.truncate(MAX_ACTORS);
+        assert!(bad.is_sane());
+    }
+
+    /// The engine lab with every mover set going (cracks opened) and 20 ticks run.
+    fn stirred_lab(defs: &Defs) -> World {
+        let mut host = World::load(ENGINE_LAB, defs);
         for m in 0..host.mech.movers.len() {
             let s = host.mech.movers[m].sector;
             match host.mech.movers[m].def.kind {
@@ -533,6 +799,13 @@ mod tests {
         for _ in 0..20 {
             host.mech.tick(&mut host.map, &mut [], DT);
         }
+        host
+    }
+
+    #[test]
+    fn apply_moves_map_geometry() {
+        let defs = Defs::builtin();
+        let host = stirred_lab(&defs);
         let mid = |k: fn(&MoverKind) -> bool| {
             host.mech.movers.iter().any(|mv| {
                 k(&mv.def.kind)
@@ -635,7 +908,7 @@ mod tests {
             .push(bolt(5, Vec3::new(1.0, 1.0, 1.0)));
         let good = host.capture(1);
         type Tamper = fn(&mut Snapshot);
-        let tampers: [(&str, Tamper); 10] = [
+        let tampers: [(&str, Tamper); 13] = [
             ("mover count", |s| {
                 s.world.movers.pop();
             }),
@@ -663,12 +936,20 @@ mod tests {
                 s.actors.pop();
             }),
             ("projectile sector", |s| s.projectiles[0].sector = 9999),
+            ("quake count", |s| {
+                s.world.quakes.pop();
+            }),
+            ("mover z out of range", |s| s.world.movers[0].z = 1.0e6),
+            ("too many actors", |s| {
+                let last = s.actors.last().unwrap().clone();
+                s.actors.resize(MAX_ACTORS + 1, last);
+            }),
         ];
         for (what, tamper) in tampers {
             let mut snap = good.clone();
-            // Change every mover too, so a partial apply would show.
-            for m in &mut snap.world.movers {
-                m.z += 0.5;
+            // Change every mover too (to mid-travel), so a partial apply would show.
+            for (m, mv) in snap.world.movers.iter_mut().zip(&host.mech.movers) {
+                m.z = (mv.start + mv.end) / 2.0;
             }
             tamper(&mut snap);
             let mut client = World::load(ENGINE_LAB, &defs);
@@ -778,11 +1059,44 @@ mod tests {
             plan: nan_plan,
         };
         assert!(!bad.is_finite());
-        let mut bad = snap;
+        let mut bad = snap.clone();
         bad.world.movers.push(MoverSnap {
             z: f32::NAN,
             motion: Motion::AtStart,
         });
+        assert!(!bad.is_finite());
+        let mut bad = snap.clone();
+        bad.world.movers.push(MoverSnap {
+            z: 0.0,
+            motion: Motion::AtEnd { wait: f32::NAN },
+        });
+        assert!(!bad.is_finite());
+        let mut bad = snap.clone();
+        bad.world.quakes.push(Some(f32::INFINITY));
+        assert!(!bad.is_finite());
+        let body = Body::spawn(&host.map, Vec2::new(5.0, 10.0), 0.35, 1.8).unwrap();
+        let player = PlayerSnap {
+            id: PlayerId(0),
+            body,
+            angle: 0.0,
+            pitch: 0.0,
+            vitals: Vitals::new(),
+            arsenal: Arsenal::new(&defs),
+            inventory: Inventory::new(),
+            keys: KeySet::default(),
+            ack: 0,
+        };
+        let mut ok = snap.clone();
+        ok.players.push(player.clone());
+        assert!(ok.is_finite());
+        let mut bad = ok.clone();
+        bad.players[0].pitch = f32::NAN;
+        assert!(!bad.is_finite());
+        let mut bad = ok.clone();
+        bad.players[0].body.vel.z = f32::NEG_INFINITY;
+        assert!(!bad.is_finite());
+        let mut bad = ok;
+        bad.players[0].arsenal.phase = crate::weapons::WeaponPhase::Reloading(f32::NAN);
         assert!(!bad.is_finite());
     }
 }

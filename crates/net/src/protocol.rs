@@ -120,21 +120,34 @@ pub enum NetError {
     Decode(#[from] postcard::Error),
     #[error("snapshot holds a non-finite number")]
     NonFinite,
+    #[error("bytes left over after the message")]
+    Trailing,
+    #[error("snapshot is out of bounds (too many players or actors, or a bad player id)")]
+    Invalid,
 }
 
 pub fn encode<T: Serialize>(msg: &T) -> Vec<u8> {
     postcard::to_stdvec(msg).expect("wire types serialise to a Vec")
 }
 
-/// Decodes untrusted bytes; never panics.
+/// Decodes one whole message: bytes left over after it are an error. Never panics, but checks
+/// only the encoding: it is for trusted or local data (tests, tools). Hosts decode what they
+/// receive with [`decode_client`], clients with [`decode_server`].
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, NetError> {
-    Ok(postcard::from_bytes(bytes)?)
+    let (msg, rest) = postcard::take_from_bytes(bytes)?;
+    if rest.is_empty() {
+        Ok(msg)
+    } else {
+        Err(NetError::Trailing)
+    }
 }
 
-/// [`decode`] for what clients receive: a snapshot with a NaN or infinity is rejected.
+/// [`decode`] for what clients receive: a snapshot with a NaN or infinity, or one out of
+/// bounds ([`Snapshot::is_sane`]), is rejected.
 pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
     let msg: ServerMsg = decode(bytes)?;
     match &msg {
+        ServerMsg::Snapshot(s) if !s.is_sane() => Err(NetError::Invalid),
         ServerMsg::Snapshot(s) if !s.is_finite() => Err(NetError::NonFinite),
         _ => Ok(msg),
     }
@@ -363,6 +376,40 @@ mod tests {
         assert!(matches!(decode_server(&bytes), Err(NetError::NonFinite)));
         // The generic decode does not look inside.
         assert!(decode::<ServerMsg>(&bytes).is_ok());
+    }
+
+    #[test]
+    fn decode_rejects_trailing_bytes() {
+        let mut bytes = encode(&ClientMsg::Hello(hello()));
+        assert!(decode::<ClientMsg>(&bytes).is_ok());
+        bytes.push(0);
+        assert!(matches!(
+            decode::<ClientMsg>(&bytes),
+            Err(NetError::Trailing)
+        ));
+        assert!(matches!(decode_client(&bytes), Err(NetError::Trailing)));
+        let mut bytes = encode(&ServerMsg::Refused(Refusal::Full));
+        bytes.extend([1, 2, 3]);
+        assert!(matches!(decode_server(&bytes), Err(NetError::Trailing)));
+    }
+
+    #[test]
+    fn decode_server_rejects_insane_snapshot() {
+        let good = arena_snapshot();
+        assert!(decode_server(&encode(&ServerMsg::Snapshot(good.clone()))).is_ok());
+        let mut s = good.clone();
+        s.players[1].id = s.players[0].id;
+        assert!(matches!(
+            decode_server(&encode(&ServerMsg::Snapshot(s))),
+            Err(NetError::Invalid)
+        ));
+        let mut s = good;
+        let last = s.actors.last().unwrap().clone();
+        s.actors.resize(rr_core::snapshot::MAX_ACTORS + 1, last);
+        assert!(matches!(
+            decode_server(&encode(&ServerMsg::Snapshot(s))),
+            Err(NetError::Invalid)
+        ));
     }
 
     #[test]

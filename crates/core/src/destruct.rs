@@ -118,6 +118,11 @@ impl Destruct {
         }
     }
 
+    /// Whether crack wall `s` has been set off.
+    pub fn crack_open(&self, s: SectorId) -> bool {
+        self.cracks_open.get(s).copied().unwrap_or(false)
+    }
+
     /// Whether light `i` has been broken.
     pub fn light_broken(&self, i: usize) -> bool {
         self.lights.get(i).copied().unwrap_or(false)
