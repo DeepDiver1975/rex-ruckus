@@ -20,7 +20,7 @@ use crate::episode::{Episode, start_episode};
 use crate::flow::{LevelDifficulty, LevelFile, PlayState};
 use crate::hud::{UiFont, font};
 use crate::net::client::{NetClient, NetNotice, start_joining, stop_joining};
-use crate::net::host::{NetHost, NetIdentity, start_hosting, stop_hosting};
+use crate::net::host::{NetHost, NetIdentity, start_hosting, stop_hosting, unhostable_level};
 use crate::net::lobby::LanGames;
 use crate::net::{NetMode, NetStart};
 use crate::settings::{Settings, default_player_name};
@@ -254,8 +254,13 @@ pub fn host_game(world: &mut World, d: Difficulty) {
     }
 }
 
-/// Hosts on [`HostPort`]; false (with a notice) if the port cannot be opened.
+/// Hosts on [`HostPort`]; false (with a notice) if the level cannot be hosted or the port
+/// cannot be opened.
 fn open_host(world: &mut World) -> bool {
+    if let Some(why) = unhostable_level(world) {
+        notice(world, why);
+        return false;
+    }
     let port = world.get_resource::<HostPort>().map_or(GAME_PORT, |p| p.0);
     let name = player_name(world);
     match start_hosting(world, SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)), name) {

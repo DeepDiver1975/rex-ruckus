@@ -31,6 +31,10 @@ use crate::player::{
 /// The notice for a host's level this machine does not have.
 pub const MISSING_LEVEL: &str = "The host's level is not on this machine";
 
+/// The notice for a control message from the host that does not decode (another build's, or
+/// corrupt): it is never sent again, so the session cannot go on.
+pub const NOT_UNDERSTOOD: &str = "The host sent something this game does not understand";
+
 /// The joined game.
 #[derive(Resource)]
 pub struct NetClient {
@@ -153,6 +157,10 @@ pub fn client_receive(world: &mut World) {
         if !world.contains_resource::<NetClient>() {
             return;
         }
+    }
+    if world.resource::<NetClient>().client.control_garbage() > 0 {
+        end_session(world, Some(NOT_UNDERSTOOD.into()));
+        return;
     }
     match world.resource::<NetClient>().client.state() {
         ClientState::Connecting => {}

@@ -47,8 +47,8 @@ impl LanListener {
             .unwrap_or_else(|_| (Ipv4Addr::UNSPECIFIED, 0).into())
     }
 
-    /// Every compatible beacon waiting, with the game address (sender's IP, `beacon.port`).
-    /// Bad datagrams and other games' beacons are skipped.
+    /// Every listable beacon waiting ([`Beacon::is_listable`]), with the game address (sender's
+    /// IP, `beacon.port`). Bad datagrams, other games' beacons and implausible ones are skipped.
     pub fn poll(&mut self) -> Vec<(SocketAddr, Beacon)> {
         let mut out = Vec::new();
         let mut buf = [0u8; 1024];
@@ -56,7 +56,7 @@ impl LanListener {
             match self.socket.recv_from(&mut buf) {
                 Ok((n, from)) => {
                     if let Ok(beacon) = decode::<Beacon>(&buf[..n])
-                        && beacon.is_ours()
+                        && beacon.is_listable()
                     {
                         out.push((SocketAddr::new(from.ip(), beacon.port), beacon));
                     }

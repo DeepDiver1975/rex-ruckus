@@ -21,7 +21,8 @@ use rr_core::players::PlayerId;
 /// Seconds a death or completion screen stays up before a press may restart.
 pub const RESTART_DELAY: f32 = 1.0;
 
-/// Whether the simulation runs. Every fixed-tick sim system is gated on `Playing`.
+/// Where play stands. Fixed-tick sim systems run on [`sim_ticks`]: `Playing`, or `Paused` from
+/// `Playing` in a net game (the host's pause menu does not stop the world for its clients).
 #[derive(Resource, PartialEq, Eq, Clone, Copy, Debug, Default)]
 pub enum PlayState {
     /// Main menu over the frozen first level.
@@ -127,7 +128,8 @@ pub fn restart_requested(
 }
 
 /// Owns the play state, the level-spawn schedule and restarts. Needs `insert_level`; the sim
-/// plugins gate their fixed-tick systems on [`PlayState::Playing`].
+/// plugins gate their fixed-tick systems on [`sim_ticks`] and the world's presentation on
+/// [`world_running`] (both: [`PlayState::Playing`], or a net game under the pause menu).
 pub struct FlowPlugin;
 
 impl Plugin for FlowPlugin {

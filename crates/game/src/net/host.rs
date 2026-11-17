@@ -13,6 +13,7 @@ use rr_core::snapshot::{PlayerSnap, Snapshot};
 use rr_net::{
     BEACON_MAGIC, Beacon, BeaconSender, ClientKey, ClientMsg, Hello, Host, HostEvent, InputFrame,
     Load, PROTOCOL_VERSION, ServerMsg, Welcome, assets_hash, buttons, check_hello,
+    valid_level_name,
 };
 
 use super::NetMode;
@@ -85,6 +86,8 @@ pub struct NetHost {
     pub seats: Vec<Seat>,
     /// Net ticks; snapshots and loads are stamped with it.
     pub tick: u32,
+    /// Messages from clients that did not decode; counted and ignored.
+    pub garbage: u32,
     /// Connected but not seated yet, with seconds since connecting.
     waiting: Vec<(ClientKey, f32)>,
     /// The [`LevelRuns`] the seats last got a `Load` for.
@@ -117,8 +120,25 @@ struct HostBeacon {
     since: f32,
 }
 
-/// Opens a co-op game on `addr` and announces it on the LAN.
+/// Why a level cannot be hosted, if it cannot: clients load the [`LevelFile`] by name from
+/// their own `assets/levels/`, so it must pass [`valid_level_name`].
+pub fn unhostable_level(world: &World) -> Option<String> {
+    match world.get_resource::<LevelFile>() {
+        Some(file) if valid_level_name(&file.0) => None,
+        Some(file) => Some(format!(
+            "{:?} cannot be hosted: co-op plays levels from assets/levels",
+            file.0
+        )),
+        None => Some("There is no level to host".into()),
+    }
+}
+
+/// Opens a co-op game on `addr` and announces it on the LAN. Refuses (`InvalidInput`) a level
+/// the clients could not load ([`unhostable_level`]).
 pub fn start_hosting(world: &mut World, addr: SocketAddr, name: String) -> io::Result<()> {
+    if let Some(why) = unhostable_level(world) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, why));
+    }
     let identity = NetIdentity::local(name)?;
     let host = Host::bind(addr)?;
     let runs = world.get_resource::<LevelRuns>().map_or(0, |r| r.0);
@@ -126,6 +146,7 @@ pub fn start_hosting(world: &mut World, addr: SocketAddr, name: String) -> io::R
         host,
         seats: Vec::new(),
         tick: 0,
+        garbage: 0,
         waiting: Vec::new(),
         runs,
     });
@@ -231,7 +252,7 @@ fn host_receive(world: &mut World) {
                 }
             }
             HostEvent::Disconnected(key) => leave(world, key),
-            HostEvent::Garbage(_) => {}
+            HostEvent::Garbage(_) => world.resource_mut::<NetHost>().garbage += 1,
         }
     }
     // Connections that never say hello are dropped.

@@ -75,7 +75,11 @@ impl Host {
         let socket = UdpSocket::bind(addr)?;
         let addr = socket.local_addr()?;
         let config = ServerConfig {
-            current_time: since_epoch(),
+            // Netcode's only use of absolute time on the host is refusing a connect token whose
+            // expiry (the client's clock + 300 s, in unsecure mode) has passed. Our clock starts
+            // at zero so a host whose clock runs ahead of a guest's still admits it; pending
+            // requests still time out, as that compares relative times.
+            current_time: Duration::ZERO,
             max_clients: MAX_PLAYERS,
             protocol_id: NETCODE_PROTOCOL_ID,
             public_addresses: vec![addr],
@@ -134,6 +138,12 @@ impl Host {
         self.server.disconnect(who);
     }
 
+    /// Send raw bytes on the control channel (tests of the client's garbage handling).
+    #[doc(hidden)]
+    pub fn send_raw(&mut self, to: ClientKey, bytes: Vec<u8>) {
+        self.server.send_message(to, CH_CONTROL, bytes);
+    }
+
     pub fn flush(&mut self) {
         self.transport.send_packets(&mut self.server);
     }
@@ -178,10 +188,18 @@ pub struct Client {
     conn: RenetClient,
     transport: NetcodeClientTransport,
     garbage: u32,
+    control_garbage: u32,
 }
 
 impl Client {
     pub fn connect(server: SocketAddr) -> io::Result<Client> {
+        Client::connect_at(server, since_epoch())
+    }
+
+    /// [`Client::connect`] with the client's wall clock reading `now` (tests of clock skew
+    /// between host and client).
+    #[doc(hidden)]
+    pub fn connect_at(server: SocketAddr, now: Duration) -> io::Result<Client> {
         let bind: IpAddr = match server.ip() {
             IpAddr::V4(ip) if ip.is_loopback() => Ipv4Addr::LOCALHOST.into(),
             IpAddr::V6(ip) if ip.is_loopback() => Ipv6Addr::LOCALHOST.into(),
@@ -189,7 +207,6 @@ impl Client {
             IpAddr::V6(_) => Ipv6Addr::UNSPECIFIED.into(),
         };
         let socket = UdpSocket::bind((bind, 0))?;
-        let now = since_epoch();
         let client_id = (now.as_nanos() as u64).rotate_left(16) ^ u64::from(std::process::id());
         let auth = ClientAuthentication::Unsecure {
             protocol_id: NETCODE_PROTOCOL_ID,
@@ -203,6 +220,7 @@ impl Client {
             conn: RenetClient::new(connection_config()),
             transport,
             garbage: 0,
+            control_garbage: 0,
         })
     }
 
@@ -215,7 +233,12 @@ impl Client {
             while let Some(bytes) = self.conn.receive_message(ch) {
                 match decode_server(&bytes) {
                     Ok(msg) => out.push(msg),
-                    Err(_) => self.garbage += 1,
+                    Err(_) => {
+                        self.garbage += 1;
+                        if ch == CH_CONTROL {
+                            self.control_garbage += 1;
+                        }
+                    }
                 }
             }
         }
@@ -225,6 +248,13 @@ impl Client {
     /// Datagrams from the host that did not decode.
     pub fn garbage(&self) -> u32 {
         self.garbage
+    }
+
+    /// Of [`Client::garbage`], those on the reliable control channel. Unlike a bad snapshot,
+    /// such a message is never sent again (a `Welcome` or `Load` lost this way leaves the game
+    /// stuck), so any is a reason to leave.
+    pub fn control_garbage(&self) -> u32 {
+        self.control_garbage
     }
 
     pub fn send(&mut self, msg: &ClientMsg) {

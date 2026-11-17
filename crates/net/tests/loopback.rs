@@ -169,6 +169,25 @@ fn snapshots_go_unreliable_and_arrive_whole() {
 }
 
 #[test]
+fn client_clock_behind_the_host_still_joins() {
+    // Unsecure netcode stamps the connect token with the client's clock (+300 s); a host that
+    // compared it with its own wall clock dropped every request from a client 5+ minutes behind.
+    let mut host = host();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    let mut clients = Vec::new();
+    for skew in [
+        Duration::from_secs(600),
+        Duration::from_secs(400 * 24 * 3600),
+    ] {
+        let mut client = Client::connect_at(host.local_addr(), now - skew).unwrap();
+        connected(&mut host, &mut client);
+        clients.push(client);
+    }
+}
+
+#[test]
 fn junk_udp_is_ignored() {
     let mut host = host();
     let addr = host.local_addr();
@@ -199,6 +218,22 @@ fn undecodable_message_is_garbage_not_fatal() {
             .iter()
             .any(|e| matches!(e, HostEvent::Garbage(k) if *k == key))
     );
+}
+
+#[test]
+fn undecodable_control_message_is_counted_apart() {
+    let mut host = host();
+    let mut client = Client::connect(host.local_addr()).unwrap();
+    let key = connected(&mut host, &mut client);
+    host.send_raw(key, vec![0xff; 40]);
+    host.send(key, &ServerMsg::Roster(vec!["Rex".into()]));
+    let (_, msgs, ok) = pump(&mut host, &mut [&mut client], STEP, |_, m, _| {
+        !m[0].is_empty()
+    });
+    assert!(ok);
+    assert_eq!(client.garbage(), 1);
+    assert_eq!(client.control_garbage(), 1);
+    assert!(matches!(msgs[0][..], [ServerMsg::Roster(_)]));
 }
 
 #[test]
@@ -265,6 +300,13 @@ fn beacons_round_trip() {
     let good = beacon(BEACON_MAGIC, PROTOCOL_VERSION);
     sender.send_to(&beacon(BEACON_MAGIC ^ 1, PROTOCOL_VERSION), to);
     sender.send_to(&beacon(BEACON_MAGIC, PROTOCOL_VERSION + 1), to);
+    sender.send_to(
+        &Beacon {
+            level: "../../x.ron".into(),
+            ..beacon(BEACON_MAGIC, PROTOCOL_VERSION)
+        },
+        to,
+    );
     sender.send_to(&good, to);
     UdpSocket::bind("127.0.0.1:0")
         .unwrap()

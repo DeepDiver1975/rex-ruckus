@@ -379,6 +379,7 @@ fn hostile_input_is_clamped_or_dropped() {
         pump(&mut app, &mut [&mut peer]);
     }
     assert_eq!(seats(&app), 1);
+    assert_eq!(app.world().resource::<NetHost>().garbage, 1);
     assert!((angle(&mut app, PlayerId(1)) - 0.5).abs() < 1e-5);
     assert!(pos(&mut app, PlayerId(1)).is_finite());
     let e = entity(&mut app, PlayerId(1));
@@ -538,6 +539,29 @@ fn restart_brings_remote_players_back() {
     assert_eq!(player_ids(&mut app), [0, 1]);
     let second = peer.loads()[1].tick;
     assert!(second > first, "{second} after {first}");
+    // The new run's snapshots are stamped after its Load, so a client drops none of them.
+    let after_load = |p: &Peer| {
+        let at = p
+            .got
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| matches!(m, ServerMsg::Load(_)))
+            .nth(1)
+            .map(|(i, _)| i)
+            .unwrap();
+        p.got[at..].iter().find_map(|m| match m {
+            ServerMsg::Snapshot { snap, .. } => Some(snap.tick),
+            _ => None,
+        })
+    };
+    pump_until(
+        &mut app,
+        &mut [&mut peer],
+        "a snapshot after the load",
+        |_, p| after_load(p[0]).is_some(),
+    );
+    let tick = after_load(&peer).unwrap();
+    assert!(tick > second, "snapshot {tick} after load {second}");
 }
 
 #[test]

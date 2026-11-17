@@ -110,9 +110,13 @@ struct HeldGun {
     scene: Option<Entity>,
 }
 
-/// The team materials of a partner's model wear the slot tint.
+/// The team materials of a partner's model wear the tint of slot `id`; `team` keeps each team
+/// mesh with its untinted glTF material, so a renumbered partner can be tinted afresh.
 #[derive(Component)]
-struct Tinted;
+struct Tinted {
+    id: PlayerId,
+    team: Vec<(Entity, Handle<StandardMaterial>)>,
+}
 
 /// Draws co-op partners. Needs `PlayerSimPlugin` and `CombatSimPlugin`; the Rex model needs
 /// [`ModelsPlugin`](crate::models::ModelsPlugin) (without it only the bare roots spawn).
@@ -327,30 +331,35 @@ fn animate_partners(
 }
 
 /// Once a partner's model is ready and its materials have loaded, swaps every mesh whose glTF
-/// material is a [`team_material`] to the [`TintCache`] variant in the partner's slot colour.
+/// material is a [`team_material`] to the [`TintCache`] variant in the partner's slot colour,
+/// and again whenever the partner's id changes (a lower seat left).
 #[allow(clippy::too_many_arguments)]
 fn tint_partners(
     mut commands: Commands,
     lib: Res<ModelLibrary>,
     mut cache: ResMut<TintCache>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    roots: Query<(Entity, &PartnerVisual, &PartnerModel), Without<Tinted>>,
+    roots: Query<(Entity, &PartnerVisual, &PartnerModel, Option<&Tinted>)>,
     players: Query<&Player>,
     ready: Query<&ModelReady>,
     mut mats: Query<(&GltfMaterialName, &mut MeshMaterial3d<StandardMaterial>)>,
 ) {
-    for (root, v, model) in &roots {
+    for (root, v, model, tinted) in &roots {
         let (Ok(player), Ok(ready)) = (players.get(v.player), ready.get(model.0)) else {
             continue;
         };
-        let team: Vec<(Entity, Handle<StandardMaterial>)> = ready
-            .meshes
-            .iter()
-            .filter_map(|&e| {
-                let (name, m) = mats.get(e).ok()?;
-                team_material(name).then(|| (e, m.0.clone()))
-            })
-            .collect();
+        let team: Vec<(Entity, Handle<StandardMaterial>)> = match tinted {
+            Some(t) if t.id == player.id => continue,
+            Some(t) => t.team.clone(),
+            None => ready
+                .meshes
+                .iter()
+                .filter_map(|&e| {
+                    let (name, m) = mats.get(e).ok()?;
+                    team_material(name).then(|| (e, m.0.clone()))
+                })
+                .collect(),
+        };
         // Wait for the sources: `TintCache` hands back an untinted source until it has loaded.
         if !team
             .iter()
@@ -359,12 +368,15 @@ fn tint_partners(
             continue;
         }
         let tint = Some(slot_tint(&lib.defs.player, player.id));
-        for (e, source) in team {
-            if let Ok((_, mut m)) = mats.get_mut(e) {
-                m.0 = cache.get(&mut materials, &source, Skin::Normal, tint);
+        for (e, source) in &team {
+            if let Ok((_, mut m)) = mats.get_mut(*e) {
+                m.0 = cache.get(&mut materials, source, Skin::Normal, tint);
             }
         }
-        commands.entity(root).insert(Tinted);
+        commands.entity(root).insert(Tinted {
+            id: player.id,
+            team,
+        });
     }
 }
 

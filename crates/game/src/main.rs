@@ -10,8 +10,8 @@ use rr_game::demo::{DemoPlugin, load_script};
 use rr_game::episode::load_episodes;
 use rr_game::menu::text_field::clean_name;
 use rr_game::net::NetStart;
-use rr_net::{MAX_NAME, parse_addr};
-use std::path::PathBuf;
+use rr_net::{MAX_NAME, parse_addr, valid_level_name};
+use std::path::{Path, PathBuf};
 
 const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]] [--partners 1|2|3]\n       [--host | --join ADDRESS] [--name NAME]";
 
@@ -107,8 +107,39 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     if out.net.is_some() && (out.demo.is_some() || out.partners > 0) {
         return Err("--host and --join exclude --demo and --partners".into());
     }
+    if host && let Some(level) = &out.level {
+        out.level = Some(host_level(level)?);
+    }
     out.mute |= out.record.is_some();
     Ok(out)
+}
+
+/// The level a `--host` game advertises: clients load it by file name from their own
+/// `assets/levels/`, so a path is accepted only when it points into that folder.
+fn host_level(level: &str) -> Result<String, String> {
+    if valid_level_name(level) {
+        return Ok(level.into());
+    }
+    let refuse = || {
+        format!(
+            "--host plays a level from assets/levels (a name like test_yard.ron), not {level:?}"
+        )
+    };
+    let path = Path::new(level);
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(refuse)?;
+    let levels = rr_game::paths::assets_dir().join("levels");
+    let in_levels = match (path.canonicalize(), levels.canonicalize()) {
+        (Ok(file), Ok(dir)) => file.parent() == Some(dir.as_path()),
+        _ => false,
+    };
+    if in_levels && valid_level_name(name) {
+        Ok(name.into())
+    } else {
+        Err(refuse())
+    }
 }
 
 fn main() {
@@ -284,6 +315,29 @@ mod tests {
             parse(&["--name", " Ann\u{7} "]).unwrap().name.as_deref(),
             Some("Ann")
         );
+    }
+
+    #[test]
+    fn host_level_must_be_a_level_file_name() {
+        let path = rr_game::paths::assets_dir().join("levels/test_yard.ron");
+        let path = path.to_str().unwrap();
+        // A path into assets/levels is advertised by its file name.
+        assert_eq!(
+            parse(&["--host", path]).unwrap().level.as_deref(),
+            Some("test_yard.ron")
+        );
+        // A single-player run takes the path as given.
+        assert_eq!(parse(&[path]).unwrap().level.as_deref(), Some(path));
+        let outside = std::env::temp_dir().join("test_yard.ron");
+        for bad in [
+            "Test Yard.ron",
+            "test_yard",
+            "../levels/x.ron",
+            "/tmp/nope/x.ron",
+        ] {
+            assert!(parse(&["--host", bad]).is_err(), "{bad}");
+        }
+        assert!(parse(&["--host", outside.to_str().unwrap()]).is_err());
     }
 
     #[test]

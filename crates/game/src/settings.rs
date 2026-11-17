@@ -40,9 +40,15 @@ pub fn default_player_name() -> String {
     name_from(user.ok().as_deref())
 }
 
-/// `user` trimmed and cut to [`rr_net::MAX_NAME`] bytes on a char boundary; "Rex" if empty.
+/// `user` without control characters, trimmed and cut to [`rr_net::MAX_NAME`] bytes on a char
+/// boundary; "Rex" if empty.
 fn name_from(user: Option<&str>) -> String {
-    let user = user.unwrap_or("").trim();
+    let user: String = user
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let user = user.trim();
     let mut end = user.len().min(rr_net::MAX_NAME);
     while !user.is_char_boundary(end) {
         end -= 1;
@@ -374,6 +380,9 @@ mod tests {
         // 23 bytes of ASCII and a 2-byte 'é': the 'é' would end at byte 25.
         let long = format!("{}é", "a".repeat(23));
         assert_eq!(name_from(Some(&long)), "a".repeat(23));
+        // Control characters go (a hand-edited settings file, an odd `$USER`).
+        assert_eq!(name_from(Some("A\u{1b}[2Jnn\n")), "A[2Jnn");
+        assert_eq!(name_from(Some("\u{7}\t")), "Rex");
     }
 
     #[test]

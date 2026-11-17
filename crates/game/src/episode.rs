@@ -123,7 +123,6 @@ impl Episode {
         self.len() == 0
     }
 
-    /// The authored map of level `i`.
     /// The file name of level `i` (the map's own name when test `maps` are set).
     pub fn file(&self, i: usize) -> String {
         match &self.maps {
@@ -132,6 +131,7 @@ impl Episode {
         }
     }
 
+    /// The authored map of level `i`.
     pub fn map(&self, i: usize) -> Map {
         match &self.maps {
             Some(maps) => maps[i].clone(),

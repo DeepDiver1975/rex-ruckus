@@ -754,6 +754,13 @@ fn multiplayer_opens_from_main_and_goes_back() {
     assert_eq!(screen(&app), Some(Screen::Main));
 }
 
+/// The combat room under a level file name, so it can be hosted.
+fn host_map() -> Map {
+    let mut map = combat_room();
+    map.name = "combat_room.ron".into();
+    map
+}
+
 /// Main menu → Multiplayer → Host game → episode → difficulty: the lobby of a hosted game.
 fn host_lobby(app: &mut App) {
     press(app, MenuAction::Multiplayer);
@@ -768,7 +775,7 @@ fn host_lobby(app: &mut App) {
 
 #[test]
 fn hosting_shows_the_lobby_and_leave_returns_to_multiplayer() {
-    let mut app = menu_app(vec![combat_room()]);
+    let mut app = menu_app(vec![host_map()]);
     host_lobby(&mut app);
     assert_eq!(net_mode(&app), NetMode::Host);
     assert_eq!(state(&app), PlayState::Menu);
@@ -779,6 +786,123 @@ fn hosting_shows_the_lobby_and_leave_returns_to_multiplayer() {
     assert_eq!(net_mode(&app), NetMode::Single);
     assert_eq!(screen(&app), Some(Screen::Multiplayer));
     assert!(!app.world().contains_resource::<NetHost>());
+}
+
+/// A level the clients could not load by name is not hosted: the notice says why.
+#[test]
+fn hosting_a_level_without_a_file_name_shows_a_notice() {
+    // "combat room" is no file in assets/levels.
+    let mut app = menu_app(vec![combat_room()]);
+    press(&mut app, MenuAction::Multiplayer);
+    press(&mut app, MenuAction::HostGame);
+    press(&mut app, MenuAction::PickEpisode(0));
+    press(&mut app, MenuAction::PickDifficulty(Difficulty::Hard));
+    app.update();
+    assert_eq!(net_mode(&app), NetMode::Single);
+    assert!(!app.world().contains_resource::<NetHost>());
+    assert_eq!(screen(&app), Some(Screen::NetNotice));
+    let notice = app.world().resource::<NetNotice>().0.clone().unwrap();
+    assert!(notice.contains("cannot be hosted"), "{notice}");
+}
+
+/// A net game never pauses for focus loss: the host clicking into another window must not
+/// freeze the world for the clients.
+#[test]
+fn focus_loss_does_not_pause_a_hosted_game() {
+    let mut app = menu_app(vec![host_map()]);
+    host_lobby(&mut app);
+    press(&mut app, MenuAction::StartGame);
+    assert_eq!(state(&app), PlayState::Playing);
+    let window = app
+        .world_mut()
+        .spawn(Window {
+            focused: true,
+            ..default()
+        })
+        .id();
+    app.add_systems(Update, rr_game::player::pause_on_focus_loss);
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.update();
+    assert_eq!(state(&app), PlayState::Playing);
+    let start = player_pos(&mut app);
+    for _ in 0..30 {
+        let mut q = app
+            .world_mut()
+            .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+        q.single_mut(app.world_mut()).unwrap().forward = 1.0;
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+    assert_ne!(player_pos(&mut app), start, "the world froze");
+    assert_eq!(state(&app), PlayState::Playing);
+}
+
+fn player_count(app: &mut App) -> usize {
+    app.world_mut()
+        .query::<&rr_game::player::Player>()
+        .iter(app.world())
+        .count()
+}
+
+/// Both menu apps in step: a frame and a fixed tick each.
+fn pump_both(host: &mut App, client: &mut App) {
+    for app in [&mut *host, &mut *client] {
+        app.update();
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1));
+}
+
+/// A client waiting in the host's lobby leaves it for the level when the host presses Start.
+#[test]
+fn start_in_the_lobby_takes_the_client_into_the_level() {
+    // A real level file: the client loads the host's level by name from assets/levels.
+    let mut map = rr_game::level::load_map("test_yard.ron");
+    map.name = "test_yard.ron".into();
+    let mut host = menu_app(vec![map]);
+    host_lobby(&mut host);
+    let port = host.world().resource::<NetHost>().host.local_addr().port();
+    let mut client = menu_app(vec![combat_room()]);
+    press(&mut client, MenuAction::Multiplayer);
+    press(&mut client, MenuAction::JoinGame);
+    client.world_mut().resource_mut::<JoinAddress>().0 = format!("127.0.0.1:{port}");
+    press(&mut client, MenuAction::Connect);
+    let seated = |h: &App| h.world().resource::<NetHost>().seats.len() == 1;
+    for _ in 0..300 {
+        pump_both(&mut host, &mut client);
+        if seated(&host) && client.world().resource::<NetClient>().welcomed.is_some() {
+            break;
+        }
+    }
+    assert!(seated(&host), "the client never got a seat");
+    assert_eq!(state(&client), PlayState::Menu);
+    assert_eq!(screen(&client), Some(Screen::Lobby));
+    press(&mut host, MenuAction::StartGame);
+    assert_eq!(state(&host), PlayState::Playing);
+    for _ in 0..300 {
+        pump_both(&mut host, &mut client);
+        if state(&client) == PlayState::Playing && player_count(&mut client) == 2 {
+            break;
+        }
+    }
+    assert_eq!(state(&client), PlayState::Playing);
+    assert_eq!(screen(&client), None, "still in the lobby");
+    assert_eq!(
+        client
+            .world()
+            .resource::<rr_game::level::CurrentMap>()
+            .0
+            .name,
+        "Test Yard"
+    );
+    assert_eq!(
+        client.world().resource::<rr_game::flow::LevelFile>().0,
+        "test_yard.ron"
+    );
+    assert_eq!(player_count(&mut client), 2);
+    assert_eq!(player_count(&mut host), 2);
+    assert_eq!(net_mode(&client), NetMode::Client);
 }
 
 #[test]
@@ -842,7 +966,7 @@ fn a_net_notice_shows_and_ok_returns_to_main() {
 
 #[test]
 fn a_hosted_game_runs_under_the_pause_menu() {
-    let mut app = menu_app(vec![combat_room()]);
+    let mut app = menu_app(vec![host_map()]);
     host_lobby(&mut app);
     press(&mut app, MenuAction::StartGame);
     assert_eq!(state(&app), PlayState::Playing);
@@ -976,10 +1100,7 @@ fn pump(app: &mut App, peer: &mut Peer) {
 
 /// Hosts from the menu, starts the game and seats a raw client that has its first `Load`.
 fn hosted_with_peer() -> (App, Peer) {
-    // A level file name a client accepts in `Welcome` and `Load`.
-    let mut map = combat_room();
-    map.name = "combat_room.ron".into();
-    let mut app = menu_app(vec![map]);
+    let mut app = menu_app(vec![host_map()]);
     host_lobby(&mut app);
     press(&mut app, MenuAction::StartGame);
     let port = app.world().resource::<NetHost>().host.local_addr().port();

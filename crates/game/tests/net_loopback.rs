@@ -19,7 +19,8 @@ use rr_game::level::{CurrentMap, load_map};
 use rr_game::mechanics::{DirtySectors, LevelMechanics, MechanicsSimPlugin, insert_level};
 use rr_game::net::NetMode;
 use rr_game::net::client::{
-    NetClient, NetClientPlugin, NetNotice, client_apply, client_handle, start_joining,
+    NOT_UNDERSTOOD, NetClient, NetClientPlugin, NetNotice, client_apply, client_handle,
+    start_joining,
 };
 use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity, start_hosting};
 use rr_game::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
@@ -388,6 +389,37 @@ fn host_gone_shows_connection_lost() {
         *client.world().resource::<LocalSeat>(),
         LocalSeat(PlayerId(0))
     );
+}
+
+#[test]
+fn undecodable_control_message_ends_the_session() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    {
+        let mut net = host.world_mut().resource_mut::<NetHost>();
+        let key = net.seats[0].client;
+        net.host.send_raw(key, vec![0xff; 40]);
+    }
+    pump_until(&mut host, &mut client, "the notice", |_, c| {
+        notice(c).is_some()
+    });
+    assert_eq!(notice(&client).as_deref(), Some(NOT_UNDERSTOOD));
+    assert_eq!(mode(&client), NetMode::Single);
+    assert!(!client.world().contains_resource::<NetClient>());
+    assert_eq!(player_ids(&mut client), [0]);
+}
+
+#[test]
+fn only_a_level_file_can_be_hosted() {
+    let mut app = idle_client();
+    for bad in ["combat_room", "../x.ron", "Yard.ron"] {
+        app.insert_resource(LevelFile(bad.into()));
+        let err = start_hosting(app.world_mut(), "127.0.0.1:0".parse().unwrap(), "H".into())
+            .expect_err(bad);
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput, "{bad}");
+        assert_eq!(mode(&app), NetMode::Single, "{bad}");
+        assert!(!app.world().contains_resource::<NetHost>(), "{bad}");
+    }
 }
 
 #[test]

@@ -103,6 +103,11 @@ pub struct Load {
 }
 
 /// Whether `name` is a level file name a peer may ask for: 1-64 bytes of `[a-z0-9_]` then `.ron`.
+/// A player name: 1 to [`MAX_NAME`] bytes, no control characters.
+pub fn valid_player_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= MAX_NAME && !name.chars().any(char::is_control)
+}
+
 pub fn valid_level_name(name: &str) -> bool {
     match name.strip_suffix(".ron") {
         Some(stem) => {
@@ -155,6 +160,16 @@ impl Beacon {
     /// Whether this beacon is from a compatible game; readers ignore any other.
     pub fn is_ours(&self) -> bool {
         self.magic == BEACON_MAGIC && self.protocol == PROTOCOL_VERSION
+    }
+
+    /// Ours, and fit for the game list: a player name, a level file name and a player count
+    /// within [`MAX_PLAYERS`].
+    pub fn is_listable(&self) -> bool {
+        self.is_ours()
+            && valid_player_name(&self.name)
+            && valid_level_name(&self.level)
+            && self.players <= self.max
+            && usize::from(self.max) <= MAX_PLAYERS
     }
 }
 
@@ -246,7 +261,7 @@ pub fn check_hello(
     if hello.assets != assets {
         return Err(Refusal::Assets);
     }
-    if hello.name.is_empty() || hello.name.len() > MAX_NAME {
+    if !valid_player_name(&hello.name) {
         return Err(Refusal::BadName);
     }
     if players >= MAX_PLAYERS {
@@ -665,6 +680,14 @@ mod tests {
         assert_eq!(check_hello(&h, "0.2.0", 99, 1), Err(Refusal::BadName));
         h.name = String::new();
         assert_eq!(check_hello(&h, "0.2.0", 99, 1), Err(Refusal::BadName));
+        for bad in ["Rex\n", "\u{1b}[2J", "A\u{7f}"] {
+            h.name = bad.into();
+            assert_eq!(
+                check_hello(&h, "0.2.0", 99, 1),
+                Err(Refusal::BadName),
+                "{bad:?}"
+            );
+        }
         h.name = "x".repeat(24);
         assert_eq!(check_hello(&h, "0.2.0", 99, 1), Ok(()));
         assert_eq!(
@@ -699,5 +722,54 @@ mod tests {
             }
             .is_ours()
         );
+    }
+
+    #[test]
+    fn only_sane_beacons_are_listable() {
+        let b = Beacon {
+            magic: BEACON_MAGIC,
+            protocol: PROTOCOL_VERSION,
+            name: "Rex".into(),
+            level: "undertow.ron".into(),
+            players: 4,
+            max: 4,
+            port: GAME_PORT,
+        };
+        assert!(b.is_listable());
+        let bad = [
+            Beacon {
+                magic: 1,
+                ..b.clone()
+            },
+            Beacon {
+                name: "x".repeat(MAX_NAME + 1),
+                ..b.clone()
+            },
+            Beacon {
+                name: String::new(),
+                ..b.clone()
+            },
+            Beacon {
+                name: "R\nex".into(),
+                ..b.clone()
+            },
+            Beacon {
+                level: "../x.ron".into(),
+                ..b.clone()
+            },
+            Beacon {
+                players: 5,
+                max: 4,
+                ..b.clone()
+            },
+            Beacon {
+                players: 2,
+                max: MAX_PLAYERS as u8 + 1,
+                ..b.clone()
+            },
+        ];
+        for bad in bad {
+            assert!(!bad.is_listable(), "{bad:?}");
+        }
     }
 }

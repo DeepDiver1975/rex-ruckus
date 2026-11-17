@@ -560,6 +560,87 @@ fn partner_visual_holds_the_rex_model() {
     assert_eq!(rigs, [Some(Rig::Player)]);
 }
 
+fn team_color(app: &App, mesh: Entity) -> Color {
+    let h = &app
+        .world()
+        .get::<MeshMaterial3d<StandardMaterial>>(mesh)
+        .unwrap()
+        .0;
+    app.world()
+        .resource::<Assets<StandardMaterial>>()
+        .get(h)
+        .unwrap()
+        .base_color
+}
+
+/// A partner renumbered after a leaver wears its new slot's colour.
+#[test]
+fn partner_tint_follows_a_renumbered_id() {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_asset::<bevy::gltf::Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        ModelsPlugin,
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    let partner = spawn_coop(&mut app, PlayerId(2));
+    app.update();
+    let (root, _) = partner_visuals(&mut app)[0];
+    let model = {
+        let mut q = app.world_mut().query::<(Entity, &ChildOf, &ModelSlot)>();
+        q.iter(app.world())
+            .find(|(_, c, _)| c.parent() == root)
+            .map(|(e, ..)| e)
+            .unwrap()
+    };
+    // No glTF loader here: stand in a loaded scene with one white team mesh.
+    let white = app
+        .world_mut()
+        .resource_mut::<Assets<StandardMaterial>>()
+        .add(StandardMaterial::default());
+    let mesh = app
+        .world_mut()
+        .spawn((
+            bevy::gltf::GltfMaterialName("RexTeamBody".into()),
+            MeshMaterial3d(white),
+        ))
+        .id();
+    app.world_mut().entity_mut(model).insert(ModelReady {
+        meshes: vec![mesh],
+        ..default()
+    });
+    app.update();
+    let tints = app
+        .world()
+        .resource::<ModelLibrary>()
+        .defs
+        .player
+        .slot_tints
+        .clone();
+    let wears = |app: &App, (r, g, b): (f32, f32, f32)| {
+        let c = team_color(app, mesh).to_srgba();
+        [c.red - r, c.green - g, c.blue - b]
+            .iter()
+            .all(|d| d.abs() < 1e-4)
+    };
+    assert!(wears(&app, tints[2]));
+    app.world_mut().get_mut::<Player>(partner).unwrap().id = PlayerId(1);
+    app.update();
+    assert!(wears(&app, tints[1]), "kept the old slot");
+}
+
 #[test]
 fn partner_holds_its_current_gun_in_the_hand() {
     let mut app = App::new();

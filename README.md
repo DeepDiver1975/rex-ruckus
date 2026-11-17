@@ -79,8 +79,10 @@ the pause menu ends your session.
 
 - The game uses UDP port 27960 (play) and 27961 (LAN discovery); allow both through the firewall.
 - Over the internet, join by the host's IP address; the host forwards UDP port 27960.
-- For testing: `--host [LEVEL]` hosts at once, `--join ADDRESS` joins at once, `--name NAME` sets
-  the name for that run only.
+- For testing: `--host [LEVEL]` hosts at once (LEVEL is a file in `assets/levels/`), `--join
+  ADDRESS` joins at once, `--name NAME` sets the name for that run only.
+- Current limits: clients get no sounds or effects yet, and the world pauses for clients while the
+  host is on the death or stats screen.
 
 ## Controls
 

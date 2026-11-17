@@ -10,6 +10,8 @@ use crate::menu::{MenuScreen, Screen};
 
 /// Seconds a LAN game stays listed without a new beacon.
 pub const LAN_TIMEOUT: f32 = 3.0;
+/// Most games the list holds; beacons of further games are ignored until one goes quiet.
+pub const MAX_LAN_GAMES: usize = 8;
 
 /// A game heard on the LAN.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,19 +42,21 @@ pub struct LanGames {
 }
 
 impl LanGames {
-    /// Ages the list by `dt`, takes in `heard` and drops games older than [`LAN_TIMEOUT`].
+    /// Ages the list by `dt`, takes in the listable beacons of `heard` (at most
+    /// [`MAX_LAN_GAMES`] games) and drops games older than [`LAN_TIMEOUT`].
     /// Returns whether the list as shown (addresses and labels) changed.
     pub fn update(&mut self, heard: Vec<(SocketAddr, Beacon)>, dt: f32) -> bool {
         let before: Vec<(SocketAddr, String)> = self.shown();
         for game in &mut self.games {
             game.age += dt;
         }
-        for (addr, beacon) in heard {
-            match self.games.iter_mut().find(|g| g.addr == addr) {
-                Some(game) => {
-                    game.beacon = beacon;
-                    game.age = 0.0;
+        for (addr, beacon) in heard.into_iter().filter(|(_, b)| b.is_listable()) {
+            match self.games.iter().position(|g| g.addr == addr) {
+                Some(i) => {
+                    self.games[i].beacon = beacon;
+                    self.games[i].age = 0.0;
                 }
+                None if self.games.len() >= MAX_LAN_GAMES => {}
                 None => self.games.push(LanGame {
                     addr,
                     beacon,
@@ -133,5 +137,24 @@ mod tests {
         assert!(lan.update(vec![(a, beacon("Ann", 2))], 1.0));
         assert_eq!(lan.games.len(), 1);
         assert_eq!(lan.games[0].addr, a);
+    }
+
+    #[test]
+    fn the_list_takes_sane_beacons_and_at_most_eight_games() {
+        let mut lan = LanGames::default();
+        let mut bad = beacon("Ann", 1);
+        bad.level = "../../x.ron".into();
+        assert!(!lan.update(vec![("10.0.0.2:1".parse().unwrap(), bad)], 0.0));
+        assert!(lan.games.is_empty());
+        let heard = (0..12)
+            .map(|i| (SocketAddr::from(([10, 0, 0, i], 27960)), beacon("Bo", 1)))
+            .collect();
+        lan.update(heard, 0.0);
+        assert_eq!(lan.games.len(), MAX_LAN_GAMES);
+        assert_eq!(MAX_LAN_GAMES, 8);
+        // A listed game still refreshes.
+        let first = lan.games[0].addr;
+        lan.update(vec![(first, beacon("Bo", 2))], 0.0);
+        assert_eq!(lan.games[0].beacon.players, 2);
     }
 }
