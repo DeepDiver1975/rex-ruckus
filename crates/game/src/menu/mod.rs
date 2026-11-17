@@ -155,6 +155,21 @@ pub enum MenuAction {
     Edit(Field),
 }
 
+/// Whether keys are being typed rather than pressed: a rebind waits for its key, or a text field
+/// is being edited. Navigation, pause and the fixed sound keys stay out of the way meanwhile.
+#[derive(SystemParam)]
+pub struct KeysTyped<'w> {
+    capture: Option<Res<'w, Capture>>,
+    editing: Option<Res<'w, Editing>>,
+}
+
+impl KeysTyped<'_> {
+    pub fn active(&self) -> bool {
+        self.capture.as_ref().is_some_and(|c| c.0.is_some())
+            || self.editing.as_ref().is_some_and(|e| e.0.is_some())
+    }
+}
+
 /// The screen being shown, if any.
 #[derive(Resource, Default, Debug, PartialEq, Eq)]
 pub struct MenuScreen(pub Option<Screen>);
@@ -268,7 +283,7 @@ fn keyboard_nav(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<Bindings>,
-    (capture, editing, host_setup): (Res<Capture>, Res<Editing>, Res<HostSetup>),
+    (typed, host_setup): (KeysTyped, Res<HostSetup>),
     state: Res<PlayState>,
     buttons: MenuButtons,
     mut selection: ResMut<MenuSelection>,
@@ -276,8 +291,8 @@ fn keyboard_nav(
     mut screen: ResMut<MenuScreen>,
 ) {
     let Some(current) = screen.0 else { return };
-    // Keys type into a field instead.
-    if capture.0.is_some() || editing.0.is_some() {
+    // Keys go to a rebind or a text field instead.
+    if typed.active() {
         return;
     }
     let items = buttons.list();
@@ -380,7 +395,12 @@ pub fn run_menu_action(world: &mut World) {
                 restart_level(world);
             }
         }
-        MenuAction::QuitToMenu => quit_to_menu(world),
+        MenuAction::QuitToMenu => {
+            // A net game ends first: otherwise the title screen would still be hosting (or
+            // joined), and the host's level-0 reload would send the clients a `Load`.
+            multiplayer::stop_session(world);
+            quit_to_menu(world);
+        }
         MenuAction::QuitGame => {
             world.write_message(AppExit::Success);
         }

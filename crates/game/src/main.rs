@@ -8,6 +8,7 @@ use rr_game::GamePlugin;
 use rr_game::audio::AudioOptions;
 use rr_game::demo::{DemoPlugin, load_script};
 use rr_game::episode::load_episodes;
+use rr_game::menu::text_field::clean_name;
 use rr_game::net::NetStart;
 use rr_net::{MAX_NAME, parse_addr};
 use std::path::PathBuf;
@@ -87,7 +88,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--name" => {
                 let value = args
                     .next()
-                    .filter(|n| !n.is_empty() && n.len() <= MAX_NAME)
+                    .and_then(|n| clean_name(&n))
                     .ok_or(format!("--name needs 1 to {MAX_NAME} bytes"))?;
                 out.name = Some(value);
             }
@@ -273,10 +274,16 @@ mod tests {
             &["--name", ""],
             &["--name", &long],
             &["--name"],
+            &["--name", " \t "],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
         assert!(parse(&["--name", &"x".repeat(24)]).is_ok());
+        // The same filter as the name field: trimmed, control characters dropped.
+        assert_eq!(
+            parse(&["--name", " Ann\u{7} "]).unwrap().name.as_deref(),
+            Some("Ann")
+        );
     }
 
     #[test]

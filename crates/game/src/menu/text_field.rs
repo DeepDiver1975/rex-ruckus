@@ -66,6 +66,13 @@ pub fn push_name(name: &mut String, text: &str) {
     }
 }
 
+/// `text` as a player name: trimmed, control characters dropped; `None` if that leaves nothing or
+/// more than [`MAX_NAME`] bytes (the field never lets it grow past that; `--name` is refused).
+pub fn clean_name(text: &str) -> Option<String> {
+    let name: String = text.trim().chars().filter(|c| !c.is_control()).collect();
+    (!name.is_empty() && name.len() <= MAX_NAME).then_some(name)
+}
+
 /// Appends `text` to an address, keeping hex digits, `.`, `:` and brackets, at most
 /// [`MAX_ADDRESS`] characters.
 pub fn push_address(addr: &mut String, text: &str) {
@@ -116,10 +123,9 @@ fn end_edit(field: Field, settings: Option<&mut Settings>, save: Option<&mut Sav
     if field != Field::Name {
         return;
     }
-    if let Some(settings) = settings
-        && settings.player_name.trim().is_empty()
-    {
-        settings.player_name = default_player_name();
+    if let Some(settings) = settings {
+        settings.player_name =
+            clean_name(&settings.player_name).unwrap_or_else(default_player_name);
     }
     if let Some(save) = save {
         save.0 = true;
@@ -233,6 +239,19 @@ mod tests {
         let mut name = String::new();
         push_name(&mut name, "Zoë\t\n");
         assert_eq!(name, "Zoë");
+    }
+
+    #[test]
+    fn clean_names_are_trimmed_printable_and_capped() {
+        assert_eq!(clean_name("  Ann \t"), Some("Ann".into()));
+        assert_eq!(clean_name("A\u{7}nn"), Some("Ann".into()));
+        assert_eq!(clean_name(" \n "), None);
+        assert_eq!(clean_name(""), None);
+        assert_eq!(
+            clean_name(&"x".repeat(MAX_NAME)),
+            Some("x".repeat(MAX_NAME))
+        );
+        assert_eq!(clean_name(&"x".repeat(MAX_NAME + 1)), None);
     }
 
     #[test]

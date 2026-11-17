@@ -21,7 +21,7 @@ use crate::bindings::{Action, Binding, Bindings};
 use crate::combat::{FxReaders, PlayerInventory, eye_of};
 use crate::flow::{PlayState, SpawnLevel, run_spawn_level};
 use crate::mechanics::HudMessage;
-use crate::menu::Capture;
+use crate::menu::KeysTyped;
 use crate::paths::assets_dir;
 use crate::player::{LocalPlayer, PlayerBody, PlayerCamera, PlayerSimSet, spawn_player};
 use crate::settings::{SaveSettings, Settings};
@@ -433,17 +433,18 @@ fn loop_gain(
 
 /// `M` mutes or unmutes, `[` and `]` step the master volume; each shows on the HUD. The master
 /// goes through [`Settings`] (saved, and shown in the options) when it exists. The keys are
-/// ignored while a rebind captures a key and when the key is bound to a game action.
+/// ignored while keys are typed (a rebind capture or a text field) and when the key is bound to a
+/// game action.
 fn volume_keys(
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Option<Res<Bindings>>,
-    capture: Option<Res<Capture>>,
+    typed: KeysTyped,
     mut settings: Option<ResMut<Settings>>,
     mut save: Option<ResMut<SaveSettings>>,
     mut volumes: ResMut<AudioVolumes>,
     mut msg: ResMut<HudMessage>,
 ) {
-    if capture.is_some_and(|c| c.0.is_some()) {
+    if typed.active() {
         return;
     }
     let taken = |key: KeyCode| {
@@ -538,6 +539,7 @@ fn apply_volumes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::menu::{Capture, Editing, Field};
 
     fn keys_app() -> App {
         let mut app = App::new();
@@ -545,6 +547,7 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<Bindings>()
             .init_resource::<Capture>()
+            .init_resource::<Editing>()
             .init_resource::<Settings>()
             .init_resource::<SaveSettings>()
             .init_resource::<AudioVolumes>()
@@ -593,6 +596,20 @@ mod tests {
             .bind(Action::Jump, Binding::Key(KeyCode::BracketLeft));
         tap(&mut app, KeyCode::BracketLeft);
         assert_eq!(master(&app), 1.0, "bound to Jump");
+    }
+
+    #[test]
+    fn volume_keys_yield_to_a_text_field() {
+        let mut app = keys_app();
+        app.world_mut().resource_mut::<Editing>().0 = Some(Field::Name);
+        tap(&mut app, KeyCode::BracketRight);
+        tap(&mut app, KeyCode::KeyM);
+        assert_eq!(app.world().resource::<Settings>().master, 1.0);
+        assert!(!app.world().resource::<AudioVolumes>().muted);
+        assert!(!app.world().resource::<SaveSettings>().0);
+        app.world_mut().resource_mut::<Editing>().0 = None;
+        tap(&mut app, KeyCode::KeyM);
+        assert!(app.world().resource::<AudioVolumes>().muted);
     }
 
     #[test]

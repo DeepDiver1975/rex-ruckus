@@ -873,41 +873,167 @@ fn a_hosted_game_runs_under_the_pause_menu() {
     assert_eq!(screen(&app), Some(Screen::Main));
 }
 
-/// Types `text` (or presses `code` with no text) as one keyboard message.
+/// Types a key as a window would: the `KeyboardInput` message (with `text`, if any) and the
+/// `ButtonInput<KeyCode>` press, released after the frame.
 fn type_key(app: &mut App, code: KeyCode, text: Option<&str>) {
     use bevy::input::ButtonState;
-    use bevy::input::keyboard::{Key, KeyboardInput};
+    use bevy::input::keyboard::{Key, KeyboardInput, NativeKey};
     app.world_mut().write_message(KeyboardInput {
         key_code: code,
         logical_key: match text {
             Some(t) => Key::Character(t.into()),
-            None => Key::Unidentified(bevy::input::keyboard::NativeKey::Unidentified),
+            None => Key::Unidentified(NativeKey::Unidentified),
         },
         state: ButtonState::Pressed,
         text: text.map(Into::into),
         repeat: false,
         window: Entity::PLACEHOLDER,
     });
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(code);
     app.update();
+    let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+    keys.release(code);
+    keys.clear();
+}
+
+/// Opens the Multiplayer screen and starts editing the name ("Tester").
+fn edit_name(app: &mut App) {
+    press(app, MenuAction::Multiplayer);
+    press(app, MenuAction::Edit(rr_game::menu::Field::Name));
+}
+
+fn editing(app: &App) -> Option<rr_game::menu::Field> {
+    app.world().resource::<rr_game::menu::Editing>().0
 }
 
 #[test]
 fn the_name_field_takes_typed_text_until_enter() {
     let mut app = menu_app(vec![combat_room()]);
-    press(&mut app, MenuAction::Multiplayer);
-    press(&mut app, MenuAction::Edit(rr_game::menu::Field::Name));
-    // The frame editing started in is skipped; W and S type instead of moving the selection.
+    edit_name(&mut app);
+    // The frame editing started in is skipped. W, S and Space type instead of moving the
+    // selection or choosing a button, M instead of muting.
     type_key(&mut app, KeyCode::Backspace, None);
     type_key(&mut app, KeyCode::KeyW, Some("w"));
     type_key(&mut app, KeyCode::KeyS, Some("s"));
-    assert!(texts(&mut app).iter().any(|t| t == "Name: Testews_"));
+    type_key(&mut app, KeyCode::Space, Some(" "));
+    type_key(&mut app, KeyCode::KeyM, Some("m"));
+    assert!(editing(&app).is_some(), "Space chose a button");
+    assert!(texts(&mut app).iter().any(|t| t == "Name: Testews m_"));
     assert_eq!(app.world().resource::<MenuSelection>().0, 0);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer));
     type_key(&mut app, KeyCode::Enter, None);
-    assert_eq!(app.world().resource::<rr_game::menu::Editing>().0, None);
+    assert_eq!(editing(&app), None);
     app.update();
-    assert_eq!(app.world().resource::<Settings>().player_name, "Testews");
+    assert_eq!(app.world().resource::<Settings>().player_name, "Testews m");
     assert_eq!(
         Settings::load_from(&settings_file(&app)).0.player_name,
-        "Testews"
+        "Testews m"
     );
+}
+
+#[test]
+fn esc_ends_an_edit_without_leaving_the_screen() {
+    let mut app = menu_app(vec![combat_room()]);
+    edit_name(&mut app);
+    type_key(&mut app, KeyCode::Space, Some(" "));
+    type_key(&mut app, KeyCode::Escape, None);
+    assert_eq!(editing(&app), None);
+    assert_eq!(screen(&app), Some(Screen::Multiplayer), "Esc went back");
+    assert_eq!(state(&app), PlayState::Menu);
+    // The trailing space is trimmed when the edit ends.
+    assert_eq!(app.world().resource::<Settings>().player_name, "Tester");
+    // The next Esc is plain navigation again.
+    type_key(&mut app, KeyCode::Escape, None);
+    assert_eq!(screen(&app), Some(Screen::Main));
+}
+
+/// A raw co-op client of the menu app's hosted game and every message it received.
+struct Peer {
+    client: rr_net::Client,
+    got: Vec<rr_net::ServerMsg>,
+}
+
+impl Peer {
+    fn loads(&self) -> usize {
+        self.got
+            .iter()
+            .filter(|m| matches!(m, rr_net::ServerMsg::Load(_)))
+            .count()
+    }
+}
+
+/// One frame and one fixed tick of the app, then the peer.
+fn pump(app: &mut App, peer: &mut Peer) {
+    app.update();
+    app.world_mut().run_schedule(FixedUpdate);
+    let msgs = peer.client.update(std::time::Duration::from_millis(16));
+    peer.got.extend(msgs);
+    peer.client.flush();
+    std::thread::sleep(std::time::Duration::from_millis(1));
+}
+
+/// Hosts from the menu, starts the game and seats a raw client that has its first `Load`.
+fn hosted_with_peer() -> (App, Peer) {
+    // A level file name a client accepts in `Welcome` and `Load`.
+    let mut map = combat_room();
+    map.name = "combat_room.ron".into();
+    let mut app = menu_app(vec![map]);
+    host_lobby(&mut app);
+    press(&mut app, MenuAction::StartGame);
+    let port = app.world().resource::<NetHost>().host.local_addr().port();
+    let mut peer = Peer {
+        client: rr_net::Client::connect(([127, 0, 0, 1], port).into()).expect("client"),
+        got: Vec::new(),
+    };
+    let id = app.world().resource::<NetIdentity>().clone();
+    let mut said_hello = false;
+    for _ in 0..300 {
+        pump(&mut app, &mut peer);
+        if !said_hello && peer.client.state() == rr_net::ClientState::Connected {
+            peer.client.send(&rr_net::ClientMsg::Hello(rr_net::Hello {
+                protocol: rr_net::PROTOCOL_VERSION,
+                game_version: id.game_version.clone(),
+                assets: id.assets,
+                name: "Peer".into(),
+            }));
+            peer.client.flush();
+            said_hello = true;
+        }
+        if peer.loads() > 0 {
+            return (app, peer);
+        }
+    }
+    panic!(
+        "the peer never got a Load: {:?} {:?}",
+        peer.client.state(),
+        peer.got
+            .iter()
+            .map(std::mem::discriminant)
+            .collect::<Vec<_>>()
+    );
+}
+
+/// "Main menu" on the stats or episode-end screen ends the hosted game: the title screen is
+/// single-player, and the level-0 reload sends no `Load` to the old clients.
+#[test]
+fn quitting_to_the_menu_ends_a_hosted_game() {
+    for over in [PlayState::Complete, PlayState::EpisodeEnd] {
+        let (mut app, mut peer) = hosted_with_peer();
+        *app.world_mut().resource_mut::<PlayState>() = over;
+        app.update();
+        app.world_mut().resource_mut::<StateAge>().0 = RESTART_DELAY;
+        let loads = peer.loads();
+        press(&mut app, MenuAction::QuitToMenu);
+        assert_eq!(net_mode(&app), NetMode::Single, "{over:?}");
+        assert_eq!(state(&app), PlayState::Menu, "{over:?}");
+        assert_eq!(screen(&app), Some(Screen::Main), "{over:?}");
+        assert!(!app.world().contains_resource::<NetHost>(), "{over:?}");
+        for _ in 0..20 {
+            pump(&mut app, &mut peer);
+        }
+        assert_eq!(peer.loads(), loads, "{over:?}: a Load after the quit");
+        assert_eq!(screen(&app), Some(Screen::Main), "{over:?}");
+    }
 }
