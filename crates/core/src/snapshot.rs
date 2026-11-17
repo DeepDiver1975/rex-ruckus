@@ -92,7 +92,7 @@ impl Snapshot {
         let actors = self
             .actors
             .iter()
-            .all(|a| body(&a.body) && a.angle.is_finite());
+            .all(|a| body(&a.body) && a.angle.is_finite() && a.state.is_finite());
         let shots = self.projectiles.iter().all(|p| {
             v3(p.pos)
                 && v3(p.prev)
@@ -756,6 +756,27 @@ mod tests {
         assert!(!bad.is_finite());
         let mut bad = snap.clone();
         bad.projectiles[0].vel.y = f32::NAN;
+        assert!(!bad.is_finite());
+        let mut bad = snap.clone();
+        bad.actors[0].state = AiState::Pain { t: f32::NAN };
+        assert!(!bad.is_finite());
+        let plan = crate::defs::BurrowDef {
+            every: (1.0, 2.0),
+            first: 1.0,
+            dig: 1.0,
+            under: 1.0,
+            rise: 1.0,
+            spawn: 0,
+        };
+        let mut bad = snap.clone();
+        bad.actors[0].state = AiState::Under { t: 1.0, plan };
+        assert!(bad.is_finite());
+        let mut nan_plan = plan;
+        nan_plan.rise = f32::NAN;
+        bad.actors[0].state = AiState::Burrow {
+            t: 1.0,
+            plan: nan_plan,
+        };
         assert!(!bad.is_finite());
         let mut bad = snap;
         bad.world.movers.push(MoverSnap {

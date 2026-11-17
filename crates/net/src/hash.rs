@@ -16,7 +16,8 @@ fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
 
 /// FNV-1a 64 over `defs/*.ron` and `levels/*.ron` under `assets`, in sorted relative-path
 /// order: each path's bytes, a 0 byte, the file's bytes, a 0 byte. A missing directory
-/// contributes nothing.
+/// contributes nothing. Only top-level `*.ron` files (extension matched case-sensitively) in
+/// `defs/` and `levels/` count; subdirectories and other files are ignored.
 pub fn assets_hash(assets: &Path) -> io::Result<u64> {
     let mut files: Vec<(String, PathBuf)> = Vec::new();
     for dir in ["defs", "levels"] {

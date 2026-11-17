@@ -33,6 +33,16 @@ pub struct InputFrame {
     pub cycle: i8,
 }
 
+impl InputFrame {
+    /// Whether every float is finite.
+    pub fn is_finite(&self) -> bool {
+        self.forward.is_finite()
+            && self.strafe.is_finite()
+            && self.angle.is_finite()
+            && self.pitch.is_finite()
+    }
+}
+
 /// Bit values of [`InputFrame::buttons`].
 pub mod buttons {
     pub const JUMP: u16 = 1;
@@ -78,6 +88,7 @@ pub enum Refusal {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)] // snapshots dominate by design; messages are short-lived
 pub enum ServerMsg {
     Welcome(Welcome),
     Refused(Refusal),
@@ -125,6 +136,17 @@ pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
     let msg: ServerMsg = decode(bytes)?;
     match &msg {
         ServerMsg::Snapshot(s) if !s.is_finite() => Err(NetError::NonFinite),
+        _ => Ok(msg),
+    }
+}
+
+/// [`decode`] for what the host receives: the host uses it for every datagram. An `Input` with a
+/// NaN or infinity is rejected. Clamping `forward`/`strafe` to [-1, 1] and `pitch` to its range
+/// happens where the host applies the input (PR 5), not here.
+pub fn decode_client(bytes: &[u8]) -> Result<ClientMsg, NetError> {
+    let msg: ClientMsg = decode(bytes)?;
+    match &msg {
+        ClientMsg::Input(i) if !i.is_finite() => Err(NetError::NonFinite),
         _ => Ok(msg),
     }
 }
@@ -210,6 +232,7 @@ mod tests {
         let mut map = source.clone();
         let mut mech = Mechanics::new(&mut map);
         let mut combat = Combat::spawn(&map, &defs, level_seed(&map.name));
+        combat.skill = Difficulty::Normal;
         let mut body = Body::spawn(&map, at, 0.35, 1.8).expect("player spot");
         let mut vitals = Vitals::new();
         for _ in 0..ticks {
@@ -232,7 +255,7 @@ mod tests {
         let snaps = (0..players as u8)
             .map(|i| PlayerSnap {
                 id: PlayerId(i),
-                body: body.clone(),
+                body,
                 angle: 0.5 + f32::from(i),
                 pitch: -0.25,
                 vitals: Vitals::new(),
@@ -343,8 +366,35 @@ mod tests {
     }
 
     #[test]
+    fn decode_client_rejects_non_finite_input() {
+        let frame = InputFrame {
+            seq: 1,
+            forward: 1.0,
+            strafe: 0.0,
+            angle: 0.0,
+            pitch: 0.0,
+            buttons: 0,
+            select: None,
+            cycle: 0,
+        };
+        let good = ClientMsg::Input(frame.clone());
+        assert_eq!(decode_client(&encode(&good)).unwrap(), good);
+        let bad = ClientMsg::Input(InputFrame {
+            forward: f32::NAN,
+            ..frame
+        });
+        assert!(matches!(
+            decode_client(&encode(&bad)),
+            Err(NetError::NonFinite)
+        ));
+        let hello = ClientMsg::Hello(hello());
+        assert_eq!(decode_client(&encode(&hello)).unwrap(), hello);
+    }
+
+    #[test]
     fn snapshot_fits_budget() {
         let s = snapshot_of("undertow.ron", Vec2::new(0.0, 0.0), 0, MAX_PLAYERS, 32);
+        assert_eq!(s.actors.len(), 66);
         assert_eq!(s.players.len(), 4);
         assert_eq!(s.projectiles.len(), 32);
         let n = encode(&ServerMsg::Snapshot(s.clone())).len();

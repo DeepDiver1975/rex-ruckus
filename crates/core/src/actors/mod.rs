@@ -62,6 +62,38 @@ pub enum AiState {
     },
 }
 
+impl AiState {
+    /// Whether every float the state carries (timers and move plans) is finite.
+    pub fn is_finite(&self) -> bool {
+        let burrow = |b: &BurrowDef| {
+            b.every.0.is_finite()
+                && b.every.1.is_finite()
+                && b.first.is_finite()
+                && b.dig.is_finite()
+                && b.under.is_finite()
+                && b.rise.is_finite()
+        };
+        match self {
+            AiState::Sleep | AiState::Chase | AiState::Dead => true,
+            AiState::Alert { t }
+            | AiState::Attack { t, .. }
+            | AiState::Pain { t }
+            | AiState::Dying { t }
+            | AiState::Emerge { t } => t.is_finite(),
+            AiState::Burrow { t, plan } | AiState::Under { t, plan } => {
+                t.is_finite() && burrow(plan)
+            }
+            AiState::Pound { t, plan } => {
+                t.is_finite()
+                    && plan.every.is_finite()
+                    && plan.first.is_finite()
+                    && plan.windup.is_finite()
+                    && plan.radius.is_finite()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Actor {
     pub kind: ActorKind,
