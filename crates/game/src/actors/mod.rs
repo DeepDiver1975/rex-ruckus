@@ -26,7 +26,10 @@ pub use projectiles::{
 use crate::combat::{FxQueue, FxReaders, LevelCombat, spawn_combat};
 use crate::coords::{core_angle_to_yaw, to_bevy};
 use crate::flow::{LevelEntity, PlayState, SpawnLevel};
-use crate::models::{Look, ModelLibrary, ModelReady, ModelSlot, TintCache, spawn_model_with};
+use crate::models::{
+    AttachModels, KeepWorldScale, Look, ModelLibrary, ModelReady, ModelSlot, Rig, TintCache,
+    spawn_model_with,
+};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::actors::{Actor, AiState};
@@ -72,14 +75,6 @@ struct ModelLook {
 /// The gun-tip glow sphere of an actor that shoots; `None` until its tip node exists.
 #[derive(Component, Default)]
 struct TipSphere(Option<Entity>);
-
-/// Keeps an entity at a fixed world scale (and its offset in world units) although its parent
-/// sits inside a glTF's scaled armature: the local transform divides out the parent's scale.
-#[derive(Component, Clone, Copy)]
-struct KeepWorldScale {
-    scale: f32,
-    offset: Vec3,
-}
 
 /// Meshes and materials shared by every bolt, spark and tip glow; survives restarts.
 #[derive(Resource, Clone)]
@@ -146,15 +141,9 @@ impl Plugin for ActorVisualsPlugin {
                         .after(flash_tips),
                     (
                         tint_enemies.after(flash_hits),
-                        humanoid::attach_scenes,
-                        attach_tips,
+                        (humanoid::attach_scenes, attach_tips).in_set(AttachModels),
                     )
                         .run_if(resource_exists::<ModelLibrary>),
-                    // After the spawns, so Bevy's sync point applies them and a fresh attachment
-                    // is corrected the same frame.
-                    keep_world_scale
-                        .after(humanoid::attach_scenes)
-                        .after(attach_tips),
                     projectiles::sync_projectiles,
                     projectiles::age_sparks,
                 )
@@ -270,7 +259,7 @@ fn spawn_actor_visual(
     };
     let enemy = lib.enemy(actor.kind);
     let slot = ModelSlot {
-        enemy: Some(actor.kind),
+        rig: Some(Rig::Enemy(actor.kind)),
         no_shadows: false,
     };
     let model = spawn_model_with(commands, root, &enemy.model.scene, &enemy.model.place, slot);
@@ -334,29 +323,6 @@ fn attach_tips(
             offset: Vec3::ZERO,
         });
         sphere.0 = Some(e);
-    }
-}
-
-/// Divides each [`KeepWorldScale`] entity's parent scale out of its local transform. Uses last
-/// frame's propagated parent transform (bone scales do not animate).
-fn keep_world_scale(
-    mut q: Query<(&KeepWorldScale, &ChildOf, &mut Transform)>,
-    globals: Query<&GlobalTransform>,
-) {
-    for (k, parent, mut t) in &mut q {
-        let Ok(g) = globals.get(parent.parent()) else {
-            continue;
-        };
-        let s = g.to_scale_rotation_translation().0;
-        if s.min_element().abs() < 1e-6 {
-            continue;
-        }
-        let want = Transform {
-            translation: k.offset / s,
-            rotation: t.rotation,
-            scale: Vec3::splat(k.scale) / s,
-        };
-        t.set_if_neq(want);
     }
 }
 

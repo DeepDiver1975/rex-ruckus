@@ -3,9 +3,9 @@
 //! [`ModelLibrary`] is loaded once at startup from `assets/defs/models.ron` ([`load_model_defs`]) and survives restarts:
 //! one scene handle per enemy, weapon, item and extra, plus per enemy an [`AnimationGraph`] whose
 //! [`ClipRole`] nodes are resolved by clip name once the enemy's `Gltf` has loaded
-//! ([`build_graphs`]). [`spawn_model`] parents a scene to an entity with its [`Placement`]; when
+//! ([`build_graphs`]); the co-op player model gets one by [`PlayerClip`] the same way. [`spawn_model`] parents a scene to an entity with its [`Placement`]; when
 //! the scene instance is ready, [`on_model_ready`] records the useful entities in [`ModelReady`]
-//! and binds the enemy's graph to its `AnimationPlayer` (here or, if the graph is built later, in
+//! and binds its [`Rig`]'s graph to its `AnimationPlayer` (here or, if the graph is built later, in
 //! [`bind_late_graphs`]). [`TintCache`] hands out per-[`Look`] variants of the glTF materials.
 
 use crate::flow::run_spawn_level;
@@ -17,10 +17,12 @@ use bevy::prelude::*;
 use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use rr_core::defs::WeaponId;
 use rr_core::map::{ActorKind, ItemKind};
-use rr_core::models::{Clips, ItemKindModel, ModelDefs, Placement};
+use rr_core::models::{Clips, ItemKindModel, ModelDefs, Placement, PlayerClips};
 use rr_core::props::PropKind;
+use std::hash::Hash;
 
-/// Loads the model library, builds animation graphs and binds them to spawned enemy models.
+/// Loads the model library, builds animation graphs and binds them to spawned rigged models
+/// (enemies and co-op partners), and keeps bone attachments at their world scale.
 pub struct ModelsPlugin;
 
 impl Plugin for ModelsPlugin {
@@ -33,6 +35,9 @@ impl Plugin for ModelsPlugin {
                     .chain()
                     .run_if(resource_exists::<ModelLibrary>),
             )
+            // After the attaching systems, so Bevy's sync point applies their spawns and a fresh
+            // attachment is corrected the same frame.
+            .add_systems(Update, keep_world_scale.after(AttachModels))
             .add_observer(on_model_ready);
     }
 }
@@ -80,6 +85,51 @@ impl ClipRole {
     }
 }
 
+/// What a partner's model plays; [`PlayerClips`] names the glTF clip of each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PlayerClip {
+    Idle,
+    Walk,
+    Run,
+    Crouch,
+    Attack,
+    Pain,
+    Death,
+}
+
+impl PlayerClip {
+    pub const ALL: [PlayerClip; 7] = [
+        PlayerClip::Idle,
+        PlayerClip::Walk,
+        PlayerClip::Run,
+        PlayerClip::Crouch,
+        PlayerClip::Attack,
+        PlayerClip::Pain,
+        PlayerClip::Death,
+    ];
+
+    /// The glTF clip name for this clip.
+    pub fn name(self, clips: &PlayerClips) -> &str {
+        match self {
+            PlayerClip::Idle => &clips.idle,
+            PlayerClip::Walk => &clips.walk,
+            PlayerClip::Run => &clips.run,
+            PlayerClip::Crouch => &clips.crouch,
+            PlayerClip::Attack => &clips.attack,
+            PlayerClip::Pain => &clips.pain,
+            PlayerClip::Death => &clips.death,
+        }
+    }
+
+    /// Whether the clip plays once (and is restarted by a fresh hurt or shot) instead of looping.
+    pub fn once(self) -> bool {
+        matches!(
+            self,
+            PlayerClip::Attack | PlayerClip::Pain | PlayerClip::Death
+        )
+    }
+}
+
 /// Graph node of each clip role an enemy model has.
 pub type ClipNodes = HashMap<ClipRole, AnimationNodeIndex>;
 
@@ -97,14 +147,20 @@ pub struct AttachScene {
     pub model: ModelScene,
 }
 
-/// An enemy's animation graph and the node (and clip) of each clip role it has.
+/// A rig's animation graph and the node (and clip) of each clip `K` it has.
 #[derive(Clone, Debug)]
-pub struct EnemyGraph {
+pub struct RigGraph<K> {
     pub graph: Handle<AnimationGraph>,
-    pub nodes: ClipNodes,
+    pub nodes: HashMap<K, AnimationNodeIndex>,
     /// The clip behind each node, e.g. to read its duration from `Assets<AnimationClip>`.
-    pub clips: HashMap<ClipRole, Handle<AnimationClip>>,
+    pub clips: HashMap<K, Handle<AnimationClip>>,
 }
+
+/// An enemy's animation graph, by [`ClipRole`].
+pub type EnemyGraph = RigGraph<ClipRole>;
+
+/// The co-op player model's animation graph, by [`PlayerClip`].
+pub type PlayerGraph = RigGraph<PlayerClip>;
 
 /// Everything loaded for one enemy kind.
 #[derive(Clone, Debug)]
@@ -118,6 +174,17 @@ pub struct EnemyAssets {
     pub graph: Option<EnemyGraph>,
 }
 
+/// Everything loaded for the co-op player model (Rex).
+#[derive(Clone, Debug)]
+pub struct PlayerAssets {
+    pub gltf: Handle<Gltf>,
+    pub model: ModelScene,
+    /// Third-person gun scenes by weapon; a weapon without one is an empty hand.
+    pub held: HashMap<WeaponId, ModelScene>,
+    /// `None` until the `Gltf` has loaded and [`build_graphs`] has run.
+    pub graph: Option<PlayerGraph>,
+}
+
 /// Handles of every model in [`ModelDefs`]; built at startup, survives restarts.
 #[derive(Resource)]
 pub struct ModelLibrary {
@@ -128,6 +195,7 @@ pub struct ModelLibrary {
     props: HashMap<PropKind, ModelScene>,
     pub held_bomb: ModelScene,
     pub detonator: ModelScene,
+    pub player: PlayerAssets,
 }
 
 impl ModelLibrary {
@@ -173,7 +241,19 @@ impl ModelLibrary {
             .iter()
             .map(|p| (p.kind, scene(&p.scene, &p.place)))
             .collect();
+        let p = &defs.player;
+        let player = PlayerAssets {
+            gltf: server.load(p.scene.clone()),
+            model: scene(&p.scene, &p.place),
+            held: p
+                .held
+                .iter()
+                .map(|h| (h.id, scene(&h.scene, &h.place)))
+                .collect(),
+            graph: None,
+        };
         ModelLibrary {
+            player,
             held_bomb: scene(&defs.extras.held_bomb.scene, &defs.extras.held_bomb.place),
             detonator: scene(&defs.extras.detonator.scene, &defs.extras.detonator.place),
             enemies,
@@ -215,6 +295,14 @@ impl ModelLibrary {
     pub fn clip_node(&self, kind: ActorKind, role: ClipRole) -> Option<AnimationNodeIndex> {
         self.enemy(kind).graph.as_ref()?.nodes.get(&role).copied()
     }
+
+    /// The animation graph `rig` binds; `None` until it is built.
+    pub fn rig_graph(&self, rig: Rig) -> Option<&Handle<AnimationGraph>> {
+        match rig {
+            Rig::Enemy(kind) => self.enemy(kind).graph.as_ref().map(|g| &g.graph),
+            Rig::Player => self.player.graph.as_ref().map(|g| &g.graph),
+        }
+    }
 }
 
 /// Loads `assets/defs/models.ron`, panicking with the path on failure (the library then
@@ -231,8 +319,9 @@ fn load_library(mut commands: Commands, server: Res<AssetServer>) {
     commands.insert_resource(ModelLibrary::load(load_model_defs(), &server));
 }
 
-/// Builds each enemy's animation graph once its `Gltf` is loaded, resolving clips by name.
-/// Tolerates apps without glTF support (headless tests): the graphs then stay unbuilt.
+/// Builds each enemy's and the player model's animation graph once its `Gltf` is loaded,
+/// resolving clips by name. Tolerates apps without glTF support (headless tests): the graphs then
+/// stay unbuilt.
 pub fn build_graphs(
     mut lib: ResMut<ModelLibrary>,
     gltfs: Option<Res<Assets<Gltf>>>,
@@ -241,7 +330,7 @@ pub fn build_graphs(
     let (Some(gltfs), Some(mut graphs)) = (gltfs, graphs) else {
         return;
     };
-    if lib.enemies.values().all(|e| e.graph.is_some()) {
+    if lib.player.graph.is_some() && lib.enemies.values().all(|e| e.graph.is_some()) {
         return;
     }
     let lib = &mut *lib;
@@ -253,34 +342,59 @@ pub fn build_graphs(
         let Some(gltf) = gltfs.get(&enemy.gltf) else {
             continue;
         };
-        let mut roles = Vec::new();
-        let mut clips = Vec::new();
-        for role in ClipRole::ALL {
-            let Some(name) = role.name(&model.clips) else {
-                continue;
-            };
-            match gltf.named_animations.get(name) {
-                Some(clip) => {
-                    roles.push(role);
-                    clips.push(clip.clone());
-                }
-                None => warn!("{}: no animation clip named {name:?}", model.scene),
-            }
-        }
-        let (graph, nodes) = AnimationGraph::from_clips(clips.iter().cloned());
-        enemy.graph = Some(EnemyGraph {
-            graph: graphs.add(graph),
-            nodes: roles.iter().copied().zip(nodes).collect(),
-            clips: roles.into_iter().zip(clips).collect(),
-        });
+        let named = ClipRole::ALL
+            .into_iter()
+            .filter_map(|role| role.name(&model.clips).map(|n| (role, n)));
+        enemy.graph = Some(rig_graph(gltf, &model.scene, named, &mut graphs));
+    }
+    let player = &mut lib.player;
+    if player.graph.is_none()
+        && let Some(gltf) = gltfs.get(&player.gltf)
+    {
+        let clips = &lib.defs.player.clips;
+        let named = PlayerClip::ALL.into_iter().map(|c| (c, c.name(clips)));
+        player.graph = Some(rig_graph(gltf, &lib.defs.player.scene, named, &mut graphs));
     }
 }
 
-/// Marks a scene spawned by [`spawn_model`]; set `enemy` to have its animation graph bound.
+/// A graph with one node per `named` clip that `gltf` has (warning about missing ones).
+fn rig_graph<'a, K: Copy + Eq + Hash>(
+    gltf: &Gltf,
+    scene: &str,
+    named: impl Iterator<Item = (K, &'a str)>,
+    graphs: &mut Assets<AnimationGraph>,
+) -> RigGraph<K> {
+    let mut keys = Vec::new();
+    let mut clips = Vec::new();
+    for (key, name) in named {
+        match gltf.named_animations.get(name) {
+            Some(clip) => {
+                keys.push(key);
+                clips.push(clip.clone());
+            }
+            None => warn!("{scene}: no animation clip named {name:?}"),
+        }
+    }
+    let (graph, nodes) = AnimationGraph::from_clips(clips.iter().cloned());
+    RigGraph {
+        graph: graphs.add(graph),
+        nodes: keys.iter().copied().zip(nodes).collect(),
+        clips: keys.into_iter().zip(clips).collect(),
+    }
+}
+
+/// Whose animation graph a model binds: an enemy kind's or the co-op player model's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Rig {
+    Enemy(ActorKind),
+    Player,
+}
+
+/// Marks a scene spawned by [`spawn_model`]; set `rig` to have its animation graph bound.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct ModelSlot {
-    /// Bind this enemy kind's animation graph to the scene's `AnimationPlayer`.
-    pub enemy: Option<ActorKind>,
+    /// Bind this rig's animation graph to the scene's `AnimationPlayer`.
+    pub rig: Option<Rig>,
     /// Meshes cast no shadows (the viewmodel).
     pub no_shadows: bool,
 }
@@ -380,15 +494,15 @@ fn on_model_ready(
             ready.nodes.insert(name.as_str().to_owned(), e);
         }
     }
-    if let (Some(kind), Some(player), Some(lib)) = (slot.enemy, ready.player, lib)
-        && let Some(graph) = &lib.enemy(kind).graph
+    if let (Some(rig), Some(player), Some(lib)) = (slot.rig, ready.player, lib)
+        && let Some(graph) = lib.rig_graph(rig)
     {
         bind_graph(&mut commands, player, graph);
     }
     commands.entity(root).insert(ready);
 }
 
-/// Binds graphs to enemy models that became ready before their graph was built.
+/// Binds graphs to rigged models that became ready before their graph was built.
 fn bind_late_graphs(
     mut commands: Commands,
     lib: Res<ModelLibrary>,
@@ -396,20 +510,55 @@ fn bind_late_graphs(
     unbound: Query<(), (With<AnimationPlayer>, Without<AnimationGraphHandle>)>,
 ) {
     for (slot, ready) in &models {
-        if let (Some(kind), Some(player)) = (slot.enemy, ready.player)
+        if let (Some(rig), Some(player)) = (slot.rig, ready.player)
             && unbound.contains(player)
-            && let Some(graph) = &lib.enemy(kind).graph
+            && let Some(graph) = lib.rig_graph(rig)
         {
             bind_graph(&mut commands, player, graph);
         }
     }
 }
 
-fn bind_graph(commands: &mut Commands, player: Entity, graph: &EnemyGraph) {
+fn bind_graph(commands: &mut Commands, player: Entity, graph: &Handle<AnimationGraph>) {
     commands.entity(player).insert((
-        AnimationGraphHandle(graph.graph.clone()),
+        AnimationGraphHandle(graph.clone()),
         AnimationTransitions::new(),
     ));
+}
+
+/// Systems that parent scenes to bones of ready models; [`keep_world_scale`] runs after them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AttachModels;
+
+/// Keeps an entity at a fixed world scale (and its offset in world units) although its parent
+/// sits inside a glTF's scaled armature: the local transform divides out the parent's scale.
+#[derive(Component, Clone, Copy)]
+pub struct KeepWorldScale {
+    pub scale: f32,
+    pub offset: Vec3,
+}
+
+/// Divides each [`KeepWorldScale`] entity's parent scale out of its local transform. Uses last
+/// frame's propagated parent transform (bone scales do not animate).
+pub fn keep_world_scale(
+    mut q: Query<(&KeepWorldScale, &ChildOf, &mut Transform)>,
+    globals: Query<&GlobalTransform>,
+) {
+    for (k, parent, mut t) in &mut q {
+        let Ok(g) = globals.get(parent.parent()) else {
+            continue;
+        };
+        let s = g.to_scale_rotation_translation().0;
+        if s.min_element().abs() < 1e-6 {
+            continue;
+        }
+        let want = Transform {
+            translation: k.offset / s,
+            rotation: t.rotation,
+            scale: Vec3::splat(k.scale) / s,
+        };
+        t.set_if_neq(want);
+    }
 }
 
 /// How an enemy's body is drawn; mirrors the procedural rigs' skins.

@@ -2,7 +2,7 @@
 //! and the camera interpolated between ticks.
 
 use crate::bindings::{Action, Bindings};
-use crate::combat::{PlayerInventory, PlayerVitals, player_loadout};
+use crate::combat::{GameDefs, PlayerInventory, PlayerVitals, player_loadout, spawn_combat};
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, PlayState, SpawnLevel};
 use crate::inventory::use_inventory;
@@ -232,6 +232,12 @@ impl Plugin for PlayerSimPlugin {
             .init_resource::<HudMessage>()
             .add_systems(SpawnLevel, spawn_player)
             .add_systems(
+                SpawnLevel,
+                spawn_dev_partners
+                    .after(spawn_combat)
+                    .run_if(resource_exists::<DevPartners>),
+            )
+            .add_systems(
                 FixedUpdate,
                 (use_inventory.after(use_key), simulate_player)
                     .chain()
@@ -250,6 +256,38 @@ pub fn spawn_player(mut commands: Commands, map: Res<CurrentMap>, tuning: Res<Pl
         player_bundle(&map.0, &tuning.0, PlayerId(0), xy),
         LocalPlayer,
     ));
+}
+
+/// Dev aid (`--partners N`, 1-3): stand-in co-op players 1..=N spawned with every level, restarts
+/// included. They stand still (nothing drives them yet) and exist to look at the partner visuals.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DevPartners(pub u8);
+
+/// The gun each dev partner holds, by id - 1, so several held-gun placements show at once: the
+/// chaingun, the shotgun, and the default loadout's pistol.
+const DEV_PARTNER_GUNS: [WeaponId; 3] = [WeaponId::Chaingun, WeaponId::Shotgun, WeaponId::Pistol];
+
+/// Spawns the [`DevPartners`] in [`SpawnLevel`], after [`spawn_combat`]: `spawn_combat` gives a
+/// loadout to every player that exists when it runs, so a partner spawned earlier would have the
+/// gun chosen here overwritten by the default one.
+pub fn spawn_dev_partners(
+    mut commands: Commands,
+    partners: Res<DevPartners>,
+    map: Res<CurrentMap>,
+    tuning: Res<PlayerTuning>,
+    defs: Res<GameDefs>,
+) {
+    debug_assert!(partners.0 as usize <= DEV_PARTNER_GUNS.len());
+    let default_gun = player_loadout(&defs.0).1.0.current;
+    for (id, &gun) in (1..=partners.0).zip(&DEV_PARTNER_GUNS) {
+        let e = spawn_coop_player(&mut commands, &map.0, &tuning.0, &defs.0, PlayerId(id));
+        // Only a gun that is not the default's needs a replacement arsenal.
+        if gun != default_gun {
+            let mut arsenal = player_loadout(&defs.0).1;
+            arsenal.0.give_weapon(&defs.0, gun);
+            commands.entity(e).insert(arsenal);
+        }
+    }
 }
 
 /// Spawns co-op player `id` (not the local one) at its [`coop_spot`], facing the start angle,

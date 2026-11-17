@@ -8,7 +8,7 @@ use rr_core::actors::Target;
 use rr_core::audio::QuipTrigger;
 use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
-use rr_core::defs::Defs;
+use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
@@ -17,16 +17,19 @@ use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
 use rr_game::audio::combat_quips;
 use rr_game::combat::{
-    CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerInventory, PlayerVitals, clear_fx,
-    insert_defs,
+    CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+    clear_fx, insert_defs,
 };
+use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::models::{ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig};
+use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
-    Inventory, LocalPlayer, LookSettings, PLAYER_RADIUS, PendingInput, Player, PlayerBody,
-    PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
+    DevPartners, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player,
+    PlayerBody, PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
 };
 use rr_game::viewmodel::{ViewState, read_fx};
 
@@ -44,6 +47,7 @@ fn app(map: Map) -> App {
         PlayerSimPlugin,
         MechanicsSimPlugin,
         CombatSimPlugin,
+        PartnersPlugin,
     ));
     app.update();
     app
@@ -451,4 +455,225 @@ fn the_dead_drop_out_of_the_sky_and_toggle_nothing() {
     ticks(&mut app, 1);
     let c = carried(&mut app, PlayerId(1)).0;
     assert!(!c.jetpack_on && !c.nv_on, "{c:?}");
+}
+
+/// Every partner visual root and the player it shows.
+fn partner_visuals(app: &mut App) -> Vec<(Entity, Entity)> {
+    let mut q = app.world_mut().query::<(Entity, &PartnerVisual)>();
+    q.iter(app.world()).map(|(e, v)| (e, v.player)).collect()
+}
+
+#[test]
+fn partner_gets_a_visual_local_does_not() {
+    let mut app = app(combat_room());
+    app.update();
+    assert!(partner_visuals(&mut app).is_empty(), "single player: none");
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    app.update();
+    let shown = partner_visuals(&mut app);
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert_eq!(shown[0].1, player(&mut app, PlayerId(1)));
+}
+
+#[test]
+fn partner_visual_follows_body() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    place(&mut app, PlayerId(1), 6.0, 2.5);
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut().get_mut::<Look>(e).unwrap().angle = 1.0;
+    app.update();
+    let feet = body(&mut app, PlayerId(1)).pos;
+    let (root, _) = partner_visuals(&mut app)[0];
+    let t = *app.world().get::<Transform>(root).unwrap();
+    assert!(
+        t.translation.abs_diff_eq(to_bevy(feet), 1e-4),
+        "{} vs {}",
+        t.translation,
+        to_bevy(feet)
+    );
+    let want = Quat::from_rotation_y(core_angle_to_yaw(1.0));
+    assert!(t.rotation.abs_diff_eq(want, 1e-4), "{:?}", t.rotation);
+}
+
+#[test]
+fn partner_visual_despawns_with_player() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    assert_eq!(partner_visuals(&mut app).len(), 1);
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut().despawn(e);
+    app.update();
+    assert!(partner_visuals(&mut app).is_empty());
+}
+
+#[test]
+fn restart_drops_partner_visuals() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    assert_eq!(partner_visuals(&mut app).len(), 1);
+    kill(&mut app, PlayerId(0));
+    kill(&mut app, PlayerId(1));
+    ticks(&mut app, 70);
+    input(&mut app, PlayerId(0)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    app.update();
+    assert!(partner_visuals(&mut app).is_empty());
+}
+
+#[test]
+fn partner_visual_holds_the_rex_model() {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        // The asset types ModelsPlugin loads (no loaders: loads just fail).
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_asset::<bevy::gltf::Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        ModelsPlugin,
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    let (root, _) = partner_visuals(&mut app)[0];
+    let mut q = app.world_mut().query::<(&ChildOf, &ModelSlot)>();
+    let rigs: Vec<_> = q
+        .iter(app.world())
+        .filter(|(c, _)| c.parent() == root)
+        .map(|(_, s)| s.rig)
+        .collect();
+    assert_eq!(rigs, [Some(Rig::Player)]);
+}
+
+#[test]
+fn partner_holds_its_current_gun_in_the_hand() {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_asset::<bevy::gltf::Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        ModelsPlugin,
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    let e = spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    // No glTF loader: stand in for a ready model with a hand bone.
+    let hand_name = app
+        .world()
+        .resource::<ModelLibrary>()
+        .defs
+        .player
+        .hand
+        .clone();
+    let (root, _) = partner_visuals(&mut app)[0];
+    let model = {
+        let mut q = app.world_mut().query::<(Entity, &ChildOf, &ModelSlot)>();
+        q.iter(app.world())
+            .find(|(_, c, _)| c.parent() == root)
+            .unwrap()
+            .0
+    };
+    let hand = app
+        .world_mut()
+        .spawn((Name::new(hand_name.clone()), ChildOf(model)))
+        .id();
+    app.world_mut().entity_mut(model).insert(ModelReady {
+        player: None,
+        meshes: Vec::new(),
+        nodes: [(hand_name, hand)].into_iter().collect(),
+    });
+    let held = |app: &mut App| {
+        let mut q = app.world_mut().query::<(&ChildOf, &ModelSlot)>();
+        q.iter(app.world())
+            .filter(|(c, _)| c.parent() == hand)
+            .count()
+    };
+    app.world_mut()
+        .get_mut::<PlayerArsenal>(e)
+        .unwrap()
+        .0
+        .current = WeaponId::Chaingun;
+    app.update();
+    assert_eq!(held(&mut app), 1, "a chaingun in the hand");
+    app.world_mut()
+        .get_mut::<PlayerArsenal>(e)
+        .unwrap()
+        .0
+        .current = WeaponId::Boot;
+    app.update();
+    app.update();
+    assert_eq!(held(&mut app), 0, "the boot leaves the hand empty");
+}
+
+/// Every player id, sorted, and how many are the local player.
+fn player_ids(app: &mut App) -> (Vec<u8>, usize) {
+    let mut q = app.world_mut().query::<(&Player, Has<LocalPlayer>)>();
+    let mut ids: Vec<u8> = q.iter(app.world()).map(|(p, _)| p.id.0).collect();
+    ids.sort();
+    let local = q.iter(app.world()).filter(|(_, l)| *l).count();
+    (ids, local)
+}
+
+#[test]
+fn partners_flag_spawns_standing_players() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.insert_resource(DevPartners(2));
+    app.add_plugins((
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    assert_eq!(player_ids(&mut app), (vec![0, 1, 2], 1));
+    // They stand on the floor with a full loadout, apart from each other.
+    for id in [1, 2] {
+        let b = body(&mut app, PlayerId(id));
+        assert!(b.on_ground || b.pos.z.abs() < 0.01, "player {id}: {b:?}");
+        assert!(body(&mut app, PlayerId(0)).pos.distance(b.pos) > 2.0 * PLAYER_RADIUS);
+        assert_eq!(health(&mut app, PlayerId(id)), 100);
+    }
+    // Dev partners show off different guns: 1 the chaingun, 2 the shotgun.
+    ticks(&mut app, 60);
+    for (id, gun) in [(1, WeaponId::Chaingun), (2, WeaponId::Shotgun)] {
+        let e = player(&mut app, PlayerId(id));
+        assert_eq!(app.world().get::<PlayerArsenal>(e).unwrap().0.current, gun);
+    }
+
+    kill(&mut app, PlayerId(0));
+    ticks(&mut app, 70);
+    input(&mut app, PlayerId(0)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    assert_eq!(player_ids(&mut app), (vec![0, 1, 2], 1), "after a restart");
 }

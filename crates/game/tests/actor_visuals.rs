@@ -23,7 +23,9 @@ use rr_game::combat::{CombatSimPlugin, FxQueue, LevelCombat, PlayerVitals, inser
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::fx::{ExplosionFx, ExplosionLight, FxPlugin, ScreenShake};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::models::{ClipRole, EnemyGraph, ModelLibrary, ModelReady, ModelSlot, ModelsPlugin};
+use rr_game::models::{
+    ClipRole, EnemyGraph, ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig,
+};
 use rr_game::player::PlayerCamera;
 use rr_game::player::PlayerSimPlugin;
 use std::time::Duration;
@@ -819,8 +821,8 @@ fn the_queen_spawns_with_her_model_and_plays_her_burrow_clips() {
     );
     let m = model_root(&mut app, 0);
     assert_eq!(
-        app.world().get::<ModelSlot>(m).unwrap().enemy,
-        Some(ActorKind::HiveQueen)
+        app.world().get::<ModelSlot>(m).unwrap().rig,
+        Some(Rig::Enemy(ActorKind::HiveQueen))
     );
     let nodes = fake_ready(&mut app, ActorKind::HiveQueen, &ClipRole::ALL);
     let defs = Defs::builtin();

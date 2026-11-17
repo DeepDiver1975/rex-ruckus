@@ -4,6 +4,7 @@
 
 use crate::defs::WeaponId;
 use crate::map::{ActorKind, ItemKind};
+use crate::players::MAX_PLAYERS;
 use crate::props::PropKind;
 use serde::Deserialize;
 
@@ -232,6 +233,103 @@ pub struct ExtraModels {
     pub detonator: SceneRef,
 }
 
+/// Animation clip names inside the player model's scene; all are required.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PlayerClips {
+    pub idle: String,
+    pub walk: String,
+    pub run: String,
+    /// A looped crouched walk; its pose stays under the crouch height.
+    pub crouch: String,
+    pub attack: String,
+    pub pain: String,
+    pub death: String,
+}
+
+impl PlayerClips {
+    /// `(slot, clip name)` for every clip, in a fixed order.
+    pub fn named(&self) -> [(&'static str, &str); 7] {
+        [
+            ("idle", &self.idle),
+            ("walk", &self.walk),
+            ("run", &self.run),
+            ("crouch", &self.crouch),
+            ("attack", &self.attack),
+            ("pain", &self.pain),
+            ("death", &self.death),
+        ]
+    }
+}
+
+/// A gun as a co-op partner holds it: a scene hung from the player model's hand bone.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct HeldModel {
+    pub id: WeaponId,
+    pub scene: String,
+    /// Relative to the hand bone; scale and offset in world units.
+    #[serde(default)]
+    pub place: Placement,
+}
+
+/// The third-person hero model co-op partners are drawn with.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PlayerModel {
+    pub scene: String,
+    #[serde(default)]
+    pub place: Placement,
+    pub clips: PlayerClips,
+    /// Bone the held gun hangs from.
+    pub hand: String,
+    /// Third-person guns; a weapon without an entry is drawn with an empty hand.
+    #[serde(default)]
+    pub held: Vec<HeldModel>,
+    /// sRGB multiplier per player slot, index = PlayerId; applied to `RexTeam*` materials.
+    pub slot_tints: Vec<(f32, f32, f32)>,
+}
+
+impl PlayerModel {
+    /// The gun drawn in the hand for `id`; `None` means an empty hand.
+    pub fn held(&self, id: WeaponId) -> Option<&HeldModel> {
+        self.held.iter().find(|h| h.id == id)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        self.place.check("player")?;
+        if self.slot_tints.len() != MAX_PLAYERS {
+            return Err(format!(
+                "player: slot_tints has {} entries, expected {MAX_PLAYERS}",
+                self.slot_tints.len()
+            ));
+        }
+        for (i, &t) in self.slot_tints.iter().enumerate() {
+            if !(finite3(t) && [t.0, t.1, t.2].iter().all(|v| (0.0..=1.5).contains(v))) {
+                return Err(format!("player: slot tint {i} must be within 0..=1.5"));
+            }
+        }
+        for w in WeaponId::ALL {
+            let n = self.held.iter().filter(|h| h.id == w).count();
+            match (w, n) {
+                (_, 0) => {}
+                (WeaponId::Boot | WeaponId::PipeBombs, _) => {
+                    return Err(format!(
+                        "player: weapon {w:?} must not have a held model (it is not a gun)"
+                    ));
+                }
+                (_, 1) => {}
+                (_, n) => {
+                    return Err(format!(
+                        "player: weapon {w:?} has {n} held models, expected at most one"
+                    ));
+                }
+            }
+        }
+        for h in &self.held {
+            h.place.check(&format!("player held {:?}", h.id))?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ModelDefs {
     pub enemies: Vec<EnemyModel>,
@@ -241,6 +339,8 @@ pub struct ModelDefs {
     #[serde(default)]
     pub props: Vec<PropModel>,
     pub extras: ExtraModels,
+    /// The hero model co-op partners are drawn with.
+    pub player: PlayerModel,
 }
 
 impl ModelDefs {
@@ -278,7 +378,8 @@ impl ModelDefs {
         self.props.iter().find(|p| p.kind == kind)
     }
 
-    /// Checks coverage (each kind exactly once, no weapon model for the boot or the pipe bombs) and sane numbers.
+    /// Checks coverage (each kind exactly once, no weapon model for the boot or the pipe bombs),
+    /// the player model (a tint per slot, no held boot or pipe bombs) and sane numbers.
     pub fn validate(&self) -> Result<(), String> {
         for k in ActorKind::ALL {
             match self.enemies.iter().filter(|e| e.kind == k).count() {
@@ -363,7 +464,7 @@ impl ModelDefs {
         }
         self.extras.held_bomb.place.check("extras held_bomb")?;
         self.extras.detonator.place.check("extras detonator")?;
-        Ok(())
+        self.player.validate()
     }
 }
 
@@ -483,6 +584,55 @@ mod tests {
         let mut d = ModelDefs::builtin();
         d.extras.detonator.place.yaw_deg = f32::INFINITY;
         assert!(d.validate().unwrap_err().contains("detonator"));
+    }
+
+    #[test]
+    fn builtin_player_model_is_valid() {
+        let d = ModelDefs::builtin();
+        assert_eq!(d.validate(), Ok(()));
+        assert_eq!(d.player.slot_tints.len(), 4);
+        assert_eq!(d.player.hand, "Hand.R");
+    }
+
+    #[test]
+    fn player_needs_four_slot_tints() {
+        let mut d = ModelDefs::builtin();
+        d.player.slot_tints.pop();
+        assert_eq!(
+            d.validate(),
+            Err("player: slot_tints has 3 entries, expected 4".into())
+        );
+        for bad in [f32::NAN, -0.1, 1.6] {
+            let mut d = ModelDefs::builtin();
+            d.player.slot_tints[2].1 = bad;
+            assert!(d.validate().unwrap_err().contains("slot tint 2"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn player_held_rejects_the_boot() {
+        let mut d = ModelDefs::builtin();
+        let mut h = d.player.held[0].clone();
+        h.id = WeaponId::Boot;
+        d.player.held.push(h);
+        assert!(d.validate().unwrap_err().contains("Boot"));
+        let mut d = ModelDefs::builtin();
+        let h = d.player.held[0].clone();
+        d.player.held.push(h);
+        assert!(d.validate().unwrap_err().contains("2 held models"));
+        let mut d = ModelDefs::builtin();
+        d.player.held[0].place.scale = 0.0;
+        assert!(d.validate().unwrap_err().contains("player held"));
+    }
+
+    #[test]
+    fn held_finds_by_id() {
+        let d = ModelDefs::builtin();
+        assert_eq!(
+            d.player.held(WeaponId::Chaingun).map(|h| h.id),
+            Some(WeaponId::Chaingun)
+        );
+        assert!(d.player.held(WeaponId::Boot).is_none());
     }
 
     #[test]

@@ -169,4 +169,29 @@
         held_bomb: (scene: "models/weapons/pipe_bomb.glb", place: (scale: 0.5, offset: (0.0, 0.015, 0.0))), // 0.11 / 0.21
         detonator: (scene: "models/weapons/detonator.glb", place: (scale: 0.05, offset: (-0.09, -0.07, -0.02))), // 0.15 / 2.10
     ),
+    // Co-op partners: Rex, an original model built by scripts/models/rex.py (real size, 1.8 m,
+    // feet at 0). The `RexTeam*` materials (yoke, back panel, thigh panels, armband, shin stripes)
+    // are authored white and multiplied by the partner's slot tint (index = PlayerId).
+    player: (
+        scene: "models/players/rex.glb",
+        place: (scale: 1.0, yaw_deg: 180.0), // glTF faces +Z
+        // Crouch is a looped crouched walk that stays under the 1.1 m crouch height.
+        clips: (idle: "Idle", walk: "Walk", run: "Run", crouch: "Crouch", attack: "Attack", pain: "Pain", death: "Death"),
+        hand: "Hand.R",
+        // Third-person guns hung from Hand.R (scale and offset in world units, rotation relative
+        // to the bone). Hand.R's +y runs down the hand and its -z points forwards at rest, and
+        // the grip sits about 0.05 m down the hand (rex.py `GRIP`). A gun authored barrel-forwards
+        // (+z) and sights-up (+y), like the chaingun, lines up with a 180° pitch; the pistol and
+        // shotgun lie along +x (yaw 90 then pitch 180); the launcher points along -z (roll 180).
+        // Sizes 0.3-0.75 m. Checked in-game (`--partners`): the pistol and shotgun scenes have
+        // their grip near the origin, the launcher's grips sit just ahead of its centre.
+        held: [
+            (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.165, yaw_deg: 90.0, pitch_deg: 180.0, offset: (0.0, 0.05, -0.04))), // 0.3 / 1.82
+            (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.19, yaw_deg: 90.0, pitch_deg: 180.0, offset: (0.0, 0.05, -0.03))), // 0.7 / 3.69
+            (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.9, pitch_deg: 180.0, offset: (0.0, 0.05, -0.01))), // 0.6 / 0.665
+            (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.24, roll_deg: 180.0, offset: (0.0, 0.06, -0.03))), // 0.75 / 3.14
+        ],
+        // Slot tints, sRGB multipliers: orange, blue, green, magenta.
+        slot_tints: [(1.0, 0.55, 0.15), (0.25, 0.55, 1.0), (0.35, 0.85, 0.3), (0.9, 0.3, 0.85)],
+    ),
 )

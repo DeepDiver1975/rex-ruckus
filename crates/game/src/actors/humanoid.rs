@@ -2,9 +2,9 @@
 //! trooper), the Slasher (melee alien) and the bosses, the Warlord and the Hive Queen. Animation and looks are shared with
 //! every enemy (see [`super::anim`]); this module places them and hands the Grunt its pistol.
 
-use super::{ActorModel, ActorVisual, KeepWorldScale, place_walker};
+use super::{ActorModel, ActorVisual, place_walker};
 use crate::combat::LevelCombat;
-use crate::models::{ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
+use crate::models::{KeepWorldScale, ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
 use bevy::prelude::*;
 use rr_core::actors::AiState;
 

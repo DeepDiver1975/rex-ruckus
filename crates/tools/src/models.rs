@@ -126,6 +126,10 @@ fn check_scenes(assets: &Path, defs: &ModelDefs, errors: &mut Vec<String>) -> BT
     }
     refs.push(("extras held_bomb".into(), &defs.extras.held_bomb.scene));
     refs.push(("extras detonator".into(), &defs.extras.detonator.scene));
+    refs.push(("player".into(), &defs.player.scene));
+    for h in &defs.player.held {
+        refs.push((format!("player held {:?}", h.id), &h.scene));
+    }
     let mut referenced = BTreeSet::new();
     for (_, scene) in &refs {
         referenced.insert(scene.to_string());
@@ -173,6 +177,23 @@ fn check_scenes(assets: &Path, defs: &ModelDefs, errors: &mut Vec<String>) -> BT
                     a.bone, e.scene
                 ));
             }
+        }
+    }
+    let p = &defs.player;
+    if let Some(Ok(info)) = cache.get(&p.scene) {
+        for (slot, name) in p.clips.named() {
+            if !info.clips.contains(name) {
+                errors.push(format!(
+                    "clips: player: {slot} clip {name:?} is not in {}",
+                    p.scene
+                ));
+            }
+        }
+        if !info.nodes.contains(&p.hand) {
+            errors.push(format!(
+                "nodes: player: hand bone {:?} is not in {}",
+                p.hand, p.scene
+            ));
         }
     }
     for w in &defs.weapons {
@@ -308,8 +329,14 @@ mod tests {
         write!(models, "scene: \"{f}\", ").unwrap();
     }
 
-    /// Defs using `models/a.gltf` for everything; `tweak` edits the enemy fields.
+    /// Defs using `models/a.gltf` for everything, with the enemies' idle `clip`, `tip` and
+    /// attach `bone`.
     fn defs_ron(clip: &str, tip: &str, bone: &str) -> String {
+        player_defs_ron(clip, tip, bone, "Idle", "Hand")
+    }
+
+    /// [`defs_ron`] plus the player's crouch clip and hand bone.
+    fn player_defs_ron(clip: &str, tip: &str, bone: &str, crouch: &str, hand: &str) -> String {
         let mut s = String::from("(enemies: [");
         for k in ActorKind::ALL {
             s.push_str(&format!("(kind: {k:?}, "));
@@ -332,8 +359,14 @@ mod tests {
             s.push_str(&format!("(kind: {k:?}, scene: \"models/a.gltf\"),"));
         }
         s.push_str(
-            "], extras: (held_bomb: (scene: \"models/a.gltf\"), detonator: (scene: \"models/a.gltf\")))",
+            "], extras: (held_bomb: (scene: \"models/a.gltf\"), detonator: (scene: \"models/a.gltf\")), ",
         );
+        s.push_str(&format!(
+            "player: (scene: \"models/a.gltf\", clips: (idle: \"Idle\", walk: \"Idle\", run: \"Idle\", \
+             crouch: \"{crouch}\", attack: \"Idle\", pain: \"Idle\", death: \"Idle\"), hand: \"{hand}\", \
+             held: [(id: Pistol, scene: \"models/a.gltf\")], \
+             slot_tints: [(1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.0), (1.0, 1.0, 1.0)]))"
+        ));
         s
     }
 
@@ -379,7 +412,9 @@ mod tests {
     #[test]
     fn invalid_defs() {
         let f = good();
-        f.write("defs/models.ron", "(enemies: [], weapons: [], items: [], extras: (held_bomb: (scene: \"a\"), detonator: (scene: \"a\")))");
+        let player = "player: (scene: \"a\", clips: (idle: \"I\", walk: \"I\", run: \"I\", crouch: \"I\", \
+                      attack: \"I\", pain: \"I\", death: \"I\"), hand: \"H\", slot_tints: [])";
+        f.write("defs/models.ron", &format!("(enemies: [], weapons: [], items: [], extras: (held_bomb: (scene: \"a\"), detonator: (scene: \"a\")), {player})"));
         fails_with(&f, "no model");
     }
 
@@ -464,6 +499,49 @@ mod tests {
         f.write("models/a.gltf", &gltf(3 * MAX_TRIANGLES));
         let (report, ok) = f.check();
         assert!(ok, "{report}");
+    }
+
+    #[test]
+    fn player_clip_must_exist() {
+        let f = good();
+        f.write(
+            "defs/models.ron",
+            &player_defs_ron("Idle", "Node(\"Hand\")", "Hand", "Duck", "Hand"),
+        );
+        fails_with(
+            &f,
+            "clips: player: crouch clip \"Duck\" is not in models/a.gltf",
+        );
+    }
+
+    #[test]
+    fn player_hand_must_exist() {
+        let f = good();
+        f.write(
+            "defs/models.ron",
+            &player_defs_ron("Idle", "Node(\"Hand\")", "Hand", "Idle", "Paw"),
+        );
+        fails_with(
+            &f,
+            "nodes: player: hand bone \"Paw\" is not in models/a.gltf",
+        );
+    }
+
+    #[test]
+    fn player_scenes_are_referenced() {
+        let f = good();
+        let defs = player_defs_ron("Idle", "Node(\"Hand\")", "Hand", "Idle", "Hand")
+            .replace(
+                "player: (scene: \"models/a.gltf\"",
+                "player: (scene: \"models/p.gltf\"",
+            )
+            .replace(
+                "(id: Pistol, scene: \"models/a.gltf\")",
+                "(id: Pistol, scene: \"models/g.gltf\")",
+            );
+        f.write("defs/models.ron", &defs);
+        fails_with(&f, "scene: models/p.gltf: cannot read");
+        assert!(f.check().0.contains("scene: models/g.gltf: cannot read"));
     }
 
     #[test]

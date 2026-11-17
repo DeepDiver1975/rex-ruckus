@@ -15,15 +15,15 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | Path | What lives there |
 |---|---|
 | `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting, boss phases and special moves (`actors/special.rs`), automap (`automap.rs`). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
-| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay); `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
+| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals); `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
 | `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
 | `assets/episode.ron` | The episodes in menu order, each with its name and levels in play order (no levels = "coming soon"). |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
 | `assets/icon/` | App icon sources (`rex-ruckus.svg`, `rex-ruckus-small.svg` for 16-32 px) and the built 256 px PNG. |
 | `levels/src/*.ron` | Level sources for `rr-tools build`: sectors as `rect`/`poly` coordinates with ids, named materials, `stairs`; built into `assets/levels/` (never hand-edit a built level). |
 | `assets/levels/*.ron` | Levels (authored doors are open; the game closes them). Built from `levels/src/` for the episode levels; the dev levels (`arsenal_depot`, `combat_arena`, `engine_lab`, …) are hand-written. |
-| `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons, pickups and gag props to models (scale, placement, clip names, muzzles). |
-| `assets/models/` | glTF (`.glb`) for enemies, viewmodel weapons, pickups and gag props (`props/`; a prop kind without a model gets a code-built fallback): original models built from `scripts/models/`, the rest CC0. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
+| `assets/defs/*.ron` | Weapon and enemy stats; `models.ron` maps enemies, viewmodel weapons, pickups, gag props and the co-op player model to models (scale, placement, clip names, muzzles). |
+| `assets/models/` | glTF (`.glb`) for enemies, viewmodel weapons, pickups, gag props (`props/`; a prop kind without a model gets a code-built fallback) and the co-op player Rex (`players/`): original models built from `scripts/models/`, the rest CC0. The boot, kick leg, pipe-bomb fist and switch panels stay code-built. |
 | `assets/demo/*.ron` | Scripted demo runs (`--demo`): one route per episode level, checked by `crates/game/tests/episode_demos.rs`. |
 | `assets/sounds/` | `bank.ron` (event to sound map), `synth.ron` recipes, `synth/` rendered output, `cc0/` curated CC0 recordings. |
 | `assets/music/` | Level music (OGG). |
@@ -50,6 +50,10 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 
 ## Gotchas
 
+- Co-op partners are drawn as Rex (`models.ron` `player`): materials named `RexTeam*` are authored
+  white and tinted per slot (`slot_tints`, exactly `MAX_PLAYERS` entries, index = PlayerId);
+  `partner_clip` ranks Death > Crouch > moving > Pain > Attack > Idle because Rex's Attack and Pain
+  clips are standing poses. `--partners N` (1-3) spawns standing stand-ins for testing.
 - `rr-core`'s `glam` must be the exact version Bevy uses (shared `Vec2`/`Vec3`). Bump it only
   together with Bevy; Dependabot is told to ignore glam minor/major bumps.
 - Keep simulation logic in `rr-core` with unit/property tests; `rr-game` systems should stay
