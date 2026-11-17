@@ -357,6 +357,14 @@ impl Mechanics {
         exit
     }
 
+    /// Player `id` leaves; every player `j > id` becomes `j - 1`, keeping its sector so a
+    /// trigger fires only on a real entry.
+    pub fn remove_player(&mut self, id: PlayerId) {
+        if (id.0 as usize) < self.inside.len() {
+            self.inside.remove(id.0 as usize);
+        }
+    }
+
     /// Elapsed seconds of each authored quake while it runs (map order), for snapshots.
     pub(crate) fn quake_times(&self) -> Vec<Option<f32>> {
         self.quakes.iter().map(|&(_, t)| t).collect()
@@ -1182,6 +1190,25 @@ mod tests {
             Motion::ToStart,
             "toggled twice: reversed mid-travel"
         );
+    }
+
+    #[test]
+    fn remove_player_closes_up_inside() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(2))",
+            "triggers: [(sector: 2, action: Channel(2), once: false)],",
+        ));
+        mech.enter(&map, PlayerId(0), 0);
+        mech.enter(&map, PlayerId(1), 1);
+        mech.enter(&map, PlayerId(2), 2);
+        mech.drain_events();
+        mech.remove_player(PlayerId(1));
+        assert_eq!(mech.inside, vec![Some(0), Some(2)]);
+        mech.enter(&map, PlayerId(1), 2);
+        assert!(mech.drain_events().is_empty(), "staying put is no entry");
+        mech.enter(&map, PlayerId(1), 0);
+        mech.enter(&map, PlayerId(1), 2);
+        assert_eq!(mech.drain_events().len(), 1, "a real entry fires");
     }
 
     #[test]

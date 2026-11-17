@@ -6,7 +6,7 @@ use super::*;
 use crate::actors::{GRUDGE_SECS, SWITCH_RATIO, choose_player};
 use crate::defs::WeaponId;
 use crate::fixtures::{defs, engine_room, pillar_room, two_rooms};
-use crate::hazard::HazardKind;
+use crate::hazard::{HazardClock, HazardKind};
 use crate::map::ActorKind;
 use crate::players::PlayerId;
 use crate::weapons::WeaponEvent;
@@ -523,4 +523,128 @@ fn static_actor_keeps_its_target() {
     ps[1].vitals.damage(10_000);
     tick_all(&mut c, &mut map, &d, &mut ps);
     assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)));
+}
+
+fn rocket(id: u32, owner: Shooter) -> Projectile {
+    Projectile {
+        id,
+        pos: Vec3::new(1.0, 1.0, 1.0),
+        prev: Vec3::new(1.0, 1.0, 1.0),
+        vel: Vec3::ZERO,
+        sector: 0,
+        radius: 0.1,
+        damage: 10,
+        owner,
+        targets: crate::projectile::Targets::Actors,
+        life: 5.0,
+        gravity: 0.0,
+        bounce: None,
+        remote: false,
+        splash: None,
+        resting: false,
+    }
+}
+
+fn three_players_combat(n_actors: usize) -> (Combat, Map, Defs) {
+    let d = defs();
+    let mut map = pillar_room();
+    for i in 0..n_actors {
+        spawn_at(&mut map, 0.5 + i as f32, 8.0, 0.0, true);
+    }
+    (Combat::spawn(&map, &d, 1), map, d)
+}
+
+#[test]
+fn remove_player_drops_the_leavers_projectiles() {
+    let (mut c, _, _) = three_players_combat(0);
+    c.projectiles.push(rocket(0, Shooter::Player(PlayerId(1))));
+    c.projectiles.push(rocket(1, Shooter::Player(PlayerId(2))));
+    c.remove_player(PlayerId(1));
+    assert_eq!(c.projectiles.len(), 1);
+    assert_eq!(c.projectiles[0].owner, Shooter::Player(PlayerId(1)));
+    assert_eq!(c.projectiles[0].id, 1);
+}
+
+#[test]
+fn remove_player_renumbers_targets_and_grudges() {
+    let (mut c, _, _) = three_players_combat(2);
+    c.actors[0].target = Target::Player(PlayerId(1));
+    c.actors[0].grudge = 2.0;
+    c.actors[1].target = Target::Player(PlayerId(2));
+    c.actors[1].grudge = 2.0;
+    c.remove_player(PlayerId(1));
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(0)));
+    assert_eq!(c.actors[0].grudge, 0.0);
+    assert_eq!(c.actors[1].target, Target::Player(PlayerId(1)));
+    assert_eq!(c.actors[1].grudge, 2.0);
+}
+
+#[test]
+fn remove_player_reassigns_pending_blasts() {
+    use crate::combat::blasts::{PendingBlast, Via};
+    use crate::defs::SplashDef;
+    use crate::explosion::Blast;
+    // `Volley::player_damage` is per-volley scratch, so there is no kill credit to renumber.
+    let (mut c, _, _) = three_players_combat(0);
+    for owner in [PlayerId(1), PlayerId(2)] {
+        c.pending_blasts.push(PendingBlast {
+            fuse: 1.0,
+            via: Via::Direct,
+            blast: Blast {
+                center: Vec3::new(1.0, 1.0, 1.0),
+                sector: 0,
+                splash: SplashDef {
+                    radius: 2.0,
+                    damage: 10,
+                    self_scale: 0.5,
+                },
+                owner: Shooter::Player(owner),
+            },
+        });
+    }
+    c.remove_player(PlayerId(1));
+    assert_eq!(c.pending_blasts[0].blast.owner, Shooter::World);
+    assert_eq!(
+        c.pending_blasts[1].blast.owner,
+        Shooter::Player(PlayerId(1))
+    );
+}
+
+#[test]
+fn remove_player_drops_the_hazard_clock() {
+    let (mut c, _, _) = three_players_combat(0);
+    c.hazard = vec![HazardClock::default(); 3];
+    c.hazard[2].tick(
+        Some(crate::hazard::Hazard {
+            damage: 5,
+            interval: 1.0,
+            kind: HazardKind::Burn,
+        }),
+        0.1,
+    );
+    let kept = c.hazard[2];
+    c.remove_player(PlayerId(1));
+    assert_eq!(c.hazard.len(), 2);
+    assert_eq!(c.hazard[1], kept);
+}
+
+#[test]
+fn remove_player_then_tick_with_two_players() {
+    let (mut c, mut map, d) = three_players_combat(2);
+    c.actors[0].target = Target::Player(PlayerId(2));
+    c.projectiles.push(rocket(0, Shooter::Player(PlayerId(2))));
+    let mut ps = [
+        Player::at(&map, 9.5, 8.0),
+        Player::at(&map, 4.5, 8.0),
+        Player::at(&map, 2.5, 9.5),
+    ];
+    tick_all(&mut c, &mut map, &d, &mut ps);
+    c.remove_player(PlayerId(1));
+    let mut ps = [ps[0].body, ps[2].body].map(|b| Player {
+        body: b,
+        vitals: Vitals::new(),
+    });
+    for _ in 0..120 {
+        tick_all(&mut c, &mut map, &d, &mut ps);
+    }
 }
