@@ -233,7 +233,7 @@ fn underground_she_cannot_be_hit_or_touched() {
         dir: Vec3::X,
     };
     let eye = Vec3::new(5.0, 15.0, 1.6);
-    c.player_attack(&mut map, &d, eye, 0, &ev);
+    c.player_attack(&mut map, &d, PlayerId(0), eye, 0, &ev);
     let mut p = tough(&map, 2.0, 2.0);
     for _ in 0..30 {
         p.tick(&mut c, &mut map, &d);
@@ -358,7 +358,7 @@ fn live_minions_are_capped_per_skill() {
         for k in 0..6 {
             let at = Vec2::new(6.0 + 6.0 * (k % 3) as f32, 8.0 + 10.0 * (k / 3) as f32);
             c.actors[0].body.pos = at.extend(0.0);
-            c.spawn_minions(&map, &d, 0, 2, &player, &mut out);
+            c.spawn_minions(&map, &d, 0, 2, std::slice::from_ref(&player), &mut out);
         }
         assert_eq!(c.live_minions(0), cap, "{skill:?}");
         // A dead minion frees one place.
@@ -366,7 +366,7 @@ fn live_minions_are_capped_per_skill() {
         c.damage_actor(&d, m, 1000, Shooter::Player(PlayerId(0)));
         c.actors[0].body.pos = Vec3::new(15.0, 25.0, 0.0);
         let before = c.actors.len();
-        c.spawn_minions(&map, &d, 0, 2, &player, &mut out);
+        c.spawn_minions(&map, &d, 0, 2, std::slice::from_ref(&player), &mut out);
         assert_eq!(c.actors.len(), before + 1, "{skill:?}");
         assert_eq!(c.live_minions(0), cap);
     }

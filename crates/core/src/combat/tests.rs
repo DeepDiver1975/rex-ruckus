@@ -62,7 +62,7 @@ impl Player {
             vitals: &mut self.vitals,
             eye,
         };
-        c.tick(map, mech, d, &mut t, DT)
+        c.tick(map, mech, d, std::slice::from_mut(&mut t), DT)
     }
 
     pub(super) fn shoot(
@@ -74,7 +74,7 @@ impl Player {
         dirs: Vec<Vec3>,
     ) -> Vec<CombatEvent> {
         let ev = WeaponEvent::Fire { weapon, dirs };
-        c.player_attack(map, d, self.eye(), self.body.sector, &ev)
+        c.player_attack(map, d, PlayerId(0), self.eye(), self.body.sector, &ev)
     }
 
     /// Unit direction from the eye to actor `i`'s chest.
@@ -240,7 +240,7 @@ fn kick_hits_only_within_reach() {
     let kick = WeaponEvent::Kick {
         dir: p.aim_at(&c, 0),
     };
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &kick);
     assert!(ev.contains(&CombatEvent::ActorHurt {
         actor: 0,
         amount: 12
@@ -249,11 +249,14 @@ fn kick_hits_only_within_reach() {
     let far = WeaponEvent::Kick {
         dir: p.aim_at(&c, 1),
     };
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &far);
+    let ev = c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &far);
     assert!(ev.is_empty(), "{ev:?}");
     // Non-attack events do nothing.
     for e in [WeaponEvent::DryFire, WeaponEvent::ReloadStart] {
-        assert!(c.player_attack(&mut map, &d, p.eye(), 0, &e).is_empty());
+        assert!(
+            c.player_attack(&mut map, &d, PlayerId(0), p.eye(), 0, &e)
+                .is_empty()
+        );
     }
 }
 
@@ -357,7 +360,14 @@ fn gunfire_wakes_nearby_but_not_behind_closed_door() {
     // A kick is quiet: 4 m does not reach a sleeper 8 m away.
     let mut c = Combat::spawn(&authored, &d, 1);
     let kick = WeaponEvent::Kick { dir: wall };
-    let ev = c.player_attack(&mut authored, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(
+        &mut authored,
+        &d,
+        PlayerId(0),
+        p.eye(),
+        p.body.sector,
+        &kick,
+    );
     assert!(!ev.iter().any(|e| matches!(e, CombatEvent::ActorWoke(_))));
     assert_eq!(
         c.make_noise(&authored, p.eye(), 0, 4.0),

@@ -16,8 +16,8 @@ use crate::map::Map;
 use crate::rng::Rng;
 use glam::Vec2;
 
-/// A burrowing actor comes up at least this far (m) from the player, unless every other point
-/// is closer.
+/// A burrowing actor comes up at least this far (m) from the player it hunts, unless every
+/// other point is closer.
 pub const PLAYER_CLEAR: f32 = 5.0;
 /// An actor that has not come up at a burrow point yet stands on one within this distance (m).
 const AT_POINT: f32 = 1.0;
@@ -143,7 +143,8 @@ fn face(a: &mut Actor, p: &Perception) {
 
 /// The burrow point a burrowed actor comes up at: never the one it went down at (the one it
 /// last came up at, else one it stands on), preferably one at least `PLAYER_CLEAR` from the
-/// player, picked with `rng` among the candidates. `None` with fewer than two points.
+/// player it hunts (`player` is that player's XY), picked with `rng` among the candidates.
+/// `None` with fewer than two points.
 pub fn pick_point(map: &Map, a: &Actor, player: Vec2, rng: &mut Rng) -> Option<usize> {
     let pts = &map.burrow_points;
     if pts.len() < 2 {
@@ -167,8 +168,9 @@ pub fn pick_point(map: &Map, a: &Actor, player: Vec2, rng: &mut Rng) -> Option<u
     Some(pool[k])
 }
 
-/// Moves a burrowed actor to the point `pick_point` chooses, facing the player. It stays where
-/// it went down when there is no point to go to (or the point lies outside every sector).
+/// Moves a burrowed actor to the point `pick_point` chooses for its target `p`, facing it. It
+/// stays where it went down when there is no point to go to (or the point lies outside every
+/// sector).
 fn surface(a: &mut Actor, map: &Map, p: &Perception, rng: &mut Rng) {
     let Some(k) = pick_point(map, a, p.eye.truncate(), rng) else {
         return;

@@ -105,6 +105,7 @@ fn kick_breaks_light_in_reach() {
     let ev = c.player_attack(
         &mut map,
         &d,
+        PlayerId(0),
         p.eye(),
         p.body.sector,
         &crate::weapons::WeaponEvent::Kick { dir: Vec3::X },

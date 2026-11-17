@@ -147,12 +147,65 @@ impl Perception {
 /// different kinds, neither static (barrels never hunt nor are hunted), and the victim is no
 /// boss (a boss only ever hunts the player; others may still turn on it).
 pub fn retargets(victim: &Actor, attacker: &Actor) -> bool {
-    victim.alive()
+    turns_on_attacker(victim)
         && attacker.alive()
         && victim.kind != attacker.kind
-        && victim.locomotion != Locomotion::Static
         && attacker.locomotion != Locomotion::Static
-        && !victim.boss
+}
+
+/// Whether `victim`, just hurt, may turn on whoever hurt it: alive, not static and no boss. An
+/// actor hunting one player turns on another player who shoots it on the same terms.
+pub fn turns_on_attacker(victim: &Actor) -> bool {
+    victim.alive() && victim.locomotion != Locomotion::Static && !victim.boss
+}
+
+/// A visible player must be nearer than this fraction of the current target's distance to take
+/// over as an actor's target, so the target does not flip between players at similar range.
+pub const SWITCH_RATIO: f32 = 0.75;
+
+/// Which player actor `a`, now hunting `current`, hunts this tick; `views[k]` is `PlayerId(k)`.
+/// With one view it is always `PlayerId(0)` (nothing is traced). Otherwise, among the living
+/// players, the visible ones are those `can_see` reaches from the actor's eye:
+/// - `current`, if it exists, lives and is visible, is kept unless a visible one is nearer than
+///   `SWITCH_RATIO` times its distance (then the nearest visible one);
+/// - else the nearest visible one;
+/// - with none visible, `current` if it exists and lives, else the nearest living one;
+/// - with none living, `PlayerId(0)`.
+///
+/// Ties go to the lower id.
+pub fn choose_player(map: &Map, a: &Actor, current: PlayerId, views: &[Perception]) -> PlayerId {
+    if views.len() <= 1 {
+        return PlayerId(0);
+    }
+    let eye = a.eye();
+    let dist = |k: usize| views[k].eye.distance(eye);
+    let nearest = |ks: &[usize]| {
+        ks.iter()
+            .copied()
+            .min_by(|&i, &j| dist(i).total_cmp(&dist(j)))
+    };
+    let id = |k: usize| PlayerId(k as u8);
+    let living: Vec<usize> = (0..views.len()).filter(|&k| views[k].alive).collect();
+    let visible: Vec<usize> = living
+        .iter()
+        .copied()
+        .filter(|&k| crate::trace::can_see(map, eye, a.body.sector, views[k].eye))
+        .collect();
+    let cur = current.0 as usize;
+    let cur_lives = living.contains(&cur);
+    if cur_lives && visible.contains(&cur) {
+        return match nearest(&visible) {
+            Some(k) if dist(k) < SWITCH_RATIO * dist(cur) => id(k),
+            _ => current,
+        };
+    }
+    if let Some(k) = nearest(&visible) {
+        return id(k);
+    }
+    if cur_lives {
+        return current;
+    }
+    nearest(&living).map_or(PlayerId(0), id)
 }
 
 /// How long a chase route stays valid before `next_hop` runs again.

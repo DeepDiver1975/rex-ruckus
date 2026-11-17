@@ -80,7 +80,7 @@ fn kick_breaks_glass() {
     let mut c = Combat::spawn(&map, &d, 1);
     let p = Player::at(&map, 9.2, 5.0);
     let kick = WeaponEvent::Kick { dir: Vec3::X };
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &kick);
     assert_eq!(glass_broken(&ev), vec![(w, vec![0, 1])], "{ev:?}");
 }
 
@@ -96,7 +96,7 @@ fn rocket_breaks_glass_and_explodes_at_it() {
         weapon: WeaponId::Rockets,
         dir: aim,
     };
-    c.player_attack(&mut map, &d, p.eye(), p.body.sector, &ev);
+    c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &ev);
     let mut log = Vec::new();
     for _ in 0..120 {
         log.extend(p.tick(&mut c, &mut map, &d));
@@ -264,7 +264,7 @@ fn rocket_into_sill_does_not_break_pane() {
         weapon: WeaponId::Rockets,
         dir: aim,
     };
-    c.player_attack(&mut map, &d, p.eye(), p.body.sector, &ev);
+    c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &ev);
     let mut log = Vec::new();
     for _ in 0..60 {
         log.extend(p.tick(&mut c, &mut map, &d));

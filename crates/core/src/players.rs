@@ -38,7 +38,10 @@ pub fn body_ref(players: usize, b: usize) -> BodyRef {
 /// The body index of a shooter, if it has one (`World` has none).
 pub fn shooter_body(players: usize, s: Shooter) -> Option<usize> {
     match s {
-        Shooter::Player(p) => Some(p.0 as usize),
+        Shooter::Player(p) => {
+            debug_assert!((p.0 as usize) < players, "{p:?} with {players} players");
+            Some(p.0 as usize)
+        }
         Shooter::Actor(a) => Some(actor_body(players, a)),
         Shooter::World => None,
     }

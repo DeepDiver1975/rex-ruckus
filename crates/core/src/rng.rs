@@ -1,7 +1,7 @@
 //! Tiny deterministic RNG (SplitMix64) for gameplay randomness.
 
 /// SplitMix64: tiny, fast and fully deterministic for a given seed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rng(u64);
 
 impl Rng {

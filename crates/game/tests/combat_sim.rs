@@ -383,7 +383,7 @@ fn pipe_bombs_throw_and_detonate_in_game() {
     ticks(&mut app, 1);
     let combat = &app.world().resource::<LevelCombat>().0;
     assert_eq!(combat.projectiles.len(), 1, "the bomb is in the world");
-    assert_eq!(combat.live_bombs(), 1);
+    assert_eq!(combat.live_bombs(rr_core::players::PlayerId(0)), 1);
     // The last bomb is out: the launcher stays up so it can be set off.
     ticks(&mut app, 90);
     assert_eq!(arsenal(&mut app).0.live_bombs, 1);

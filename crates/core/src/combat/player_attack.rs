@@ -2,12 +2,13 @@
 //! detonation.
 
 use super::blasts::{PendingBlast, Via};
-use super::{Combat, CombatEvent, P0};
+use super::{Combat, CombatEvent};
 use crate::collide::Body;
 use crate::defs::{Attack, Defs, WeaponId};
 use crate::destruct::hits_pane;
 use crate::explosion::Blast;
 use crate::map::{Map, SectorId};
+use crate::players::PlayerId;
 use crate::projectile::{Projectile, Shooter, Targets};
 use crate::trace::{HitKind, Ray, trace};
 use crate::weapons::WeaponEvent;
@@ -17,7 +18,7 @@ use glam::Vec3;
 const THROW_LIFT: f32 = 0.15;
 
 impl Combat {
-    /// Resolves one player weapon event from the eye point `eye` (inside `sector`).
+    /// Resolves one weapon event of player `by` from the eye point `eye` (inside `sector`).
     /// - `Fire` and `Kick` trace their rays against living actors. Damage is summed per actor
     ///   and applied once each, in ascending actor index. Each pellet that hits the world
     ///   reports an `Impact`, except one that hits intact glass: it shatters the pane
@@ -25,8 +26,9 @@ impl Combat {
     ///   A pellet reaching an intact breakable light fixture before anything else breaks it
     ///   (`LightBroken`) and stops there.
     /// - `Launch` spawns the weapon's projectile at the eye (`Targets::All`; the player, its
-    ///   owner, is never hit by it). Thrown projectiles (with gravity) get a slight upward lob.
-    /// - `Detonate` turns every live player remote bomb into a blast (see [`Combat::detonate`]).
+    ///   owner, is never hit by it, nor is any other player). Thrown projectiles (with gravity)
+    ///   get a slight upward lob.
+    /// - `Detonate` turns every live remote bomb of `by` into a blast (see [`Combat::detonate`]).
     ///
     /// Every other event does nothing. After a shot or launch its noise wakes sleepers in
     /// earshot.
@@ -34,6 +36,7 @@ impl Combat {
         &mut self,
         map: &mut Map,
         defs: &Defs,
+        by: PlayerId,
         eye: Vec3,
         sector: SectorId,
         ev: &WeaponEvent,
@@ -50,12 +53,12 @@ impl Combat {
             ),
             WeaponEvent::Launch { weapon, dir } => {
                 let mut out = Vec::new();
-                self.launch(defs, *weapon, eye, sector, *dir);
+                self.launch(defs, by, *weapon, eye, sector, *dir);
                 let woken = self.make_noise(map, eye, sector, defs.weapon(*weapon).noise);
                 out.extend(woken.into_iter().map(CombatEvent::ActorWoke));
                 return out;
             }
-            WeaponEvent::Detonate => return self.detonate(),
+            WeaponEvent::Detonate => return self.detonate(by),
             _ => return Vec::new(),
         };
         let (damage, range, dirs) = match attack {
@@ -66,8 +69,8 @@ impl Combat {
             Attack::Projectile { .. } => return Vec::new(),
         };
 
-        // The actors alone form the bodies slice here, so body `i` is actor `i`; the player
-        // (the shooter) is simply not in it.
+        // The actors alone form the bodies slice here, so body `i` is actor `i`; the players
+        // (the shooter included) are simply not in it.
         let bodies: Vec<Body> = self.actors.iter().map(|a| a.body).collect();
         let mut dealt = vec![0; self.actors.len()];
         let mut out = Vec::new();
@@ -98,7 +101,7 @@ impl Combat {
         }
         for (i, &n) in dealt.iter().enumerate() {
             if n > 0 {
-                out.extend(self.damage_actor(defs, i, n, Shooter::Player(P0)));
+                out.extend(self.damage_actor(defs, i, n, Shooter::Player(by)));
             }
         }
         let woken = self.make_noise(map, eye, sector, noise);
@@ -106,9 +109,17 @@ impl Combat {
         out
     }
 
-    /// Spawns `weapon`'s projectile at `eye`, flying along `dir`. A weapon without a
-    /// projectile attack spawns nothing.
-    fn launch(&mut self, defs: &Defs, weapon: WeaponId, eye: Vec3, sector: SectorId, dir: Vec3) {
+    /// Spawns `weapon`'s projectile, owned by player `by`, at `eye`, flying along `dir`. A weapon
+    /// without a projectile attack spawns nothing.
+    fn launch(
+        &mut self,
+        defs: &Defs,
+        by: PlayerId,
+        weapon: WeaponId,
+        eye: Vec3,
+        sector: SectorId,
+        dir: Vec3,
+    ) {
         let Attack::Projectile { proj: pd } = defs.weapon(weapon).attack else {
             return;
         };
@@ -127,7 +138,7 @@ impl Combat {
             sector,
             radius: pd.radius,
             damage: pd.damage,
-            owner: Shooter::Player(P0),
+            owner: Shooter::Player(by),
             targets: Targets::All,
             life: pd.life,
             gravity: pd.gravity,
@@ -138,14 +149,14 @@ impl Combat {
         });
     }
 
-    /// Every live player remote bomb leaves play and queues its blast (fuse 0, so it goes off
-    /// in this tick's `tick`). Reports `BombsDetonated` once (if any bomb was live) and a
+    /// Every live remote bomb of player `by` leaves play and queues its blast (fuse 0, so it goes
+    /// off in this tick's `tick`). Reports `BombsDetonated` once (if any bomb was live) and a
     /// `ProjectileGone` per bomb; the `Explosion`s follow from `tick`.
-    fn detonate(&mut self) -> Vec<CombatEvent> {
+    fn detonate(&mut self, by: PlayerId) -> Vec<CombatEvent> {
         let mut out = Vec::new();
         let mut blasts = Vec::new();
         self.projectiles.retain(|p| {
-            if !is_player_bomb(p) {
+            if !is_bomb_of(p, by) {
                 return true;
             }
             // A bomb without splash data just fizzles.
@@ -169,17 +180,17 @@ impl Combat {
         out
     }
 
-    /// Pipe bombs the player has in the world. The game copies this into
+    /// Pipe bombs player `by` has in the world. The game copies this into that player's
     /// `Arsenal::live_bombs` right before ticking the arsenal.
-    pub fn live_bombs(&self) -> u32 {
+    pub fn live_bombs(&self, by: PlayerId) -> u32 {
         self.projectiles
             .iter()
-            .filter(|p| is_player_bomb(p))
+            .filter(|p| is_bomb_of(p, by))
             .count() as u32
     }
 }
 
-/// A remote-fused projectile thrown by the player.
-fn is_player_bomb(p: &Projectile) -> bool {
-    p.remote && p.owner == Shooter::Player(P0)
+/// A remote-fused projectile thrown by player `by`.
+fn is_bomb_of(p: &Projectile, by: PlayerId) -> bool {
+    p.remote && p.owner == Shooter::Player(by)
 }
