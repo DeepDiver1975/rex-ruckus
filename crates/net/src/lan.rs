@@ -61,9 +61,12 @@ impl LanListener {
                         out.push((SocketAddr::new(from.ip(), beacon.port), beacon));
                     }
                 }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::ConnectionReset
+                    ) => {}
                 // WouldBlock, or a real error: nothing more now.
-                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
                 Err(_) => break,
             }
         }

@@ -7,11 +7,12 @@ use rr_core::collide::Body;
 use rr_core::combat::{Combat, level_seed};
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
-use rr_core::glam::Vec2;
+use rr_core::glam::{Vec2, Vec3};
 use rr_core::inventory::Inventory;
 use rr_core::map::{KeySet, Map};
 use rr_core::mechanics::Mechanics;
 use rr_core::players::{MAX_PLAYERS, PlayerId};
+use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_core::snapshot::{PlayerSnap, Snapshot};
 use rr_core::vitals::Vitals;
 use rr_core::weapons::Arsenal;
@@ -80,6 +81,26 @@ fn undertow_snapshot() -> ServerMsg {
     let mut combat = Combat::spawn(&map, &defs, level_seed(&map.name));
     combat.skill = Difficulty::Normal;
     let body = Body::spawn(&map, Vec2::new(0.0, 0.0), 0.35, 1.8).expect("player spot");
+    for i in 0..32 {
+        let at = Vec3::new(0.0, 0.0, 1.0);
+        combat.projectiles.push(Projectile {
+            id: 100 + i,
+            pos: at,
+            prev: at,
+            vel: Vec3::X * 20.0,
+            sector: 0,
+            radius: 0.1,
+            damage: 10,
+            owner: Shooter::Actor(0),
+            targets: Targets::Players,
+            life: 5.0,
+            gravity: 0.0,
+            bounce: None,
+            remote: false,
+            splash: None,
+            resting: false,
+        });
+    }
     let players = (0..MAX_PLAYERS as u8)
         .map(|i| PlayerSnap {
             id: PlayerId(i),
@@ -130,6 +151,7 @@ fn snapshots_go_unreliable_and_arrive_whole() {
     let mut client = Client::connect(host.local_addr()).unwrap();
     let key = connected(&mut host, &mut client);
     let snap = undertow_snapshot();
+    assert!(encode(&snap).len() > 1200, "must be sliced");
     // Unreliable: loopback should not drop, but allow a few tries.
     let mut got = None;
     for _ in 0..10 {
@@ -147,7 +169,7 @@ fn snapshots_go_unreliable_and_arrive_whole() {
 }
 
 #[test]
-fn garbage_is_counted_not_fatal() {
+fn junk_udp_is_ignored() {
     let mut host = host();
     let addr = host.local_addr();
     let raw = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -155,10 +177,28 @@ fn garbage_is_counted_not_fatal() {
         raw.send_to(junk, addr).unwrap();
     }
     std::thread::sleep(Duration::from_millis(20));
-    let _ = host.update(STEP);
+    assert!(host.update(STEP).is_empty());
     let mut client = Client::connect(addr).unwrap();
     connected(&mut host, &mut client);
-    assert_eq!(client.garbage(), 0);
+}
+
+#[test]
+fn undecodable_message_is_garbage_not_fatal() {
+    let mut host = host();
+    let mut client = Client::connect(host.local_addr()).unwrap();
+    let key = connected(&mut host, &mut client);
+    client.send_raw(vec![0xff; 40]);
+    client.send(&hello());
+    let (events, _, ok) = pump(&mut host, &mut [&mut client], STEP, |e, _, _| {
+        e.iter()
+            .any(|e| matches!(e, HostEvent::Message(_, ClientMsg::Hello(_))))
+    });
+    assert!(ok);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, HostEvent::Garbage(k) if *k == key))
+    );
 }
 
 #[test]
@@ -179,7 +219,7 @@ fn client_disconnect_is_seen() {
     let mut client = Client::connect(host.local_addr()).unwrap();
     connected(&mut host, &mut client);
     client.disconnect();
-    assert_eq!(client.state(), ClientState::Lost(LostReason::Closed));
+    assert_eq!(client.state(), ClientState::Lost(LostReason::Left));
     let (_, _, ok) = pump(&mut host, &mut [], STEP, |e, _, _| {
         e.iter().any(|e| matches!(e, HostEvent::Disconnected(_)))
     });
@@ -188,12 +228,9 @@ fn client_disconnect_is_seen() {
 
 #[test]
 fn no_host_means_no_answer() {
-    // A port nothing listens on: bind, note the port, drop.
-    let dead: SocketAddr = UdpSocket::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
-    let mut client = Client::connect(dead).unwrap();
+    // Keep the socket bound (so the port cannot be reused) but never read it.
+    let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mut client = Client::connect(silent.local_addr().unwrap()).unwrap();
     let mut idle = host();
     let (_, _, ok) = pump(
         &mut idle,
@@ -203,6 +240,7 @@ fn no_host_means_no_answer() {
     );
     assert!(ok, "never gave up");
     assert_eq!(client.state(), ClientState::Lost(LostReason::NoAnswer));
+    drop(silent);
 }
 
 fn beacon(magic: u32, protocol: u16) -> Beacon {

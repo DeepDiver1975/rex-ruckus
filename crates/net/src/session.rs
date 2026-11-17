@@ -53,23 +53,13 @@ fn since_epoch() -> Duration {
         .unwrap_or_default()
 }
 
+#[derive(Debug)]
 pub enum HostEvent {
     Connected(ClientKey),
     Disconnected(ClientKey),
     Message(ClientKey, ClientMsg),
     /// A datagram `decode_client` rejected; counted and ignored.
     Garbage(ClientKey),
-}
-
-impl fmt::Debug for HostEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            HostEvent::Connected(k) => write!(f, "Connected({k})"),
-            HostEvent::Disconnected(k) => write!(f, "Disconnected({k})"),
-            HostEvent::Message(k, m) => write!(f, "Message({k}, {m:?})"),
-            HostEvent::Garbage(k) => write!(f, "Garbage({k})"),
-        }
-    }
 }
 
 pub struct Host {
@@ -161,6 +151,8 @@ pub enum LostReason {
     TimedOut,
     Denied,
     Closed,
+    /// We disconnected ourselves.
+    Left,
 }
 
 impl fmt::Display for LostReason {
@@ -170,6 +162,7 @@ impl fmt::Display for LostReason {
             LostReason::TimedOut => "Connection lost",
             LostReason::Denied => "The host turned us away",
             LostReason::Closed => "The host closed the game",
+            LostReason::Left => "You left the game",
         })
     }
 }
@@ -242,6 +235,12 @@ impl Client {
         self.conn.send_message(ch, encode(msg));
     }
 
+    /// Send raw bytes on the control channel (tests of the host's garbage handling).
+    #[doc(hidden)]
+    pub fn send_raw(&mut self, bytes: Vec<u8>) {
+        self.conn.send_message(CH_CONTROL, bytes);
+    }
+
     pub fn flush(&mut self) {
         // A failure means the connection is gone; `state` reports it.
         let _ = self.transport.send_packets(&mut self.conn);
@@ -255,8 +254,8 @@ impl Client {
                 | NetcodeDisconnectReason::ConnectionResponseTimedOut => LostReason::NoAnswer,
                 NetcodeDisconnectReason::ConnectionTimedOut => LostReason::TimedOut,
                 NetcodeDisconnectReason::ConnectionDenied => LostReason::Denied,
-                NetcodeDisconnectReason::DisconnectedByClient
-                | NetcodeDisconnectReason::DisconnectedByServer => LostReason::Closed,
+                NetcodeDisconnectReason::DisconnectedByClient => LostReason::Left,
+                NetcodeDisconnectReason::DisconnectedByServer => LostReason::Closed,
             }),
             None if self.conn.is_disconnected() => ClientState::Lost(LostReason::TimedOut),
             None if self.conn.is_connected() => ClientState::Connected,

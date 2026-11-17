@@ -5,8 +5,8 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
-renet = "2.0"
-renet_netcode = "2.0"
+renet = "2.0.1"
+renet_netcode = "2.0.1"
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 rr-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
