@@ -14,6 +14,7 @@ use rr_core::interact::use_target;
 use rr_core::map::{Map, MaterialId, MoverKind, SectorId};
 use rr_core::mechanics::{Mechanics, UseOutcome, UseTarget};
 use rr_core::pickups::{Loadout, apply_pickup};
+use rr_core::players::PlayerId;
 use rr_core::props::PropOutcome;
 use std::collections::BTreeSet;
 
@@ -247,8 +248,8 @@ fn tick_movers(
     let (idx, actors) = combat.0.living_bodies();
     bodies.extend(actors);
     // Entering a trigger sector fires its action (an Exit ends the level).
-    for b in &bodies[..players] {
-        if mech.0.enter(&map.0, b.sector) {
+    for (k, b) in bodies[..players].iter().enumerate() {
+        if mech.0.enter(&map.0, PlayerId(k as u8), b.sector) {
             finish_level(&mut state, &mut msg);
         }
     }

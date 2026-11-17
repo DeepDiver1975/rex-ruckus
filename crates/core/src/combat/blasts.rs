@@ -1,12 +1,13 @@
 //! The explosion queue: rockets, detonated bombs, barrels and scripted blasts all go off through
 //! [`Combat::process_blasts`], one tick at a time.
 
-use super::{BODY_PLAYER, Combat, CombatEvent, PlayerTarget, hurt_player};
+use super::{Combat, CombatEvent, PlayerTarget, hurt_player};
 use crate::collide::Body;
 use crate::defs::{Defs, SplashDef};
 use crate::explosion::{Blast, sectors_in_reach, solve, walls_in_reach};
 use crate::map::Map;
 use crate::mechanics::Mechanics;
+use crate::players::{BodyRef, body_ref};
 use crate::projectile::Shooter;
 use glam::Vec3;
 
@@ -89,7 +90,7 @@ impl Combat {
         map: &mut Map,
         mech: &mut Mechanics,
         defs: &Defs,
-        player: &mut PlayerTarget,
+        players: &mut [PlayerTarget],
         dt: f32,
         out: &mut Vec<CombatEvent>,
     ) {
@@ -101,15 +102,15 @@ impl Combat {
             .partition(|pb| pb.fuse <= 0.0);
         self.pending_blasts = waiting;
         for pb in due {
-            self.apply_blast(map, mech, defs, player, &pb, out);
+            self.apply_blast(map, mech, defs, players, &pb, out);
         }
     }
 
     /// One explosion going off: reports `Explosion`, deals splash once to each body it reaches
-    /// (a body a projectile hit directly included): the player through `Vitals` (reporting
-    /// `PlayerHurt { from: centre }`), living actors through the usual hurt path, so pain,
-    /// kills and barrel chains behave as for any other damage. Then its noise
-    /// (`BLAST_NOISE`) wakes sleepers.
+    /// (a body a projectile hit directly included): each living player through `Vitals`
+    /// (reporting `PlayerHurt { from: centre }`; a player's blast spares the other players),
+    /// living actors through the usual hurt path, so pain, kills and barrel chains behave as for
+    /// any other damage. Then its noise (`BLAST_NOISE`) wakes sleepers.
     ///
     /// World effects of a blast hook in here. Glass it reaches (`walls_in_reach`) shatters
     /// after the splash is dealt and after the crack walls and lights in reach are found, so an
@@ -122,7 +123,7 @@ impl Combat {
         map: &mut Map,
         mech: &mut Mechanics,
         defs: &Defs,
-        player: &mut PlayerTarget,
+        players: &mut [PlayerTarget],
         pb: &PendingBlast,
         out: &mut Vec<CombatEvent>,
     ) {
@@ -131,26 +132,26 @@ impl Combat {
             point: blast.center,
             radius: blast.splash.radius,
         });
-        let mut bodies: Vec<Body> = vec![*player.body];
+        let n = players.len();
+        let mut bodies: Vec<Body> = players.iter().map(|p| *p.body).collect();
         bodies.extend(self.actors.iter().map(|a| a.body));
-        let skip = |i: usize| {
-            if i == BODY_PLAYER {
-                !player.vitals.health.alive()
-            } else {
-                !self.actors[i - 1].targetable()
+        let skip = |i: usize| match body_ref(n, i) {
+            // A player's blast spares the other players (no friendly fire), not its owner.
+            BodyRef::Player(id) => {
+                !players[i].vitals.health.alive()
+                    || matches!(blast.owner, Shooter::Player(o) if o != id)
             }
+            BodyRef::Actor(a) => !self.actors[a].targetable(),
         };
-        for hit in solve(map, blast, &bodies, skip) {
-            if hit.body == BODY_PLAYER {
-                hurt_player(player, hit.damage, self.damage_scale, blast.center, out);
-            } else {
-                out.extend(self.damage_actor_via(
-                    defs,
-                    hit.body - 1,
-                    hit.damage,
-                    blast.owner,
-                    pb.via,
-                ));
+        for hit in solve(map, blast, &bodies, n, skip) {
+            match body_ref(n, hit.body) {
+                BodyRef::Player(id) => {
+                    let player = &mut players[id.0 as usize];
+                    hurt_player(player, id, hit.damage, self.damage_scale, blast.center, out);
+                }
+                BodyRef::Actor(a) => {
+                    out.extend(self.damage_actor_via(defs, a, hit.damage, blast.owner, pb.via));
+                }
             }
         }
         // Everything the blast reaches is found before any pane breaks, so a pane shields what

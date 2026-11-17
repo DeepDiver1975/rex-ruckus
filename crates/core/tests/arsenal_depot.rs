@@ -1,4 +1,5 @@
 use rr_core::map::{ActorKind, ItemKind, Key, Map, MoverKind};
+use rr_core::players::PlayerId;
 use rr_core::validate::{Severity, validate};
 
 const DEPOT: &str = include_str!("../../../assets/levels/arsenal_depot.ron");
@@ -156,7 +157,7 @@ fn arsenal_depot_pipe_bomb_reaches_the_crack() {
             damage: 100,
             self_scale: 1.0,
         },
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
     };
     assert_eq!(
         sectors_in_reach(&map, &blast(Vec3::new(44.5, 9.0, 0.2))),

@@ -10,6 +10,7 @@ use crate::difficulty::Difficulty;
 use crate::geom::closest_point_on_segment;
 use crate::map::{ActorSpawn, Map, SectorId};
 use crate::movement::Tuning;
+use crate::players::PlayerId;
 use crate::projectile::Shooter;
 use crate::trace::can_see;
 use glam::{Vec2, Vec3};
@@ -42,16 +43,17 @@ impl Combat {
         defs: &Defs,
         i: usize,
         m: Move,
-        player: &mut PlayerTarget,
+        players: &mut [PlayerTarget],
         out: &mut Vec<CombatEvent>,
     ) {
         match m {
             Move::Burrowed => out.push(CombatEvent::Burrowed { actor: i }),
             Move::Surfaced { spawn } => {
                 out.push(CombatEvent::Surfaced { actor: i });
-                self.spawn_minions(map, defs, i, spawn, player.body, out);
+                let bodies: Vec<Body> = players.iter().map(|p| *p.body).collect();
+                self.spawn_minions(map, defs, i, spawn, &bodies, out);
             }
-            Move::Pound(plan) => self.ground_pound(map, defs, i, plan, player, out),
+            Move::Pound(plan) => self.ground_pound(map, defs, i, plan, players, out),
         }
     }
 
@@ -64,16 +66,17 @@ impl Combat {
     }
 
     /// Up to `n` awake minions (the def's `minions`) come up beside actor `i`, facing the
-    /// player, as long as its live minions stay within the skill's cap. Each goes on a free
-    /// spot of the same floor that the burrower can see at knee height; spots that do not fit
-    /// are skipped. Reports `ActorSpawned` per minion.
+    /// player it hunts (player 0 while it hunts an actor; `players[k]` is `PlayerId(k)`), as
+    /// long as its live minions stay within the skill's cap. Each goes on a free spot of the
+    /// same floor that the burrower can see at knee height; spots that do not fit are skipped.
+    /// Reports `ActorSpawned` per minion.
     pub(super) fn spawn_minions(
         &mut self,
         map: &Map,
         defs: &Defs,
         i: usize,
         n: u32,
-        player: &Body,
+        players: &[Body],
         out: &mut Vec<CombatEvent>,
     ) {
         let Some(m) = defs.enemy(self.actors[i].kind).minions else {
@@ -86,12 +89,17 @@ impl Combat {
         let (centre, sector) = (q.pos, q.sector);
         let reach = q.radius + def.radius + MINION_GAP;
         let angle = self.actors[i].angle;
+        let hunted = match self.actors[i].target {
+            Target::Player(PlayerId(k)) => players.get(k as usize).unwrap_or(&players[0]),
+            Target::Actor(_) => &players[0],
+        };
+        let face = hunted.pos.truncate();
         for turn in MINION_SIDES {
             if left == 0 {
                 break;
             }
             let at = centre.truncate() + Vec2::from_angle(angle + turn) * reach;
-            let mut bodies = vec![*player];
+            let mut bodies = players.to_vec();
             bodies.extend(
                 self.actors
                     .iter()
@@ -101,7 +109,7 @@ impl Combat {
             if !spot_free(map, centre, sector, at, def.radius, def.height, &bodies) {
                 continue;
             }
-            let to_player = player.pos.truncate() - at;
+            let to_player = face - at;
             let spawn = ActorSpawn {
                 kind: m.kind,
                 pos: at,
@@ -114,25 +122,26 @@ impl Combat {
                 continue;
             };
             a.summoner = Some(i);
-            a.target = Target::Player;
+            a.target = Target::default();
             self.actors.push(a);
             out.push(CombatEvent::ActorSpawned(self.actors.len() - 1));
             left -= 1;
         }
     }
 
-    /// Actor `i` slams the floor (`GroundPound`): every body on the ground (the player and the
-    /// other targetable actors) whose feet are within `POUND_REACH_Z` of its own height, within
-    /// `plan.radius` horizontally and in its line at knee height takes `plan.damage` falling
-    /// off linearly to nothing at the radius. Jumping, jetpacking or flying bodies are not on
-    /// the ground and take none. The player's share goes through the damage scale.
+    /// Actor `i` slams the floor (`GroundPound`): every body on the ground (the living players,
+    /// in id order, and the other targetable actors) whose feet are within `POUND_REACH_Z` of
+    /// its own height, within `plan.radius` horizontally and in its line at knee height takes
+    /// `plan.damage` falling off linearly to nothing at the radius. Jumping, jetpacking or
+    /// flying bodies are not on the ground and take none. The players' share goes through the
+    /// damage scale.
     pub(super) fn ground_pound(
         &mut self,
         map: &Map,
         defs: &Defs,
         i: usize,
         plan: PoundDef,
-        player: &mut PlayerTarget,
+        players: &mut [PlayerTarget],
         out: &mut Vec<CombatEvent>,
     ) {
         let q = &self.actors[i].body;
@@ -143,10 +152,12 @@ impl Combat {
             radius: plan.radius,
         });
         let dealt = |b: &Body| pound_damage(map, centre, sector, plan, b);
-        if player.vitals.health.alive()
-            && let Some(n) = dealt(player.body)
-        {
-            hurt_player(player, n, self.damage_scale, centre, out);
+        for (k, player) in players.iter_mut().enumerate() {
+            if player.vitals.health.alive()
+                && let Some(n) = dealt(player.body)
+            {
+                hurt_player(player, PlayerId(k as u8), n, self.damage_scale, centre, out);
+            }
         }
         let hits: Vec<(usize, i32)> = (0..self.actors.len())
             .filter(|&j| j != i && self.actors[j].targetable())

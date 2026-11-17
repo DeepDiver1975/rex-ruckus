@@ -7,6 +7,7 @@ use crate::explosion::Blast;
 use crate::fixtures::{defs, door_rooms};
 use crate::interact::use_target;
 use crate::mechanics::{Motion, UseOutcome, UseTarget};
+use crate::players::PlayerId;
 use crate::projectile::Shooter;
 
 const BANG: SplashDef = SplashDef {
@@ -27,7 +28,7 @@ fn blast_at(map: &Map, c: Vec3) -> Blast {
         center: c,
         sector: map.find_sector(c.truncate(), None).unwrap(),
         splash: BANG,
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
     }
 }
 

@@ -12,6 +12,7 @@ use crate::defs::{BurrowDef, PoundDef};
 use crate::difficulty::Difficulty;
 use crate::fixtures::defs;
 use crate::map::{ActorKind, ActorSpawn};
+use crate::players::PlayerId;
 use crate::weapons::WeaponEvent;
 use std::f32::consts::PI;
 
@@ -113,9 +114,9 @@ fn damage_changes_phase_at_sixty_and_thirty_percent() {
         })
     };
     // Down to just above 60 %: still phase 0.
-    let ev = c.damage_actor(&d, 0, max * 4 / 10 - 1, Shooter::Player);
+    let ev = c.damage_actor(&d, 0, max * 4 / 10 - 1, Shooter::Player(PlayerId(0)));
     assert_eq!(phase_of(&ev), None);
-    let ev = c.damage_actor(&d, 0, 2, Shooter::Player);
+    let ev = c.damage_actor(&d, 0, 2, Shooter::Player(PlayerId(0)));
     assert_eq!(phase_of(&ev), Some(1));
     let b = burrow_plan(&d);
     assert_eq!(
@@ -123,7 +124,7 @@ fn damage_changes_phase_at_sixty_and_thirty_percent() {
         "the first burrow comes soon"
     );
     let to_thirty = c.actors[0].health.hp - max * 3 / 10 + 1;
-    let ev = c.damage_actor(&d, 0, to_thirty, Shooter::Player);
+    let ev = c.damage_actor(&d, 0, to_thirty, Shooter::Player(PlayerId(0)));
     assert_eq!(phase_of(&ev), Some(2));
     assert_eq!(c.actors[0].pound_in, pound_plan(&d).first);
 }
@@ -215,7 +216,10 @@ fn underground_she_cannot_be_hit_or_touched() {
         "{ev:?}"
     );
     // Direct damage and blasts are ignored too.
-    assert!(c.damage_actor(&d, 0, 50, Shooter::Player).is_empty());
+    assert!(
+        c.damage_actor(&d, 0, 50, Shooter::Player(PlayerId(0)))
+            .is_empty()
+    );
     assert_eq!(c.actors[0].health.hp, hp);
     // No collision: she is out of the movers' bodies and the player walks through her.
     assert!(c.living_bodies().0.is_empty());
@@ -229,7 +233,7 @@ fn underground_she_cannot_be_hit_or_touched() {
         dir: Vec3::X,
     };
     let eye = Vec3::new(5.0, 15.0, 1.6);
-    c.player_attack(&mut map, &d, eye, 0, &ev);
+    c.player_attack(&mut map, &d, PlayerId(0), eye, 0, &ev);
     let mut p = tough(&map, 2.0, 2.0);
     for _ in 0..30 {
         p.tick(&mut c, &mut map, &d);
@@ -354,15 +358,15 @@ fn live_minions_are_capped_per_skill() {
         for k in 0..6 {
             let at = Vec2::new(6.0 + 6.0 * (k % 3) as f32, 8.0 + 10.0 * (k / 3) as f32);
             c.actors[0].body.pos = at.extend(0.0);
-            c.spawn_minions(&map, &d, 0, 2, &player, &mut out);
+            c.spawn_minions(&map, &d, 0, 2, std::slice::from_ref(&player), &mut out);
         }
         assert_eq!(c.live_minions(0), cap, "{skill:?}");
         // A dead minion frees one place.
         let m = c.actors.iter().position(|a| a.summoner == Some(0)).unwrap();
-        c.damage_actor(&d, m, 1000, Shooter::Player);
+        c.damage_actor(&d, m, 1000, Shooter::Player(PlayerId(0)));
         c.actors[0].body.pos = Vec3::new(15.0, 25.0, 0.0);
         let before = c.actors.len();
-        c.spawn_minions(&map, &d, 0, 2, &player, &mut out);
+        c.spawn_minions(&map, &d, 0, 2, std::slice::from_ref(&player), &mut out);
         assert_eq!(c.actors.len(), before + 1, "{skill:?}");
         assert_eq!(c.live_minions(0), cap);
     }
@@ -464,6 +468,7 @@ fn the_pound_spares_a_jumping_player() {
     let full = pound_damage(&map, c.actors[0].body.pos, 0, pound_plan(&d), &p.body).unwrap();
     assert!(
         ev.contains(&CombatEvent::PlayerHurt {
+            player: PlayerId(0),
             amount: ((full as f32) * 0.5).round() as i32,
             from: c.actors[0].body.pos,
         }),
@@ -484,20 +489,20 @@ fn she_never_infights_and_pain_never_breaks_a_burrow() {
     c.damage_actor(&d, 0, 5, Shooter::Actor(1));
     assert_eq!(
         c.actors[0].target,
-        Target::Player,
+        Target::Player(PlayerId(0)),
         "a boss only hunts the player"
     );
     let plan = burrow_plan(&d);
     c.actors[0].state = AiState::Burrow { t: 0.5, plan };
     c.actors[0].pain_ready_in = 0.0;
-    c.damage_actor(&d, 0, 5, Shooter::Player);
+    c.damage_actor(&d, 0, 5, Shooter::Player(PlayerId(0)));
     assert!(
         matches!(c.actors[0].state, AiState::Burrow { .. }),
         "no flinch mid-move"
     );
     // A kill still drops her, whatever the move.
     let hp = c.actors[0].health.hp;
-    c.damage_actor(&d, 0, hp, Shooter::Player);
+    c.damage_actor(&d, 0, hp, Shooter::Player(PlayerId(0)));
     assert!(matches!(c.actors[0].state, AiState::Dying { .. }));
 }
 

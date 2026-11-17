@@ -3,6 +3,7 @@
 use crate::collide::Body;
 use crate::defs::SplashDef;
 use crate::map::{Map, MoverKind, SectorId, WallId};
+use crate::players::shooter_body;
 use crate::projectile::Shooter;
 use crate::trace::{Hit, HitKind, Ray, can_see, trace_world};
 use glam::Vec3;
@@ -36,19 +37,17 @@ fn distance_to_body(p: Vec3, body: &Body) -> f32 {
 /// Splash hits in ascending body order. A body is exposed when the world leaves a clear line
 /// from the centre to its middle or to its head (walls and closed doors block). Damage falls
 /// linearly from `splash.damage` at the cylinder surface to 0 at `splash.radius`; the owner's
-/// own body takes `self_scale` of it. `skip` excludes bodies (e.g. the dead).
+/// own body takes `self_scale` of it. `bodies` is the combat layout `[players.., actors..]`
+/// with `players` player bodies (see `players`). `skip` excludes bodies (e.g. the dead).
 pub fn solve(
     map: &Map,
     blast: &Blast,
     bodies: &[Body],
+    players: usize,
     skip: impl Fn(usize) -> bool,
 ) -> Vec<BlastHit> {
     let s = &blast.splash;
-    let owner = match blast.owner {
-        Shooter::Player => Some(0),
-        Shooter::Actor(a) => Some(a + 1),
-        Shooter::World => None,
-    };
+    let owner = shooter_body(players, blast.owner);
     let mut hits = Vec::new();
     for (i, body) in bodies.iter().enumerate() {
         if skip(i) {
@@ -193,6 +192,7 @@ mod tests {
     use crate::fixtures::{door_rooms, pillar_room};
     use crate::map::Map;
     use crate::mechanics::Mechanics;
+    use crate::players::PlayerId;
     use glam::Vec2;
 
     const SPLASH: SplashDef = SplashDef {
@@ -219,7 +219,7 @@ mod tests {
         let map = pillar_room();
         let b = blast(&map, Vec3::new(2.0, 5.0, 1.0), Shooter::Actor(5));
         let bodies = [body(&map, 8.0, 5.0), body(&map, 2.0, 8.0)];
-        let hits = solve(&map, &b, &bodies, |_| false);
+        let hits = solve(&map, &b, &bodies, 1, |_| false);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].body, 1);
     }
@@ -230,10 +230,10 @@ mod tests {
         let c = Vec3::new(2.0, 2.0, 1.0);
         let bodies = [body(&map, 6.0, 2.0)];
         let b = blast(&map, c, Shooter::Actor(5));
-        assert_eq!(solve(&map, &b, &bodies, |_| false).len(), 1, "open door");
+        assert_eq!(solve(&map, &b, &bodies, 1, |_| false).len(), 1, "open door");
         Mechanics::new(&mut map);
         assert!(
-            solve(&map, &b, &bodies, |_| false).is_empty(),
+            solve(&map, &b, &bodies, 1, |_| false).is_empty(),
             "closed door"
         );
     }
@@ -246,23 +246,31 @@ mod tests {
             .min()
             .unwrap();
         // In view and in range, from either side of the pane.
-        let b = blast(&map, Vec3::new(8.0, 5.0, 1.0), Shooter::Player);
+        let b = blast(&map, Vec3::new(8.0, 5.0, 1.0), Shooter::Player(PlayerId(0)));
         assert_eq!(walls_in_reach(&map, &b), vec![pane]);
-        let b = blast(&map, Vec3::new(13.0, 4.5, 2.5), Shooter::Player);
+        let b = blast(
+            &map,
+            Vec3::new(13.0, 4.5, 2.5),
+            Shooter::Player(PlayerId(0)),
+        );
         assert_eq!(walls_in_reach(&map, &b), vec![pane]);
         // Off to the side of the pane: the nearest point of its opening is its corner.
-        let b = blast(&map, Vec3::new(9.0, 9.0, 3.5), Shooter::Player);
+        let b = blast(&map, Vec3::new(9.0, 9.0, 3.5), Shooter::Player(PlayerId(0)));
         assert_eq!(walls_in_reach(&map, &b), vec![pane]);
         // Out of range.
-        let mut b = blast(&map, Vec3::new(8.0, 5.0, 1.0), Shooter::Player);
+        let mut b = blast(&map, Vec3::new(8.0, 5.0, 1.0), Shooter::Player(PlayerId(0)));
         b.splash.radius = 1.5;
         assert!(walls_in_reach(&map, &b).is_empty());
         // In range, but the pillar stands between the blast and the pane.
-        let b = blast(&map, Vec3::new(2.0, 5.0, 1.0), Shooter::Player);
+        let b = blast(&map, Vec3::new(2.0, 5.0, 1.0), Shooter::Player(PlayerId(0)));
         assert!(walls_in_reach(&map, &b).is_empty());
         // Panes only: an ordinary room has nothing to shatter.
         let room = pillar_room();
-        let b = blast(&room, Vec3::new(1.0, 1.0, 1.0), Shooter::Player);
+        let b = blast(
+            &room,
+            Vec3::new(1.0, 1.0, 1.0),
+            Shooter::Player(PlayerId(0)),
+        );
         assert!(walls_in_reach(&room, &b).is_empty());
     }
 
@@ -271,22 +279,30 @@ mod tests {
         let mut map = door_rooms("(kind: Crack)", "");
         Mechanics::new(&mut map);
         // In range from room A (the crack is x in [4,4.5]) and from room B.
-        let b = blast(&map, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        let b = blast(&map, Vec3::new(2.0, 2.0, 1.0), Shooter::Player(PlayerId(0)));
         assert_eq!(sectors_in_reach(&map, &b), vec![1]);
-        let b = blast(&map, Vec3::new(6.0, 1.0, 2.5), Shooter::Player);
+        let b = blast(&map, Vec3::new(6.0, 1.0, 2.5), Shooter::Player(PlayerId(0)));
         assert_eq!(sectors_in_reach(&map, &b), vec![1]);
         // Out of range.
-        let mut b = blast(&map, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        let mut b = blast(&map, Vec3::new(2.0, 2.0, 1.0), Shooter::Player(PlayerId(0)));
         b.splash.radius = 1.5;
         assert!(sectors_in_reach(&map, &b).is_empty());
         // Ordinary doors are no cracks.
         let mut doors = door_rooms("(kind: Door)", "");
         Mechanics::new(&mut doors);
-        let b = blast(&doors, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        let b = blast(
+            &doors,
+            Vec3::new(2.0, 2.0, 1.0),
+            Shooter::Player(PlayerId(0)),
+        );
         assert!(sectors_in_reach(&doors, &b).is_empty());
         // A crack that is already open is not reached again.
         let mut open = door_rooms("(kind: Crack)", "");
-        let b = blast(&open, Vec3::new(2.0, 2.0, 1.0), Shooter::Player);
+        let b = blast(
+            &open,
+            Vec3::new(2.0, 2.0, 1.0),
+            Shooter::Player(PlayerId(0)),
+        );
         assert!(sectors_in_reach(&open, &b).is_empty());
         open.sectors[1].ceil_z = 0.0;
         assert_eq!(sectors_in_reach(&open, &b), vec![1]);
@@ -308,9 +324,9 @@ mod tests {
         )
         .unwrap();
         Mechanics::new(&mut map);
-        let behind = blast(&map, Vec3::new(0.5, 2.0, 1.0), Shooter::Player);
+        let behind = blast(&map, Vec3::new(0.5, 2.0, 1.0), Shooter::Player(PlayerId(0)));
         assert!(sectors_in_reach(&map, &behind).is_empty());
-        let clear = blast(&map, Vec3::new(3.0, 2.0, 1.0), Shooter::Player);
+        let clear = blast(&map, Vec3::new(3.0, 2.0, 1.0), Shooter::Player(PlayerId(0)));
         assert_eq!(sectors_in_reach(&map, &clear), vec![1]);
     }
 
@@ -326,7 +342,7 @@ mod tests {
             body(&map, 4.4, 1.0), // d = 3.4 - 0.4 = 3.0
             body(&map, 7.4, 1.0), // d = 6.0, at the radius
         ];
-        let hits = solve(&map, &b, &bodies, |_| false);
+        let hits = solve(&map, &b, &bodies, 1, |_| false);
         assert_eq!(
             hits,
             vec![
@@ -341,7 +357,7 @@ mod tests {
             ]
         );
         assert!(
-            solve(&map, &b, &bodies, |i| i == 1)
+            solve(&map, &b, &bodies, 1, |i| i == 1)
                 .iter()
                 .all(|h| h.body != 1)
         );
@@ -350,9 +366,9 @@ mod tests {
     #[test]
     fn rocket_self_damage_scaled() {
         let map = pillar_room();
-        let b = blast(&map, Vec3::new(1.0, 1.0, 1.0), Shooter::Player);
+        let b = blast(&map, Vec3::new(1.0, 1.0, 1.0), Shooter::Player(PlayerId(0)));
         let bodies = [body(&map, 1.0, 1.0), body(&map, 1.0, 1.0)];
-        let hits = solve(&map, &b, &bodies, |_| false);
+        let hits = solve(&map, &b, &bodies, 1, |_| false);
         assert_eq!(
             hits[0],
             BlastHit {
@@ -368,8 +384,30 @@ mod tests {
             }
         );
         let a = blast(&map, Vec3::new(1.0, 1.0, 1.0), Shooter::Actor(0));
-        let hits = solve(&map, &a, &bodies, |_| false);
+        let hits = solve(&map, &a, &bodies, 1, |_| false);
         assert_eq!(hits[1].damage, 50);
         assert_eq!(hits[0].damage, 100);
+    }
+
+    #[test]
+    fn solve_scales_owner_by_layout() {
+        let map = pillar_room();
+        // Two players at the centre: only the owner, player 1, takes the self-damage discount.
+        let b = blast(&map, Vec3::new(1.0, 1.0, 1.0), Shooter::Player(PlayerId(1)));
+        let bodies = [body(&map, 1.0, 1.0), body(&map, 1.0, 1.0)];
+        let hits = solve(&map, &b, &bodies, 2, |_| false);
+        assert_eq!(
+            hits,
+            vec![
+                BlastHit {
+                    body: 0,
+                    damage: 100
+                },
+                BlastHit {
+                    body: 1,
+                    damage: 50
+                },
+            ]
+        );
     }
 }

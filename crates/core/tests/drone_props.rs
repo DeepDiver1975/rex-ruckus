@@ -61,7 +61,7 @@ proptest! {
                 let eye = body.pos + Vec3::Z * 1.6;
                 let mut vitals = Vitals::new(); // keep the player alive: the drone keeps hunting
                 let mut target = PlayerTarget { body: &mut body, vitals: &mut vitals, eye };
-                combat.tick(&mut map, &mut mech, &defs, &mut target, DT);
+                combat.tick(&mut map, &mut mech, &defs, std::slice::from_mut(&mut target), DT);
                 let b = combat.actors[0].body;
                 let (floor, ceil) = z_range(&map, b.pos.truncate(), b.radius, b.sector);
                 prop_assert!(b.pos.z >= floor - EPS, "below the floor: {} < {}", b.pos.z, floor);

@@ -13,6 +13,7 @@ use rr_core::extrude::extrude_sector;
 use rr_core::fixtures::{combat_room, door_rooms, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Map, SwitchAction};
 use rr_core::mechanics::{Motion, UseTarget};
+use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
 use rr_game::audio::{AudioFxPlugin, QuipState, QuipVoice};
 use rr_game::automap::{AutomapSimPlugin, AutomapView, LevelAutomap, REVEAL_EVERY};
@@ -179,7 +180,7 @@ fn boss_enters_phase_two_and_its_death_ends_the_level() {
     shoot_until(&mut app, 0, |e| {
         *e == CombatEvent::ActorKilled {
             actor: 0,
-            by: Shooter::Player,
+            by: Shooter::Player(PlayerId(0)),
         }
     });
     assert_eq!(state(&app), PlayState::Playing, "not at the kill");
@@ -245,7 +246,7 @@ fn an_infight_kill_counts_in_the_stats_but_is_not_the_players() {
 
     // Control: the player's own kills do earn a (multi-kill) line.
     let opening = (voices(&mut app), subtitle(&app));
-    burst(&mut app, Shooter::Player);
+    burst(&mut app, Shooter::Player(PlayerId(0)));
     assert_ne!(
         (voices(&mut app), subtitle(&app)),
         opening,
@@ -619,7 +620,7 @@ fn the_hive_queen_wakes_on_entry_and_her_death_opens_the_stash() {
     shoot_until(&mut app, queen, |e| {
         *e == CombatEvent::ActorKilled {
             actor: queen,
-            by: Shooter::Player,
+            by: Shooter::Player(PlayerId(0)),
         }
     });
     ticks(&mut app, 300);
@@ -657,7 +658,8 @@ fn the_gallery_is_open_from_the_hall_and_its_magma_pit_burns() {
             matches!(
                 e,
                 CombatEvent::HazardBurn {
-                    kind: rr_core::hazard::HazardKind::Burn
+                    kind: rr_core::hazard::HazardKind::Burn,
+                    ..
                 }
             )
         })

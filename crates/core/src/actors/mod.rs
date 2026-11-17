@@ -9,6 +9,7 @@ use crate::defs::{BurrowDef, EnemyAttack, EnemyDef, Locomotion, PoundDef};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{ActorKind, ActorSpawn, Map, SectorId, SwitchAction, WallId};
 use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
+use crate::players::{BodyRef, PlayerId, body_ref};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
@@ -103,15 +104,23 @@ pub struct Actor {
     pub burrow_at: Option<usize>,
     /// The actor whose burrow brought this one up, for minions.
     pub summoner: Option<usize>,
+    /// Seconds it keeps hunting the player who last hurt it (`GRUDGE_SECS`) before
+    /// `choose_player` may pick another; counts down in `Combat::tick`.
+    pub grudge: f32,
 }
 
 /// Whom an actor hunts. Infighting points it at another actor (by index; actors are never
 /// removed, so indices stay valid); when that one dies it goes back to the player.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
-    #[default]
-    Player,
+    Player(PlayerId),
     Actor(usize),
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Target::Player(PlayerId(0))
+    }
 }
 
 /// What an actor knows about its target (the player, or another actor) this tick.
@@ -141,12 +150,79 @@ impl Perception {
 /// different kinds, neither static (barrels never hunt nor are hunted), and the victim is no
 /// boss (a boss only ever hunts the player; others may still turn on it).
 pub fn retargets(victim: &Actor, attacker: &Actor) -> bool {
-    victim.alive()
+    turns_on_attacker(victim)
         && attacker.alive()
         && victim.kind != attacker.kind
-        && victim.locomotion != Locomotion::Static
         && attacker.locomotion != Locomotion::Static
-        && !victim.boss
+}
+
+/// Whether `victim`, just hurt, may turn on whoever hurt it: alive, not static and no boss. An
+/// actor hunting one player turns on another player who shoots it on the same terms.
+pub fn turns_on_attacker(victim: &Actor) -> bool {
+    victim.alive() && victim.locomotion != Locomotion::Static && !victim.boss
+}
+
+/// A visible player must be nearer than this fraction of the current target's distance to take
+/// over as an actor's target, so the target does not flip between players at similar range.
+pub const SWITCH_RATIO: f32 = 0.75;
+
+/// Seconds an actor keeps hunting the player who last hurt it before `choose_player` may pick
+/// another (`Actor::grudge`).
+pub const GRUDGE_SECS: f32 = 4.0;
+
+/// Which player actor `a`, now hunting `current`, hunts this tick; `views[k]` is `PlayerId(k)`.
+/// With one view it is always `PlayerId(0)` (nothing is traced). Otherwise, among the living
+/// players, the visible ones are those `think` would see (`sees`: within `def.sight_range` and
+/// in line of sight; for a sleeper also within its field of view, `in_fov`):
+/// - `current`, if it exists, lives and is visible, is kept unless a visible one is nearer than
+///   `SWITCH_RATIO` times its distance (then the nearest visible one);
+/// - else the nearest visible one;
+/// - with none visible, `current` if it exists and lives, else the nearest living one;
+/// - with none living, `PlayerId(0)`.
+///
+/// Ties go to the lower id.
+pub fn choose_player(
+    map: &Map,
+    a: &Actor,
+    def: &EnemyDef,
+    current: PlayerId,
+    views: &[Perception],
+) -> PlayerId {
+    if views.len() <= 1 {
+        return PlayerId(0);
+    }
+    let eye = a.eye();
+    let dist = |k: usize| views[k].eye.distance(eye);
+    let nearest = |ks: &[usize]| {
+        ks.iter()
+            .copied()
+            .min_by(|&i, &j| dist(i).total_cmp(&dist(j)))
+    };
+    let id = |k: usize| PlayerId(k as u8);
+    let living: Vec<usize> = (0..views.len()).filter(|&k| views[k].alive).collect();
+    let visible: Vec<usize> = living
+        .iter()
+        .copied()
+        .filter(|&k| {
+            let to = views[k].eye;
+            sees(a, def, map, to) && (a.state != AiState::Sleep || in_fov(a, def, to))
+        })
+        .collect();
+    let cur = current.0 as usize;
+    let cur_lives = living.contains(&cur);
+    if cur_lives && visible.contains(&cur) {
+        return match nearest(&visible) {
+            Some(k) if dist(k) < SWITCH_RATIO * dist(cur) => id(k),
+            _ => current,
+        };
+    }
+    if let Some(k) = nearest(&visible) {
+        return id(k);
+    }
+    if cur_lives {
+        return current;
+    }
+    nearest(&living).map_or(PlayerId(0), id)
 }
 
 /// How long a chase route stays valid before `next_hop` runs again.
@@ -200,7 +276,7 @@ impl Actor {
             strafe: 0.0,
             muzzle_offset: Vec3::from(def.muzzle),
             locomotion: def.locomotion,
-            target: Target::Player,
+            target: Target::default(),
             phase: 0,
             boss: def.boss,
             on_death: spawn.on_death,
@@ -208,6 +284,7 @@ impl Actor {
             pound_in: def.pound.map_or(0.0, |p| p.first),
             burrow_at: None,
             summoner: None,
+            grudge: 0.0,
         })
     }
 
@@ -257,6 +334,20 @@ pub fn wake(a: &mut Actor) {
 /// Heading of a horizontal direction (0 = +x, counter-clockwise).
 fn heading(d: Vec2) -> f32 {
     d.y.atan2(d.x)
+}
+
+/// Whether actor `a` sees the point `to` (a player's eye): within `def.sight_range` of its eye
+/// and in line of sight. A sleeper also needs `in_fov` to wake.
+fn sees(a: &Actor, def: &EnemyDef, map: &Map, to: Vec3) -> bool {
+    let eye = a.eye();
+    (to - eye).length() <= def.sight_range && crate::trace::can_see(map, eye, a.body.sector, to)
+}
+
+/// Whether the point `to` lies within actor `a`'s field of view (`def.fov_deg`, centred on its
+/// heading).
+fn in_fov(a: &Actor, def: &EnemyDef, to: Vec3) -> bool {
+    let flat = (to - a.eye()).truncate();
+    angle_diff(a.angle, heading(flat)) <= (def.fov_deg / 2.0).to_radians()
 }
 
 /// Absolute difference between two headings, in [0, π].
@@ -345,12 +436,11 @@ pub fn think(
     let to_player = p.eye - eye;
     let flat = to_player.truncate();
     let dist = to_player.length();
-    let sees = dist <= def.sight_range && crate::trace::can_see(map, eye, a.body.sector, p.eye);
+    let sees = sees(a, def, map, p.eye);
 
     match a.state {
         AiState::Sleep => {
-            let in_fov = angle_diff(a.angle, heading(flat)) <= (def.fov_deg / 2.0).to_radians();
-            if in_fov && sees {
+            if in_fov(a, def, p.eye) && sees {
                 a.state = AiState::Alert { t: 0.0 };
             }
             idle
@@ -504,8 +594,8 @@ pub fn effective_muzzle(map: &Map, a: &Actor) -> (Vec3, SectorId) {
 /// Result of an enemy hitscan volley.
 #[derive(Debug, Default, PartialEq)]
 pub struct Volley {
-    /// Damage of the pellets that hit the player body.
-    pub player_damage: i32,
+    /// Damage per player (id, sum) from pellets that hit a player body, ascending, non-zero only.
+    pub player_damage: Vec<(PlayerId, i32)>,
     /// Every pellet that hit the world, glass aside.
     pub impacts: Vec<Hit>,
     /// Glass walls pellets hit, once each. The volley is traced on the map as it was, so every
@@ -517,8 +607,9 @@ pub struct Volley {
 
 /// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
 /// direction, already jittered by the aim error) with `spread_deg` extra spread, up to
-/// `def.attack_range`. `bodies` is `[player, actor 0, actor 1, ...]` and `alive(i)` says whether
-/// actor `i` is a living target. Pellets that stop at another actor hurt it (`actor_damage`).
+/// `def.attack_range`. `bodies` is the combat layout `[players.., actors..]` with `players`
+/// player bodies (see `players`), and `alive(i)` says whether actor `i` is a living target.
+/// Pellets that stop at another actor hurt it (`actor_damage`).
 #[allow(clippy::too_many_arguments)]
 pub fn volley(
     map: &Map,
@@ -527,6 +618,7 @@ pub fn volley(
     def: &EnemyDef,
     dir: Vec3,
     bodies: &[Body],
+    players: usize,
     alive: impl Fn(usize) -> bool,
     rng: &mut Rng,
 ) -> Volley {
@@ -539,7 +631,10 @@ pub fn volley(
         return Volley::default();
     };
     let (origin, sector) = effective_muzzle(map, a);
-    let skip = |i: usize| i != 0 && (i - 1 == shooter || !alive(i - 1));
+    let skip = |i: usize| match body_ref(players, i) {
+        BodyRef::Player(_) => false,
+        BodyRef::Actor(a) => a == shooter || !alive(a),
+    };
     let mut out = Volley::default();
     let mut dealt = vec![0; bodies.len()];
     for d in crate::weapons::spread_dirs(dir, pellets, spread_deg, rng) {
@@ -553,7 +648,6 @@ pub fn volley(
             continue;
         };
         match h.kind {
-            HitKind::Body(0) => out.player_damage += damage,
             HitKind::Body(b) => dealt[b] += damage,
             HitKind::Wall(w) if crate::destruct::hits_pane(map, &h) => {
                 if !out.glass.contains(&w) {
@@ -563,10 +657,12 @@ pub fn volley(
             _ => out.impacts.push(h),
         }
     }
-    out.actor_damage = (1..dealt.len())
-        .filter(|&b| dealt[b] > 0)
-        .map(|b| (b - 1, dealt[b]))
-        .collect();
+    for (b, &d) in dealt.iter().enumerate().filter(|&(_, &d)| d > 0) {
+        match body_ref(players, b) {
+            BodyRef::Player(p) => out.player_damage.push((p, d)),
+            BodyRef::Actor(a) => out.actor_damage.push((a, d)),
+        }
+    }
     out
 }
 

@@ -4,15 +4,13 @@
 use crate::collide::Body;
 use crate::defs::SplashDef;
 use crate::map::{Map, SectorId};
+use crate::players::{BodyRef, PlayerId, body_ref, shooter_body};
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::Vec3;
 
-/// Index of the player in the combat `bodies` slice `[player, actor 0, actor 1, ..]`.
-const PLAYER_BODY: usize = 0;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shooter {
-    Player,
+    Player(PlayerId),
     Actor(usize),
     /// The level itself: a scripted blast (`Map::blasts`). It has no body, so its splash is
     /// never scaled down as self-damage, and nobody turns on it. It never owns a projectile.
@@ -21,7 +19,7 @@ pub enum Shooter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Targets {
-    Player,
+    Players,
     Actors,
     All,
 }
@@ -63,17 +61,16 @@ pub enum ProjectileStep {
 }
 
 impl Projectile {
-    /// Whether body `i` (combat convention `[player, actor 0, ..]`) can never be hit by this
-    /// projectile: it is the owner, or not among `targets`.
-    pub fn ignores(&self, i: usize) -> bool {
-        let owner = match self.owner {
-            Shooter::Player => i == PLAYER_BODY,
-            Shooter::Actor(a) => i == a + 1,
-            Shooter::World => false,
-        };
+    /// Whether body `i` of the combat layout `[players.., actors..]` (see `players`) can never
+    /// be hit by this projectile: it is the owner, or not among `targets`. A player's projectile
+    /// passes every player (no friendly fire).
+    pub fn ignores(&self, i: usize, players: usize) -> bool {
+        let is_player = matches!(body_ref(players, i), BodyRef::Player(_));
+        let owner = shooter_body(players, self.owner) == Some(i)
+            || (matches!(self.owner, Shooter::Player(_)) && is_player);
         let non_target = match self.targets {
-            Targets::Player => i != PLAYER_BODY,
-            Targets::Actors => i == PLAYER_BODY,
+            Targets::Players => !is_player,
+            Targets::Actors => is_player,
             Targets::All => false,
         };
         owner || non_target
@@ -97,13 +94,14 @@ const CONTACT_SLOP: f32 = 0.01;
 /// Advances `p` by `dt`: gravity first, then the move. A body or world hit within the step ends
 /// it (`pos` is set to the hit point), except that a projectile with `bounce` reflects off world
 /// surfaces and keeps flying (at most `MAX_BOUNCES` per step), reporting `Resting` once it
-/// settles on a floor. The trace skips every body for which `p.ignores(i)` or the caller's
+/// settles on a floor. The trace skips every body for which `p.ignores(i, players)` or the caller's
 /// `skip` is true (use `skip` for e.g. dead actors), so callers need not repeat the
 /// owner/targets rules. Remote projectiles never expire.
 pub fn step_projectile(
     map: &Map,
     p: &mut Projectile,
     bodies: &[Body],
+    players: usize,
     skip: impl Fn(usize) -> bool,
     dt: f32,
 ) -> ProjectileStep {
@@ -124,7 +122,7 @@ pub fn step_projectile(
             sector: p.sector,
             max: speed * left,
         };
-        let ignored = |i| p.ignores(i) || skip(i);
+        let ignored = |i| p.ignores(i, players) || skip(i);
         let hit = match trace(map, &ray, bodies, ignored, p.radius) {
             Some(hit) => hit,
             None => {
@@ -197,6 +195,7 @@ mod tests {
     use super::*;
     use crate::fixtures::combat_room;
     use crate::mechanics::Mechanics;
+    use crate::players::PlayerId;
     use glam::Vec2;
 
     const DT: f32 = 1.0 / 60.0;
@@ -211,7 +210,7 @@ mod tests {
             radius: 0.05,
             damage: 10,
             owner: Shooter::Actor(0),
-            targets: Targets::Player,
+            targets: Targets::Players,
             life: 5.0,
             gravity: 0.0,
             bounce: None,
@@ -223,7 +222,7 @@ mod tests {
 
     fn bomb(map: &Map, pos: Vec3, vel: Vec3) -> Projectile {
         let mut p = bolt(map, pos, vel);
-        p.owner = Shooter::Player;
+        p.owner = Shooter::Player(PlayerId(0));
         p.targets = Targets::All;
         p.radius = 0.1;
         p.gravity = 12.0;
@@ -242,7 +241,7 @@ mod tests {
         let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.5), Vec3::new(10.0, 0.0, 0.0));
         for _ in 0..30 {
             assert_eq!(
-                step_projectile(&map, &mut p, &[], |_| false, DT),
+                step_projectile(&map, &mut p, &[], 1, |_| false, DT),
                 ProjectileStep::Flying
             );
         }
@@ -257,7 +256,7 @@ mod tests {
         let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.5), Vec3::new(0.0, -30.0, 0.0));
         let mut out = ProjectileStep::Flying;
         for _ in 0..30 {
-            out = step_projectile(&map, &mut p, &[], |_| false, DT);
+            out = step_projectile(&map, &mut p, &[], 1, |_| false, DT);
             if out != ProjectileStep::Flying {
                 break;
             }
@@ -278,7 +277,7 @@ mod tests {
         // North through the portal at y=5 (x 8..12) into sector 2 (ceiling 2.5).
         let mut p = bolt(&map, Vec3::new(10.0, 4.9, 1.5), Vec3::new(0.0, 6.0, 0.0));
         assert_eq!(p.sector, 0);
-        let s = step_projectile(&map, &mut p, &[], |_| false, 0.1);
+        let s = step_projectile(&map, &mut p, &[], 1, |_| false, 0.1);
         assert_eq!(s, ProjectileStep::Flying);
         assert!(p.pos.y > 5.0);
         assert_eq!(p.sector, map.find_sector(p.pos.truncate(), None).unwrap());
@@ -292,7 +291,7 @@ mod tests {
         let mut p = bolt(&map, Vec3::new(11.0, 4.0, 1.5), Vec3::new(40.0, 0.0, 0.0));
         let mut out = ProjectileStep::Flying;
         for _ in 0..60 {
-            out = step_projectile(&map, &mut p, &[], |_| false, DT);
+            out = step_projectile(&map, &mut p, &[], 1, |_| false, DT);
             if out != ProjectileStep::Flying {
                 break;
             }
@@ -316,7 +315,7 @@ mod tests {
         let vel = Vec3::new(40.0, 0.0, 0.0);
         let run = |p: &mut Projectile| {
             for _ in 0..60 {
-                match step_projectile(&map, p, &bodies, |_| false, DT) {
+                match step_projectile(&map, p, &bodies, 1, |_| false, DT) {
                     ProjectileStep::Flying => {}
                     o => return o,
                 }
@@ -328,7 +327,7 @@ mod tests {
         assert_eq!(run(&mut p), ProjectileStep::HitBody(0));
         // Actors-targeting bolt from the player never hits body 0 (player) and hits actor 0.
         let mut p = bolt(&map, start, vel);
-        p.owner = Shooter::Player;
+        p.owner = Shooter::Player(PlayerId(0));
         p.targets = Targets::Actors;
         assert_eq!(run(&mut p), ProjectileStep::HitBody(1));
         // Owner actor 0 with All targets skips body 1 (itself) and hits actor 1 (body 2).
@@ -337,9 +336,9 @@ mod tests {
         assert_eq!(run(&mut p), ProjectileStep::HitBody(2));
         // Caller skip is honoured as well.
         let mut p = bolt(&map, Vec3::new(3.0, 1.0, 1.0), vel);
-        assert!(p.ignores(1) && p.ignores(2) && !p.ignores(0));
+        assert!(p.ignores(1, 1) && p.ignores(2, 1) && !p.ignores(0, 1));
         p.targets = Targets::All;
-        let o = step_projectile(&map, &mut p, &bodies, |i| i == 0 || i == 2, 0.5);
+        let o = step_projectile(&map, &mut p, &bodies, 1, |i| i == 0 || i == 2, 0.5);
         match o {
             ProjectileStep::HitWorld(h) => assert!((h.point.x - 12.0).abs() < 1e-3),
             o => panic!("expected world hit at x=12, got {o:?}"),
@@ -357,7 +356,7 @@ mod tests {
         p.owner = Shooter::Actor(5);
         p.radius = 0.0;
         // One step covers 3.33 m; the body is 0.1 m wide and mid-step.
-        let o = step_projectile(&map, &mut p, &bodies, |_| false, DT);
+        let o = step_projectile(&map, &mut p, &bodies, 1, |_| false, DT);
         assert_eq!(o, ProjectileStep::HitBody(0));
         assert!((p.pos.x - 3.95).abs() < 1e-3);
     }
@@ -370,7 +369,7 @@ mod tests {
         let mut steps = 0;
         loop {
             steps += 1;
-            match step_projectile(&map, &mut p, &[], |_| false, 0.1) {
+            match step_projectile(&map, &mut p, &[], 1, |_| false, 0.1) {
                 ProjectileStep::Flying => {}
                 ProjectileStep::Expired => break,
                 o => panic!("unexpected {o:?}"),
@@ -382,13 +381,14 @@ mod tests {
 
     #[test]
     fn ignores_truth_table() {
-        use Shooter::{Actor, Player};
-        // (owner, targets, ignored flags for bodies 0, 1, 2)
+        use Shooter::Actor;
+        const P0: Shooter = Shooter::Player(PlayerId(0));
+        // One player: (owner, targets, ignored flags for bodies 0, 1, 2)
         let cases = [
-            (Player, Targets::Player, [true, true, true]),
-            (Player, Targets::Actors, [true, false, false]),
-            (Player, Targets::All, [true, false, false]),
-            (Actor(0), Targets::Player, [false, true, true]),
+            (P0, Targets::Players, [true, true, true]),
+            (P0, Targets::Actors, [true, false, false]),
+            (P0, Targets::All, [true, false, false]),
+            (Actor(0), Targets::Players, [false, true, true]),
             (Actor(0), Targets::Actors, [true, true, false]),
             (Actor(0), Targets::All, [false, true, false]),
         ];
@@ -397,9 +397,24 @@ mod tests {
             let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::X);
             p.owner = owner;
             p.targets = targets;
-            let got = [p.ignores(0), p.ignores(1), p.ignores(2)];
+            let got = [p.ignores(0, 1), p.ignores(1, 1), p.ignores(2, 1)];
             assert_eq!(got, want, "{owner:?} / {targets:?}");
         }
+    }
+
+    #[test]
+    fn player_projectile_ignores_all_players() {
+        let map = combat_room();
+        // Two players: bodies [player 0, player 1, actor 0].
+        let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::X);
+        p.owner = Shooter::Player(PlayerId(1));
+        p.targets = Targets::All;
+        assert!(p.ignores(0, 2) && p.ignores(1, 2));
+        assert!(!p.ignores(2, 2));
+        // An enemy bolt hits either player and skips its owner, actor 0.
+        p.owner = Shooter::Actor(0);
+        assert!(!p.ignores(0, 2) && !p.ignores(1, 2));
+        assert!(p.ignores(2, 2));
     }
 
     #[test]
@@ -411,7 +426,7 @@ mod tests {
         p.targets = Targets::Actors;
         let mut out = ProjectileStep::Flying;
         for _ in 0..30 {
-            out = step_projectile(&map, &mut p, &bodies, |_| false, DT);
+            out = step_projectile(&map, &mut p, &bodies, 1, |_| false, DT);
             if out != ProjectileStep::Flying {
                 break;
             }
@@ -425,13 +440,13 @@ mod tests {
         // World hit: wall at y=0, 1 m away, step covers 3 m, life runs out this step.
         let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.5), Vec3::new(0.0, -30.0, 0.0));
         p.life = 0.05;
-        let o = step_projectile(&map, &mut p, &[], |_| false, 0.1);
+        let o = step_projectile(&map, &mut p, &[], 1, |_| false, 0.1);
         assert!(matches!(o, ProjectileStep::HitWorld(_)), "{o:?}");
         // Body hit.
         let bodies = [body_at(&map, 2.0, 1.0)];
         let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::new(30.0, 0.0, 0.0));
         p.life = 0.05;
-        let o = step_projectile(&map, &mut p, &bodies, |_| false, 0.1);
+        let o = step_projectile(&map, &mut p, &bodies, 1, |_| false, 0.1);
         assert_eq!(o, ProjectileStep::HitBody(0));
     }
 
@@ -442,7 +457,7 @@ mod tests {
         p.gravity = 10.0;
         for _ in 0..30 {
             assert_eq!(
-                step_projectile(&map, &mut p, &[], |_| false, DT),
+                step_projectile(&map, &mut p, &[], 1, |_| false, DT),
                 ProjectileStep::Flying
             );
         }
@@ -462,7 +477,7 @@ mod tests {
         let mut settled = None;
         let mut prev_vz = 0.0;
         for t in 0..1200 {
-            match step_projectile(&map, &mut p, &[], |_| false, DT) {
+            match step_projectile(&map, &mut p, &[], 1, |_| false, DT) {
                 ProjectileStep::Flying => {
                     if prev_vz < 0.0 && p.vel.z > 0.0 {
                         bounced = true;
@@ -483,7 +498,7 @@ mod tests {
         let at = p.pos;
         for _ in 0..10 {
             assert_eq!(
-                step_projectile(&map, &mut p, &[], |_| false, DT),
+                step_projectile(&map, &mut p, &[], 1, |_| false, DT),
                 ProjectileStep::Resting
             );
         }
@@ -496,7 +511,7 @@ mod tests {
         // South wall at y=0, normal +y.
         let mut p = bolt(&map, Vec3::new(1.0, 0.2, 1.5), Vec3::new(2.0, -20.0, 0.0));
         p.bounce = Some(0.5);
-        let s = step_projectile(&map, &mut p, &[], |_| false, DT);
+        let s = step_projectile(&map, &mut p, &[], 1, |_| false, DT);
         assert_eq!(s, ProjectileStep::Flying);
         assert!(
             (p.vel - Vec3::new(1.0, 10.0, 0.0)).length() < 1e-4,
@@ -515,7 +530,7 @@ mod tests {
             let mut p = bomb(&map, Vec3::new(3.0, 2.0, z), Vec3::new(20.0, vy, 0.0));
             p.gravity = 0.0;
             for _ in 0..120 {
-                let o = step_projectile(&map, &mut p, &[], |_| false, DT);
+                let o = step_projectile(&map, &mut p, &[], 1, |_| false, DT);
                 assert!(
                     matches!(o, ProjectileStep::Flying | ProjectileStep::Resting),
                     "{o:?}"
@@ -538,7 +553,7 @@ mod tests {
         let start = Vec3::new(15.260368, 5.7560463, 0.6);
         let mut p = bomb(&map, start, Vec3::new(-32.656967, 36.054604, 23.89844));
         for tick in 0..120 {
-            let o = step_projectile(&map, &mut p, &[], |_| false, DT);
+            let o = step_projectile(&map, &mut p, &[], 1, |_| false, DT);
             assert!(
                 matches!(o, ProjectileStep::Flying | ProjectileStep::Resting),
                 "tick {tick}: {o:?} at {:?}",
@@ -561,7 +576,7 @@ mod tests {
         p.remote = true;
         for _ in 0..60 {
             assert_eq!(
-                step_projectile(&map, &mut p, &[], |_| false, DT),
+                step_projectile(&map, &mut p, &[], 1, |_| false, DT),
                 ProjectileStep::Flying
             );
         }
@@ -575,11 +590,11 @@ mod tests {
         // the player's own body and hits the actor's cylinder.
         let bodies = [body_at(&map, 1.0, 1.0), body_at(&map, 5.0, 1.0)];
         let mut p = bolt(&map, Vec3::new(1.0, 1.0, 1.0), Vec3::new(30.0, 0.0, 0.0));
-        p.owner = Shooter::Player;
+        p.owner = Shooter::Player(PlayerId(0));
         p.targets = Targets::All;
         let mut out = ProjectileStep::Flying;
         for _ in 0..30 {
-            out = step_projectile(&map, &mut p, &bodies, |_| false, DT);
+            out = step_projectile(&map, &mut p, &bodies, 1, |_| false, DT);
             if out != ProjectileStep::Flying {
                 break;
             }

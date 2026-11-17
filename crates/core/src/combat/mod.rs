@@ -4,7 +4,7 @@
 //!
 //! Per fixed tick the game copies [`Combat::live_bombs`] into the arsenal, ticks it, calls
 //! [`Combat::player_attack`] for each weapon event, then [`Combat::tick`], then hands
-//! [`Combat::living_bodies`] (plus the player) to `Mechanics::tick` and copies them back with
+//! [`Combat::living_bodies`] (plus the players) to `Mechanics::tick` and copies them back with
 //! [`Combat::write_back`]. Because player attacks run first, an actor killed by the player this
 //! tick never fires.
 //!
@@ -19,8 +19,8 @@ pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast, Via};
 
 use crate::actors::special::{self, Special};
 use crate::actors::{
-    Actor, AiState, Perception, Target, effective_muzzle, flyer_hover, hurt, retargets,
-    swipe_reaches, think, tuning, volley, wake,
+    Actor, AiState, GRUDGE_SECS, Perception, Target, choose_player, effective_muzzle, flyer_hover,
+    hurt, retargets, swipe_reaches, think, tuning, turns_on_attacker, volley, wake,
 };
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
@@ -32,16 +32,13 @@ use crate::health::DamageOutcome;
 use crate::map::{Map, OPEN_GAP, SectorId, SwitchAction, WallId};
 use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_flyer, step_player};
+use crate::players::{BodyRef, MAX_PLAYERS, PlayerId, body_ref};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind};
 use crate::vitals::Vitals;
 use blasts::sector_of;
 use glam::{Vec2, Vec3};
-
-/// Index of the player in the bodies slice `[player, actor 0, actor 1, ...]`; actor `i` is
-/// body `i + 1`.
-pub const BODY_PLAYER: usize = 0;
 
 /// What a combat tick did, for the game's presentation. The game's audio maps events to sounds
 /// (`audio::cues`; a boss's `ActorWoke` and `PhaseChanged` get its roar), `ActorKilled` also
@@ -70,11 +67,12 @@ pub enum CombatEvent {
     /// `from` is the bolt's position at the start of the tick it hit, i.e. a point on its
     /// incoming line: `from - player` gives the direction the shot came from.
     PlayerHurt {
+        player: PlayerId,
         amount: i32,
         from: Vec3,
     },
     /// Reported exactly once, on the hit that empties the player's health.
-    PlayerKilled,
+    PlayerKilled(PlayerId),
     /// A blast opened crack wall `s`; its mesh changes as the mover animates.
     CrackOpened(SectorId),
     /// The fixture of light `i` (index in `Map::lights`) broke; the light is out for good.
@@ -84,6 +82,7 @@ pub enum CombatEvent {
     /// The player's floor burned them; usually followed by a `PlayerHurt` (none when the hurt is
     /// ignored, e.g. an invulnerable demo run).
     HazardBurn {
+        player: PlayerId,
         kind: HazardKind,
     },
     /// A shot or projectile hit the world at `point` (in `sector`).
@@ -152,7 +151,8 @@ impl CombatEvent {
     }
 }
 
-/// The player as combat sees it this tick.
+/// One player as combat sees it this tick; `tick` takes them all, `players[k]` being
+/// `PlayerId(k)`.
 pub struct PlayerTarget<'a> {
     pub body: &'a mut Body,
     /// All player damage goes through `Vitals::damage`, so armour soaks its share.
@@ -172,8 +172,9 @@ pub struct Combat {
     pub destruct: Destruct,
     /// Multiplier on damage the player takes; the difficulty sets it. 1.0 at spawn.
     pub damage_scale: f32,
-    /// The player's hazard-floor clock; reset with the level.
-    pub hazard: HazardClock,
+    /// Each player's hazard-floor clock (index = `PlayerId`), grown on demand by `tick`; reset
+    /// with the level.
+    pub hazard: Vec<HazardClock>,
     /// The skill played; it sets the cap on live minions. `Normal` at spawn.
     pub skill: Difficulty,
     next_id: u32,
@@ -186,9 +187,10 @@ pub fn level_seed(name: &str) -> u64 {
     })
 }
 
-/// Damages the player and reports `PlayerHurt { from }` (and `PlayerKilled` on the fatal hit).
+/// Damages player `id` and reports `PlayerHurt { from }` (and `PlayerKilled` on the fatal hit).
 fn hurt_player(
     player: &mut PlayerTarget,
+    id: PlayerId,
     amount: i32,
     scale: f32,
     from: Vec3,
@@ -198,9 +200,13 @@ fn hurt_player(
     match player.vitals.damage(amount) {
         DamageOutcome::Ignored => {}
         outcome => {
-            out.push(CombatEvent::PlayerHurt { amount, from });
+            out.push(CombatEvent::PlayerHurt {
+                player: id,
+                amount,
+                from,
+            });
             if outcome == DamageOutcome::Killed {
-                out.push(CombatEvent::PlayerKilled);
+                out.push(CombatEvent::PlayerKilled(id));
             }
         }
     }
@@ -228,7 +234,7 @@ impl Combat {
             rng: Rng::new(seed),
             destruct: Destruct::new(map),
             damage_scale: 1.0,
-            hazard: HazardClock::default(),
+            hazard: Vec::new(),
             skill: Difficulty::Normal,
             next_id: 0,
         }
@@ -252,7 +258,8 @@ impl Combat {
     /// Applies `n` damage from `by` to actor `i` and reports what happened. An actor with a
     /// `death_splash` (a barrel) that dies queues its own blast, owned by its killer `by`, on its
     /// `death_fuse`; `Health` reports the kill only once, so it is queued only once. An actor
-    /// hurt by another one may turn on it (`retargets`). A boss ignores its own damage (its
+    /// hurt by another one may turn on it (`retargets`), and one hunting a player turns on
+    /// another player who hurts it (`turns_on_attacker`). A boss ignores its own damage (its
     /// rocket splash) and may change phase on a hit (`PhaseChanged`).
     fn damage_actor(&mut self, defs: &Defs, i: usize, n: i32, by: Shooter) -> Vec<CombatEvent> {
         self.damage_actor_via(defs, i, n, by, Via::Direct)
@@ -313,6 +320,17 @@ impl Combat {
         {
             self.actors[i].target = Target::Actor(k);
         }
+        // Shot by another player than the one it hunts: it turns on the shooter. Either way, a
+        // player it now hunts and who hurt it keeps it for `GRUDGE_SECS` (see `tick`).
+        if outcome != DamageOutcome::Ignored
+            && let Shooter::Player(p) = by
+            && matches!(self.actors[i].target, Target::Player(_))
+            && turns_on_attacker(&self.actors[i])
+        {
+            let a = &mut self.actors[i];
+            a.target = Target::Player(p);
+            a.grudge = GRUDGE_SECS;
+        }
         if outcome == DamageOutcome::Killed
             && let Some(splash) = def.death_splash
         {
@@ -362,52 +380,74 @@ impl Combat {
         woken
     }
 
-    /// One fixed tick, in this (load-bearing) order:
-    /// 1. remember every actor's `prev_pos`;
-    /// 2. AI: every actor runs its special moves (`actors::special`: burrows and pounds, whose
+    /// One fixed tick for every player in `players` (`players[k]` is `PlayerId(k)`; at least
+    /// one, at most `MAX_PLAYERS`), in this (load-bearing) order:
+    /// 1. per player in id order: a secret sector entered for the first time reports
+    ///    `SecretFound`, and its hazard floor may burn it (`hazard`, one clock per player);
+    /// 2. remember every actor's `prev_pos`;
+    /// 3. AI: every actor hunting a player picks which one (`choose_player`, only with more than
+    ///    one player), then runs its special moves (`actors::special`: burrows and pounds, whose
     ///    minions and shockwaves resolve here) or else thinks (dying ones count down); living
     ///    ones move with the enemy tuning and spawn their bolts. Minions join at the end of
     ///    `actors` and first act next tick;
-    /// 3. living actors and the player are pushed apart where they overlap;
-    /// 4. projectiles fly; a hit on the player damages it; splash projectiles queue blasts;
-    /// 5. scripted blasts the level's channels set off join the queue (on their `delay`), and
+    /// 4. living actors and the players are pushed apart where they overlap, then the living
+    ///    players from each other;
+    /// 5. projectiles fly; a hit on a player damages it; splash projectiles queue blasts;
+    /// 6. scripted blasts the level's channels set off join the queue (on their `delay`), and
     ///    queued blasts whose fuse ran out go off (see [`Combat::process_blasts`]);
-    /// 6. corpses snap to their floor (dead flyers fall to it first).
+    /// 7. corpses snap to their floor (dead flyers fall to it first).
     ///
     /// Shots, projectiles and blasts that shatter glass change `map` (through `destruct`) and
     /// report `GlassBroken`. `mech` is where blasts open crack walls (`CrackOpened`; the mover
-    /// then animates through `Mechanics::tick`); glass does not need it. The player standing in
-    /// a secret sector for the first time reports `SecretFound`.
+    /// then animates through `Mechanics::tick`); glass does not need it.
     pub fn tick(
         &mut self,
         map: &mut Map,
         mech: &mut Mechanics,
         defs: &Defs,
-        player: &mut PlayerTarget,
+        players: &mut [PlayerTarget],
         dt: f32,
     ) -> Vec<CombatEvent> {
+        debug_assert!(
+            (1..=MAX_PLAYERS).contains(&players.len()),
+            "{} players",
+            players.len()
+        );
         let mut out = Vec::new();
-        if self.destruct.enter_sector(map, player.body.sector) {
-            out.push(CombatEvent::SecretFound);
+        if self.hazard.len() < players.len() {
+            self.hazard.resize_with(players.len(), HazardClock::default);
         }
-        let touching = crate::hazard::contact(map, player.body);
-        if let Some(h) = self.hazard.tick(touching, dt)
-            && player.vitals.health.alive()
-        {
-            out.push(CombatEvent::HazardBurn { kind: h.kind });
-            let at = player.body.pos;
-            hurt_player(player, h.damage, self.damage_scale, at, &mut out);
+        for (k, player) in players.iter_mut().enumerate() {
+            let id = PlayerId(k as u8);
+            if self.destruct.enter_sector(map, player.body.sector) {
+                out.push(CombatEvent::SecretFound);
+            }
+            let touching = crate::hazard::contact(map, player.body);
+            if let Some(h) = self.hazard[k].tick(touching, dt)
+                && player.vitals.health.alive()
+            {
+                out.push(CombatEvent::HazardBurn {
+                    player: id,
+                    kind: h.kind,
+                });
+                let at = player.body.pos;
+                hurt_player(player, id, h.damage, self.damage_scale, at, &mut out);
+            }
         }
         for a in &mut self.actors {
             a.prev_pos = a.body.pos;
         }
 
-        let player_view = Perception {
-            eye: player.eye,
-            chest: player.body.pos + Vec3::Z * 0.6 * player.body.height,
-            sector: player.body.sector,
-            alive: player.vitals.health.alive(),
-        };
+        let views: Vec<Perception> = players
+            .iter()
+            .map(|p| Perception {
+                eye: p.eye,
+                chest: p.body.pos + Vec3::Z * 0.6 * p.body.height,
+                sector: p.body.sector,
+                alive: p.vitals.health.alive(),
+            })
+            .collect();
+        let n = players.len();
         // Bodies as they stood at the start of the tick, so no actor sees another mid-update; a
         // player-only fight reads exactly what it read before (same rng draws).
         let snapshot: Vec<(Body, bool)> = self
@@ -423,10 +463,26 @@ impl Combat {
             if let Target::Actor(j) = a.target
                 && !snapshot[j].1
             {
-                a.target = Target::Player;
+                a.target = Target::default();
+            }
+            a.grudge = (a.grudge - dt).max(0.0);
+            if let Target::Player(current) = a.target {
+                let held = a.grudge > 0.0 && views.get(current.0 as usize).is_some_and(|v| v.alive);
+                // Alone, player 0 is the only choice (and nothing is traced). A grudge holds a
+                // living attacker without a new choice.
+                let id = if n <= 1 {
+                    PlayerId(0)
+                } else if held {
+                    current
+                } else {
+                    let def = defs.enemy(a.kind).phased(a.phase);
+                    choose_player(map, a, &def, current, &views)
+                };
+                a.target = Target::Player(id);
             }
             let perception = match a.target {
-                Target::Player => player_view,
+                // Always below `n`: just picked.
+                Target::Player(id) => views[id.0 as usize],
                 Target::Actor(j) => Perception::of_body(&snapshot[j].0),
             };
             let def = defs.enemy(a.kind).phased(a.phase);
@@ -460,7 +516,7 @@ impl Combat {
                 step_player(map, &mut a.body, &input, &t, dt);
             }
             if let Some(m) = special_move {
-                self.special_move(map, defs, i, m, player, &mut out);
+                self.special_move(map, defs, i, m, players, &mut out);
             }
             if let Some(dir) = fire {
                 out.push(CombatEvent::ActorFired { actor: i });
@@ -468,7 +524,7 @@ impl Combat {
                 match def.attack {
                     EnemyAttack::Bolts { proj, .. } => self.spawn_bolt(map, i, dir, proj),
                     EnemyAttack::Hitscan { .. } => {
-                        let mut bodies = vec![*player.body];
+                        let mut bodies: Vec<Body> = players.iter().map(|p| *p.body).collect();
                         bodies.extend(self.actors.iter().map(|a| a.body));
                         let alive: Vec<bool> = self.actors.iter().map(Actor::targetable).collect();
                         let v = volley(
@@ -478,6 +534,7 @@ impl Combat {
                             def,
                             dir,
                             &bodies,
+                            n,
                             |j| alive[j],
                             &mut self.rng,
                         );
@@ -485,19 +542,23 @@ impl Combat {
                         for w in v.glass {
                             self.break_glass(map, w, &mut out);
                         }
-                        for (j, n) in v.actor_damage {
-                            out.extend(self.damage_actor(defs, j, n, Shooter::Actor(i)));
+                        for (j, d) in v.actor_damage {
+                            out.extend(self.damage_actor(defs, j, d, Shooter::Actor(i)));
                         }
-                        if v.player_damage > 0 {
+                        if !v.player_damage.is_empty() {
                             let from = effective_muzzle(map, &self.actors[i]).0;
-                            hurt_player(player, v.player_damage, self.damage_scale, from, &mut out);
+                            for (id, d) in v.player_damage {
+                                let p = &mut players[id.0 as usize];
+                                hurt_player(p, id, d, self.damage_scale, from, &mut out);
+                            }
                         }
                     }
                     EnemyAttack::Melee { damage, .. } => match target {
-                        Target::Player => {
+                        Target::Player(id) => {
                             let a = &self.actors[i];
-                            if swipe_reaches(a, def, player.body) {
-                                hurt_player(player, damage, self.damage_scale, a.eye(), &mut out);
+                            let p = &mut players[id.0 as usize];
+                            if swipe_reaches(a, def, p.body) {
+                                hurt_player(p, id, damage, self.damage_scale, a.eye(), &mut out);
                             }
                         }
                         Target::Actor(j) => {
@@ -511,10 +572,10 @@ impl Combat {
             }
         }
 
-        self.separate(map, player.body);
-        out.extend(self.fly(map, defs, player, dt));
+        self.separate(map, players);
+        out.extend(self.fly(map, defs, players, dt));
         self.queue_scripted(map, mech);
-        self.process_blasts(map, mech, defs, player, dt, &mut out);
+        self.process_blasts(map, mech, defs, players, dt, &mut out);
 
         let gravity = Tuning::default().gravity;
         for a in self.actors.iter_mut().filter(|a| !a.alive()) {
@@ -559,29 +620,43 @@ impl Combat {
         });
     }
 
-    /// Pushes every living actor and the player apart by half their XY overlap each, when
-    /// their height ranges overlap too. `clip_move` keeps both out of walls.
-    fn separate(&mut self, map: &Map, player: &mut Body) {
+    /// Pushes every living actor and each player apart by half their XY overlap each, when
+    /// their height ranges overlap too (players in id order; a static actor pushes the player
+    /// the whole way). Then each pair of living players, once, likewise. `clip_move` keeps them
+    /// all out of walls.
+    fn separate(&mut self, map: &Map, players: &mut [PlayerTarget]) {
         let step = Tuning::default().step_height;
-        for a in self.actors.iter_mut().filter(|a| a.targetable()) {
-            let b = &mut a.body;
-            let (pa, pp) = (b.pos.truncate(), player.pos.truncate());
-            let dist = pa.distance(pp);
-            let reach = b.radius + player.radius;
-            let z_overlap =
-                b.pos.z < player.pos.z + player.height && player.pos.z < b.pos.z + b.height;
-            if dist >= reach || !z_overlap {
-                continue;
+        for player in players.iter_mut() {
+            let player = &mut *player.body;
+            for a in self.actors.iter_mut().filter(|a| a.targetable()) {
+                let b = &mut a.body;
+                let Some((n, gap)) = overlap(b, player) else {
+                    continue;
+                };
+                if a.locomotion == Locomotion::Static {
+                    // Immovable: the player takes the whole push.
+                    clip_move(map, player, -n * gap, step);
+                    continue;
+                }
+                let push = n * gap * 0.5;
+                clip_move(map, b, push, step);
+                clip_move(map, player, -push, step);
             }
-            let n = (pa - pp).try_normalize().unwrap_or(Vec2::X);
-            if a.locomotion == Locomotion::Static {
-                // Immovable: the player takes the whole push.
-                clip_move(map, player, -n * (reach - dist), step);
-                continue;
+        }
+        for j in 1..players.len() {
+            let (head, tail) = players.split_at_mut(j);
+            let q = &mut tail[0];
+            for p in head.iter_mut() {
+                if !p.vitals.health.alive() || !q.vitals.health.alive() {
+                    continue;
+                }
+                let Some((n, gap)) = overlap(q.body, p.body) else {
+                    continue;
+                };
+                let push = n * gap * 0.5;
+                clip_move(map, q.body, push, step);
+                clip_move(map, p.body, -push, step);
             }
-            let push = n * (reach - dist) * 0.5;
-            clip_move(map, b, push, step);
-            clip_move(map, player, -push, step);
         }
     }
 
@@ -598,19 +673,23 @@ impl Combat {
         &mut self,
         map: &mut Map,
         defs: &Defs,
-        player: &mut PlayerTarget,
+        players: &mut [PlayerTarget],
         dt: f32,
     ) -> Vec<CombatEvent> {
         let mut out = Vec::new();
-        let mut bodies = vec![*player.body];
+        let n = players.len();
+        let mut bodies: Vec<Body> = players.iter().map(|p| *p.body).collect();
         bodies.extend(self.actors.iter().map(|a| a.body));
         let mut projectiles = std::mem::take(&mut self.projectiles);
         projectiles.retain_mut(|p| {
             if p.resting {
                 follow_floor(map, p);
             }
-            let skip = |i: usize| i != BODY_PLAYER && !self.actors[i - 1].targetable();
-            match step_projectile(map, p, &bodies, skip, dt) {
+            let skip = |i: usize| match body_ref(n, i) {
+                BodyRef::Player(_) => false,
+                BodyRef::Actor(a) => !self.actors[a].targetable(),
+            };
+            match step_projectile(map, p, &bodies, n, skip, dt) {
                 ProjectileStep::Flying | ProjectileStep::Resting => return true,
                 ProjectileStep::HitBody(i) if p.bounce.is_some() => {
                     bounce_off_body(map, p, &bodies[i]);
@@ -629,12 +708,15 @@ impl Combat {
                     p.pos = h.point + h.normal * BLAST_NUDGE;
                     p.sector = sector_of(map, p.pos, h.sector);
                 }
-                ProjectileStep::HitBody(BODY_PLAYER) => {
-                    hurt_player(player, p.damage, self.damage_scale, p.prev, &mut out);
-                }
-                ProjectileStep::HitBody(i) => {
-                    out.extend(self.damage_actor(defs, i - 1, p.damage, p.owner));
-                }
+                ProjectileStep::HitBody(i) => match body_ref(n, i) {
+                    BodyRef::Player(id) => {
+                        let player = &mut players[id.0 as usize];
+                        hurt_player(player, id, p.damage, self.damage_scale, p.prev, &mut out);
+                    }
+                    BodyRef::Actor(a) => {
+                        out.extend(self.damage_actor(defs, a, p.damage, p.owner));
+                    }
+                },
             }
             if let Some(splash) = p.splash {
                 // An expiry outside the map leaves `pos` stale; go off at the last good point.
@@ -690,6 +772,19 @@ const REST_DROP: f32 = 0.08;
 /// Gap left between a bouncing projectile and the body it bounced off (m).
 const BODY_BOUNCE_NUDGE: f32 = 0.01;
 
+/// How far apart (unit XY direction from `other` to `b`, and the depth) `b` and `other` must be
+/// pushed: `None` unless they overlap in XY and in height.
+fn overlap(b: &Body, other: &Body) -> Option<(Vec2, f32)> {
+    let (pb, po) = (b.pos.truncate(), other.pos.truncate());
+    let dist = pb.distance(po);
+    let reach = b.radius + other.radius;
+    let z_overlap = b.pos.z < other.pos.z + other.height && other.pos.z < b.pos.z + b.height;
+    if dist >= reach || !z_overlap {
+        return None;
+    }
+    Some(((pb - po).try_normalize().unwrap_or(Vec2::X), reach - dist))
+}
+
 /// Keeps a resting projectile on its sector's floor as that floor moves; one that the floor
 /// dropped away from stops resting and falls.
 fn follow_floor(map: &Map, p: &mut Projectile) {
@@ -731,6 +826,8 @@ fn bounce_off_body(map: &Map, p: &mut Projectile, body: &Body) {
 mod blast_tests;
 #[cfg(test)]
 mod boss_tests;
+#[cfg(test)]
+mod coop_tests;
 #[cfg(test)]
 mod crack_tests;
 #[cfg(test)]

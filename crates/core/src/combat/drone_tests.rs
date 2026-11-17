@@ -7,6 +7,7 @@ use crate::actors::next_hop;
 use crate::fixtures::{defs, lift_shaft, two_rooms};
 use crate::map::ActorKind;
 use crate::movement::{Pass, step_flyer};
+use crate::players::PlayerId;
 
 fn drone_def() -> crate::defs::EnemyDef {
     defs().enemy(ActorKind::Drone).clone()
@@ -210,7 +211,7 @@ fn killed_drone_falls_to_the_floor() {
     let (mut map, mut c, mut p, d) = dogfight();
     p.tick(&mut c, &mut map, &d);
     assert!(c.actors[0].body.pos.z > 2.0);
-    c.damage_actor(&d, 0, 1000, Shooter::Player);
+    c.damage_actor(&d, 0, 1000, Shooter::Player(PlayerId(0)));
     let mut last = c.actors[0].body.pos.z;
     let mut fell = false;
     for _ in 0..180 {

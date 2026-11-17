@@ -5,6 +5,7 @@ use rr_core::collide::Body;
 use rr_core::fixtures::combat_room;
 use rr_core::glam::Vec3;
 use rr_core::mechanics::Mechanics;
+use rr_core::players::PlayerId;
 use rr_core::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
 
 const DT: f32 = 1.0 / 60.0;
@@ -54,7 +55,7 @@ proptest! {
             sector,
             radius: RADIUS,
             damage: 100,
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
             targets: Targets::All,
             life: 1.0,
             gravity: 12.0,
@@ -65,7 +66,7 @@ proptest! {
         };
         let bodies: [Body; 0] = [];
         for tick in 0..600 {
-            let out = step_projectile(&map, &mut p, &bodies, |_| false, DT);
+            let out = step_projectile(&map, &mut p, &bodies, 1, |_| false, DT);
             prop_assert!(
                 matches!(out, ProjectileStep::Flying | ProjectileStep::Resting),
                 "tick {}: {:?}", tick, out

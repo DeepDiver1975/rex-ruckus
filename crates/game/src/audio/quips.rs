@@ -112,7 +112,7 @@ pub fn play_quips(
             // Only the player's own kills earn a line; infighting is the enemies' business.
             CombatEvent::ActorKilled {
                 actor,
-                by: Shooter::Player,
+                by: Shooter::Player(_),
             } => {
                 let Some(kind) = combat
                     .as_ref()

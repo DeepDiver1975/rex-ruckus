@@ -8,6 +8,7 @@ use crate::fixtures::{combat_room, defs, lift_shaft};
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::ActorKind;
 use crate::mechanics::{Mechanics, Motion};
+use crate::players::PlayerId;
 use crate::weapons::WeaponEvent;
 use crate::weapons::{Arsenal, WeaponInput, WeaponPhase};
 use std::f32::consts::PI;
@@ -22,7 +23,7 @@ impl Player {
         dir: Vec3,
     ) -> Vec<CombatEvent> {
         let ev = WeaponEvent::Launch { weapon, dir };
-        c.player_attack(map, d, self.eye(), self.body.sector, &ev)
+        c.player_attack(map, d, PlayerId(0), self.eye(), self.body.sector, &ev)
     }
 
     /// Ticks up to `n` times, stopping after the first tick that reports an `Explosion`.
@@ -103,7 +104,7 @@ fn player_rocket_hurts_grunt() {
     let ev = p.launch(&mut c, &mut map, &d, WeaponId::Rockets, dir);
     assert_eq!(c.projectiles.len(), 1, "{ev:?}");
     let r = &c.projectiles[0];
-    assert_eq!(r.owner, Shooter::Player);
+    assert_eq!(r.owner, Shooter::Player(PlayerId(0)));
     assert_eq!(r.targets, Targets::All);
     assert_eq!(r.pos, p.eye(), "launched from the eye");
     let pd = proj_def(&d, WeaponId::Rockets);
@@ -218,7 +219,7 @@ fn explosion_wakes_sleeping_grunt_out_of_splash_range() {
             center: Vec3::new(1.0, 7.0, 0.5),
             sector: 0,
             splash: rocket_splash(&d),
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let ev = p.tick(&mut c, &mut map, &d);
@@ -258,7 +259,7 @@ fn rocket_explodes_off_the_wall() {
     let (amount, from) = log
         .iter()
         .find_map(|e| match e {
-            CombatEvent::PlayerHurt { amount, from } => Some((*amount, *from)),
+            CombatEvent::PlayerHurt { amount, from, .. } => Some((*amount, *from)),
             _ => None,
         })
         .expect("the player is inside the splash");
@@ -297,7 +298,7 @@ fn bomb_is_lobbed_and_bounces_off_actors() {
     let want = (aim + Vec3::Z * 0.15).normalize() * pd.speed;
     assert!((b.vel - want).length() < 1e-4, "{:?} vs {want:?}", b.vel);
     assert!(b.remote && b.bounce.is_some());
-    assert_eq!(c.live_bombs(), 1);
+    assert_eq!(c.live_bombs(PlayerId(0)), 1);
     let mut log = Vec::new();
     for _ in 0..30 {
         log.extend(p.tick(&mut c, &mut map, &d));
@@ -306,7 +307,7 @@ fn bomb_is_lobbed_and_bounces_off_actors() {
     assert!(explosions(&log).is_empty());
     assert_eq!(c.projectiles.len(), 1);
     assert!(c.projectiles[0].pos.x < 3.0, "bounced back off the grunt");
-    assert_eq!(c.live_bombs(), 1);
+    assert_eq!(c.live_bombs(PlayerId(0)), 1);
 }
 
 #[test]
@@ -322,19 +323,33 @@ fn detonate_blows_every_live_bomb() {
         p.tick(&mut c, &mut map, &d);
     }
     assert!(c.projectiles.iter().all(|b| b.resting), "both settled");
-    assert_eq!(c.live_bombs(), 2);
+    assert_eq!(c.live_bombs(PlayerId(0)), 2);
     let at: Vec<Vec3> = c.projectiles.iter().map(|b| b.pos).collect();
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &WeaponEvent::Detonate);
+    let ev = c.player_attack(
+        &mut map,
+        &d,
+        PlayerId(0),
+        p.eye(),
+        p.body.sector,
+        &WeaponEvent::Detonate,
+    );
     assert_eq!(count(&ev, |e| *e == CombatEvent::BombsDetonated), 1);
     assert!(ev.contains(&CombatEvent::ProjectileGone(0)));
     assert!(ev.contains(&CombatEvent::ProjectileGone(1)));
-    assert_eq!(c.live_bombs(), 0);
+    assert_eq!(c.live_bombs(PlayerId(0)), 0);
     let log = p.tick(&mut c, &mut map, &d);
     assert_eq!(explosions(&log), at, "one per bomb, where it lay");
     // A rocket in flight is not a remote bomb.
     p.launch(&mut c, &mut map, &d, WeaponId::Rockets, Vec3::X);
-    assert_eq!(c.live_bombs(), 0);
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &WeaponEvent::Detonate);
+    assert_eq!(c.live_bombs(PlayerId(0)), 0);
+    let ev = c.player_attack(
+        &mut map,
+        &d,
+        PlayerId(0),
+        p.eye(),
+        p.body.sector,
+        &WeaponEvent::Detonate,
+    );
     assert!(ev.is_empty(), "{ev:?}");
     assert_eq!(c.projectiles.len(), 1);
 }
@@ -358,11 +373,11 @@ fn thrown_last_bomb_keeps_launcher_while_live() {
     let idle = WeaponInput::default();
     // The game's order: live count, arsenal, attacks, combat tick.
     let mut step = |input: &WeaponInput, a: &mut Arsenal, c: &mut Combat, p: &mut Player| {
-        a.live_bombs = c.live_bombs();
+        a.live_bombs = c.live_bombs(PlayerId(0));
         let ev = a.tick(&d, input, Vec3::X, &mut rng, DT);
         let mut out = Vec::new();
         for e in &ev {
-            out.extend(c.player_attack(&mut map, &d, p.eye(), p.body.sector, e));
+            out.extend(c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, e));
         }
         out.extend(p.tick(c, &mut map, &d));
         (ev, out)
@@ -397,7 +412,7 @@ fn resting_bomb(c: &mut Combat, map: &Map, d: &Defs, x: f32, y: f32) {
         sector,
         radius: pd.radius,
         damage: pd.damage,
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
         targets: Targets::All,
         life: pd.life,
         gravity: pd.gravity,
@@ -529,7 +544,7 @@ fn two_splashes_one_barrel_one_explosion() {
                 center: Vec3::new(6.0, y, 0.5),
                 sector: 0,
                 splash: rocket_splash(&d),
-                owner: Shooter::Player,
+                owner: Shooter::Player(PlayerId(0)),
             },
         });
     }
@@ -577,7 +592,7 @@ fn chain_terminates() {
             center: Vec3::new(0.5, 6.5, 0.5),
             sector: 0,
             splash: rocket_splash(&d),
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let mut log = Vec::new();
@@ -615,7 +630,7 @@ fn grunt_killed_by_splash_reports_once() {
             center: Vec3::new(6.5, 6.5, 0.5),
             sector: 0,
             splash: rocket_splash(&d),
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let ev = p.tick(&mut c, &mut map, &d);

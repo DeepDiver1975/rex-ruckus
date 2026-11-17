@@ -6,6 +6,7 @@ use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::{ActorKind, ActorSpawn};
 use crate::mechanics::{Mechanics, Motion};
 use crate::movement::MoveInput;
+use crate::players::PlayerId;
 use crate::vitals::Vitals;
 use crate::weapons::WeaponEvent;
 use std::f32::consts::PI;
@@ -61,7 +62,7 @@ impl Player {
             vitals: &mut self.vitals,
             eye,
         };
-        c.tick(map, mech, d, &mut t, DT)
+        c.tick(map, mech, d, std::slice::from_mut(&mut t), DT)
     }
 
     pub(super) fn shoot(
@@ -73,7 +74,7 @@ impl Player {
         dirs: Vec<Vec3>,
     ) -> Vec<CombatEvent> {
         let ev = WeaponEvent::Fire { weapon, dirs };
-        c.player_attack(map, d, self.eye(), self.body.sector, &ev)
+        c.player_attack(map, d, PlayerId(0), self.eye(), self.body.sector, &ev)
     }
 
     /// Unit direction from the eye to actor `i`'s chest.
@@ -134,7 +135,7 @@ fn pistol_kills_grunt_in_three_shots() {
         }));
         let killed = ev.contains(&CombatEvent::ActorKilled {
             actor: 0,
-            by: Shooter::Player,
+            by: Shooter::Player(PlayerId(0)),
         });
         assert_eq!(killed, shot == 3, "shot {shot}: {ev:?}");
         assert_eq!(count(&ev, |e| matches!(e, CombatEvent::Impact { .. })), 0);
@@ -239,7 +240,7 @@ fn kick_hits_only_within_reach() {
     let kick = WeaponEvent::Kick {
         dir: p.aim_at(&c, 0),
     };
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &kick);
     assert!(ev.contains(&CombatEvent::ActorHurt {
         actor: 0,
         amount: 12
@@ -248,11 +249,14 @@ fn kick_hits_only_within_reach() {
     let far = WeaponEvent::Kick {
         dir: p.aim_at(&c, 1),
     };
-    let ev = c.player_attack(&mut map, &d, p.eye(), p.body.sector, &far);
+    let ev = c.player_attack(&mut map, &d, PlayerId(0), p.eye(), p.body.sector, &far);
     assert!(ev.is_empty(), "{ev:?}");
     // Non-attack events do nothing.
     for e in [WeaponEvent::DryFire, WeaponEvent::ReloadStart] {
-        assert!(c.player_attack(&mut map, &d, p.eye(), 0, &e).is_empty());
+        assert!(
+            c.player_attack(&mut map, &d, PlayerId(0), p.eye(), 0, &e)
+                .is_empty()
+        );
     }
 }
 
@@ -275,7 +279,7 @@ fn hit_wakes_sleeper_but_kill_reports_only_killed() {
     let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
     assert!(ev.contains(&CombatEvent::ActorKilled {
         actor: 0,
-        by: Shooter::Player
+        by: Shooter::Player(PlayerId(0))
     }));
     assert!(!ev.contains(&CombatEvent::ActorWoke(0)), "{ev:?}");
 }
@@ -303,7 +307,7 @@ fn actor_killed_this_tick_does_not_fire() {
     let ev = p.shoot(&mut c, &mut map, &d, WeaponId::Pistol, vec![dir; 3]);
     assert!(ev.contains(&CombatEvent::ActorKilled {
         actor: 0,
-        by: Shooter::Player
+        by: Shooter::Player(PlayerId(0))
     }));
     for _ in 0..120 {
         let ev = p.tick(&mut c, &mut map, &d);
@@ -356,7 +360,14 @@ fn gunfire_wakes_nearby_but_not_behind_closed_door() {
     // A kick is quiet: 4 m does not reach a sleeper 8 m away.
     let mut c = Combat::spawn(&authored, &d, 1);
     let kick = WeaponEvent::Kick { dir: wall };
-    let ev = c.player_attack(&mut authored, &d, p.eye(), p.body.sector, &kick);
+    let ev = c.player_attack(
+        &mut authored,
+        &d,
+        PlayerId(0),
+        p.eye(),
+        p.body.sector,
+        &kick,
+    );
     assert!(!ev.iter().any(|e| matches!(e, CombatEvent::ActorWoke(_))));
     assert_eq!(
         c.make_noise(&authored, p.eye(), 0, 4.0),
@@ -396,7 +407,7 @@ fn bolt_damages_player_and_reports_direction() {
         .iter()
         .enumerate()
         .find_map(|(i, e)| match e {
-            CombatEvent::PlayerHurt { amount, from } => Some((i, *amount, *from)),
+            CombatEvent::PlayerHurt { amount, from, .. } => Some((i, *amount, *from)),
             _ => None,
         })
         .expect("bolt hit the player");
@@ -432,7 +443,7 @@ fn bolt(c: &mut Combat, map: &Map, pos: Vec3) {
         radius: 0.12,
         damage: 8,
         owner: Shooter::Actor(0),
-        targets: Targets::Player,
+        targets: Targets::Players,
         life: 4.0,
         gravity: 0.0,
         bounce: None,
@@ -459,7 +470,10 @@ fn player_killed_reported_once() {
     for _ in 0..60 {
         log.extend(p.tick(&mut c, &mut map, &d));
     }
-    assert_eq!(count(&log, |e| *e == CombatEvent::PlayerKilled), 1);
+    assert_eq!(
+        count(&log, |e| *e == CombatEvent::PlayerKilled(PlayerId(0))),
+        1
+    );
     assert_eq!(
         count(&log, |e| matches!(e, CombatEvent::PlayerHurt { .. })),
         2,
@@ -535,7 +549,7 @@ fn corpse_does_not_hold_door_open() {
     assert!(
         ev.contains(&CombatEvent::ActorKilled {
             actor: 0,
-            by: Shooter::Player
+            by: Shooter::Player(PlayerId(0))
         }),
         "{ev:?}"
     );
@@ -704,7 +718,7 @@ fn enforcer_hitscan_hurts_player() {
         volleys += count(&ev, |e| matches!(e, CombatEvent::ActorFired { .. }));
         impacts += count(&ev, |e| matches!(e, CombatEvent::Impact { .. }));
         for e in &ev {
-            if let CombatEvent::PlayerHurt { amount, from } = e {
+            if let CombatEvent::PlayerHurt { amount, from, .. } = e {
                 // One event per volley: whole pellets of 5, at most 6 of them.
                 assert!(amount % 5 == 0 && (5..=30).contains(amount), "{amount}");
                 assert_eq!(*from, c.actors[0].muzzle());
@@ -769,7 +783,7 @@ fn slasher_lunges_and_hits() {
         if matches!(c.actors[0].state, AiState::Attack { .. }) {
             top_speed = top_speed.max(c.actors[0].body.vel.truncate().length());
         }
-        if let Some(CombatEvent::PlayerHurt { amount, from }) = ev
+        if let Some(CombatEvent::PlayerHurt { amount, from, .. }) = ev
             .iter()
             .find(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
         {
@@ -865,10 +879,10 @@ fn barrel_never_thinks() {
     );
     assert!(c.actors[0].health.hp < def.health);
     assert_eq!(c.actors[0].state, AiState::Sleep, "no wake, no pain");
-    let ev = c.damage_actor(&d, 0, 1000, Shooter::Player);
+    let ev = c.damage_actor(&d, 0, 1000, Shooter::Player(PlayerId(0)));
     assert!(ev.contains(&CombatEvent::ActorKilled {
         actor: 0,
-        by: Shooter::Player
+        by: Shooter::Player(PlayerId(0))
     }));
     for _ in 0..30 {
         p.tick(&mut c, &mut map, &d);
@@ -933,10 +947,11 @@ fn muzzle_behind_a_wall_is_clipped_to_the_actor_side() {
         d.enemy(ActorKind::Enforcer),
         Vec3::NEG_X,
         &bodies,
+        1,
         |_| true,
         &mut rng,
     );
-    assert_eq!(v.player_damage, 0);
+    assert!(v.player_damage.is_empty());
     assert!(
         v.impacts.iter().all(|h| h.point.x >= 4.99),
         "{:?}",

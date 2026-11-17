@@ -18,6 +18,7 @@ use rr_core::difficulty::Difficulty;
 use rr_core::inventory::Inventory as CoreInventory;
 use rr_core::map::Map;
 use rr_core::mechanics::MechEvent;
+use rr_core::players::PlayerId;
 use rr_core::rng::Rng;
 use rr_core::vitals::Vitals;
 use rr_core::weapons::{Arsenal, WeaponEvent, WeaponInput};
@@ -219,7 +220,8 @@ fn player_weapons(
         }
         let aim = aim_dir(look.angle, look.pitch);
         // Bombs still in the world keep the launcher armed for detonation.
-        arsenal.0.live_bombs = combat.0.live_bombs();
+        // Every player entity is `PlayerId(0)` until co-op gives them real ids.
+        arsenal.0.live_bombs = combat.0.live_bombs(PlayerId(0));
         let events = arsenal.0.tick(&defs.0, &input, aim, &mut rng.0, dt);
         let eye = eye_of(&body.0);
         for ev in &events {
@@ -230,9 +232,14 @@ fn player_weapons(
                     | WeaponEvent::Launch { .. }
                     | WeaponEvent::Detonate
             ) {
-                let out = combat
-                    .0
-                    .player_attack(&mut map.0, &defs.0, eye, body.0.sector, ev);
+                let out = combat.0.player_attack(
+                    &mut map.0,
+                    &defs.0,
+                    PlayerId(0),
+                    eye,
+                    body.0.sector,
+                    ev,
+                );
                 mark_dirty(&out, &mut dirty);
                 fx.combat.extend(out);
             }
@@ -255,26 +262,34 @@ fn combat_tick(
     mut q: Query<(&mut PlayerBody, &mut PlayerVitals), With<Player>>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (mut body, mut vitals) in &mut q {
-        let eye = eye_of(&body.0);
-        let mut target = PlayerTarget {
-            body: &mut body.0,
-            vitals: &mut vitals.0,
-            eye,
-        };
-        let out = combat
-            .0
-            .tick(&mut map.0, &mut mech.0, &defs.0, &mut target, dt);
-        mark_dirty(&out, &mut dirty);
-        for ev in &out {
-            if let CombatEvent::DeathAction(action) = *ev
-                && mech.0.apply(action)
-            {
-                finish_level(&mut state, &mut msg);
+    // One tick for every player; query order is the player id.
+    let mut players: Vec<PlayerTarget> = q
+        .iter_mut()
+        .map(|(body, vitals)| {
+            let (body, vitals) = (body.into_inner(), vitals.into_inner());
+            let eye = eye_of(&body.0);
+            PlayerTarget {
+                body: &mut body.0,
+                vitals: &mut vitals.0,
+                eye,
             }
-        }
-        fx.combat.extend(out);
+        })
+        .collect();
+    if players.is_empty() {
+        return;
     }
+    let out = combat
+        .0
+        .tick(&mut map.0, &mut mech.0, &defs.0, &mut players, dt);
+    mark_dirty(&out, &mut dirty);
+    for ev in &out {
+        if let CombatEvent::DeathAction(action) = *ev
+            && mech.0.apply(action)
+        {
+            finish_level(&mut state, &mut msg);
+        }
+    }
+    fx.combat.extend(out);
 }
 
 /// Queues the sectors a combat change (shattered glass) left stale for re-meshing, the same

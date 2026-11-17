@@ -107,7 +107,7 @@ pub fn hurt_tint(events: &[CombatEvent]) -> Option<Color> {
         return None;
     }
     let hazard = events.iter().rev().find_map(|e| match e {
-        CombatEvent::HazardBurn { kind } => Some(hazard_color(*kind)),
+        CombatEvent::HazardBurn { kind, .. } => Some(hazard_color(*kind)),
         _ => None,
     });
     Some(hazard.unwrap_or(HURT_RED))
@@ -674,16 +674,19 @@ fn update_overlay(
 mod tests {
     use super::*;
     use rr_core::hazard::HazardKind;
+    use rr_core::players::PlayerId;
 
     #[test]
     fn hazard_burns_tint_the_flash() {
         let hurt = CombatEvent::PlayerHurt {
+            player: PlayerId(0),
             amount: 4,
             from: Vec3::ZERO,
         };
         assert_eq!(hurt_tint(&[]), None);
         assert_eq!(hurt_tint(std::slice::from_ref(&hurt)), Some(HURT_RED));
         let slime = CombatEvent::HazardBurn {
+            player: PlayerId(0),
             kind: HazardKind::Slime,
         };
         assert_eq!(
@@ -691,9 +694,11 @@ mod tests {
             Some(hazard_color(HazardKind::Slime))
         );
         let magma = CombatEvent::HazardBurn {
+            player: PlayerId(0),
             kind: HazardKind::Burn,
         };
         let hurt = CombatEvent::PlayerHurt {
+            player: PlayerId(0),
             amount: 6,
             from: Vec3::ZERO,
         };

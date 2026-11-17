@@ -10,7 +10,8 @@ fn burns(ev: &[CombatEvent]) -> usize {
         matches!(
             e,
             CombatEvent::HazardBurn {
-                kind: HazardKind::Slime
+                kind: HazardKind::Slime,
+                ..
             }
         )
     })
@@ -95,7 +96,8 @@ fn standing_on_magma_burns_with_its_own_kind() {
             matches!(
                 e,
                 CombatEvent::HazardBurn {
-                    kind: HazardKind::Burn
+                    kind: HazardKind::Burn,
+                    ..
                 }
             )
         }) {

@@ -43,8 +43,8 @@ pub fn proj_kind(p: &Projectile) -> ProjKind {
     match p.owner {
         // The level never fires projectiles; a bolt is the neutral look.
         Shooter::Actor(_) | Shooter::World => ProjKind::Bolt,
-        Shooter::Player if p.bounce.is_some() || p.remote => ProjKind::Bomb,
-        Shooter::Player => ProjKind::Rocket,
+        Shooter::Player(_) if p.bounce.is_some() || p.remote => ProjKind::Bomb,
+        Shooter::Player(_) => ProjKind::Rocket,
     }
 }
 
@@ -306,7 +306,7 @@ mod tests {
             radius: 0.12,
             damage: 8,
             owner: rr_core::projectile::Shooter::Actor(0),
-            targets: rr_core::projectile::Targets::Player,
+            targets: rr_core::projectile::Targets::Players,
             life: 1.0,
             gravity: 0.0,
             bounce: None,

@@ -10,6 +10,7 @@ use crate::map::{
     Channel, ItemKind, Key, KeySet, Map, MoverDef, MoverKind, RawBlast, RawQuake, SectorId,
     SwitchAction, WallId,
 };
+use crate::players::PlayerId;
 use crate::props::{PropKind, PropOutcome};
 use crate::vitals::Vitals;
 use glam::Vec2;
@@ -152,7 +153,8 @@ pub struct Mechanics {
     /// Per trigger: a `once` trigger that already ran.
     trig_done: Vec<bool>,
     /// The sector `enter` last saw the player in (`None` before the first call).
-    inside: Option<SectorId>,
+    /// Per player id: the sector it was in at its last `enter` call.
+    inside: Vec<Option<SectorId>>,
     /// Each authored quake with its elapsed time while it runs.
     quakes: Vec<(RawQuake, Option<f32>)>,
     /// Each authored blast, and whether its channel already set it off (blasts go off once).
@@ -233,7 +235,7 @@ impl Mechanics {
                 })
                 .collect(),
             trig_done: vec![false; map.triggers.len()],
-            inside: None,
+            inside: Vec::new(),
             quakes: map.quakes.iter().map(|&q| (q, None)).collect(),
             blasts: map.blasts.iter().map(|&b| (b, false)).collect(),
             blasts_due: Vec::new(),
@@ -328,15 +330,20 @@ impl Mechanics {
         }
     }
 
-    /// The player is in `sector` this tick. On entering it (a different sector from the last
-    /// call, or the first call) each of its triggers that may still run applies its action and
-    /// then reports `TriggerFired(i)`. Being carried by a lift never changes the sector, so it
-    /// never re-fires. Returns true when an exit trigger ran.
-    pub fn enter(&mut self, map: &Map, sector: SectorId) -> bool {
-        if self.inside == Some(sector) {
+    /// Player `player` is in `sector` this tick. On entering it (a different sector from that
+    /// player's last call, or its first call; any player's entry counts), each of its triggers
+    /// that may still run applies its action and then reports `TriggerFired(i)`. Being carried
+    /// by a lift never changes the sector, so it never re-fires. Returns true when an exit
+    /// trigger ran.
+    pub fn enter(&mut self, map: &Map, player: PlayerId, sector: SectorId) -> bool {
+        let p = player.0 as usize;
+        if self.inside.len() <= p {
+            self.inside.resize(p + 1, None);
+        }
+        if self.inside[p] == Some(sector) {
             return false;
         }
-        self.inside = Some(sector);
+        self.inside[p] = Some(sector);
         let mut exit = false;
         for (i, t) in map.triggers.iter().enumerate() {
             if t.sector != sector || self.trig_done[i] {
@@ -1107,9 +1114,9 @@ mod tests {
     #[test]
     fn trigger_fires_its_channel_and_quake_once_on_entry() {
         let (map, mut mech) = setup(engine_room(""));
-        assert!(!mech.enter(&map, 0));
+        assert!(!mech.enter(&map, PlayerId(0), 0));
         assert_eq!(mech.movers[0].motion, Motion::AtStart);
-        assert!(!mech.enter(&map, 1));
+        assert!(!mech.enter(&map, PlayerId(0), 1));
         assert_eq!(mech.movers[0].motion, Motion::ToEnd);
         let ev = mech.drain_events();
         assert!(ev.contains(&MechEvent::QuakeStarted {
@@ -1117,8 +1124,8 @@ mod tests {
             duration: 2.0
         }));
         assert_eq!(ev.last(), Some(&MechEvent::TriggerFired(0)));
-        mech.enter(&map, 0);
-        mech.enter(&map, 1);
+        mech.enter(&map, PlayerId(0), 0);
+        mech.enter(&map, PlayerId(0), 1);
         assert!(mech.drain_events().is_empty(), "a once trigger stays spent");
     }
 
@@ -1128,9 +1135,9 @@ mod tests {
             "(kind: Door, channel: Some(2))",
             "triggers: [(sector: 2, action: Channel(2), once: false)],",
         ));
-        mech.enter(&map, 2);
-        mech.enter(&map, 0);
-        mech.enter(&map, 2);
+        mech.enter(&map, PlayerId(0), 2);
+        mech.enter(&map, PlayerId(0), 0);
+        mech.enter(&map, PlayerId(0), 2);
         let fired = mech
             .drain_events()
             .iter()
@@ -1145,13 +1152,72 @@ mod tests {
     }
 
     #[test]
+    fn second_player_entering_fires_repeatable_trigger() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(2))",
+            "triggers: [(sector: 2, action: Channel(2), once: false)],",
+        ));
+        let fired = |mech: &mut Mechanics| {
+            mech.drain_events()
+                .iter()
+                .filter(|e| matches!(e, MechEvent::TriggerFired(0)))
+                .count()
+        };
+        mech.enter(&map, PlayerId(0), 2);
+        assert_eq!(fired(&mut mech), 1);
+        mech.enter(&map, PlayerId(1), 2);
+        assert_eq!(fired(&mut mech), 1, "the second player's entry fires again");
+        mech.enter(&map, PlayerId(0), 2);
+        assert_eq!(fired(&mut mech), 0, "staying put does not fire");
+    }
+
+    #[test]
+    fn once_trigger_fires_for_first_player_only() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(2))",
+            "triggers: [(sector: 2, action: Channel(2))],",
+        ));
+        mech.enter(&map, PlayerId(1), 2);
+        mech.enter(&map, PlayerId(0), 2);
+        let fired = mech
+            .drain_events()
+            .iter()
+            .filter(|e| matches!(e, MechEvent::TriggerFired(0)))
+            .count();
+        assert_eq!(fired, 1);
+    }
+
+    #[test]
+    fn players_track_their_own_sector() {
+        let (map, mut mech) = setup(door_rooms(
+            "(kind: Door, channel: Some(2))",
+            "triggers: [(sector: 2, action: Channel(2), once: false)],",
+        ));
+        let fired = |mech: &mut Mechanics| {
+            mech.drain_events()
+                .iter()
+                .filter(|e| matches!(e, MechEvent::TriggerFired(0)))
+                .count()
+        };
+        mech.enter(&map, PlayerId(0), 2);
+        assert_eq!(fired(&mut mech), 1);
+        mech.enter(&map, PlayerId(1), 2);
+        assert_eq!(fired(&mut mech), 1);
+        mech.enter(&map, PlayerId(1), 0);
+        mech.enter(&map, PlayerId(1), 2);
+        assert_eq!(fired(&mut mech), 1, "player 1 re-entered once");
+        mech.enter(&map, PlayerId(0), 2);
+        assert_eq!(fired(&mut mech), 0, "player 0 never moved");
+    }
+
+    #[test]
     fn exit_trigger_reports_exit() {
         let (map, mut mech) = setup(door_rooms(
             "(kind: Door)",
             "triggers: [(sector: 2, action: Exit)],",
         ));
-        assert!(!mech.enter(&map, 0));
-        assert!(mech.enter(&map, 2));
+        assert!(!mech.enter(&map, PlayerId(0), 0));
+        assert!(mech.enter(&map, PlayerId(0), 2));
         assert_eq!(
             mech.drain_events(),
             vec![MechEvent::Exit, MechEvent::TriggerFired(0)]
@@ -1168,7 +1234,7 @@ mod tests {
         let mut mech = Mechanics::new(&mut map);
         let mut bodies = [body_at(&map, 5.0, 2.0)];
         for _ in 0..120 {
-            mech.enter(&map, bodies[0].sector);
+            mech.enter(&map, PlayerId(0), bodies[0].sector);
             mech.tick(&mut map, &mut bodies, DT);
         }
         assert_eq!(
@@ -1337,7 +1403,7 @@ mod tests {
         mech.fire(7);
         assert!(mech.take_blasts().is_empty(), "never re-armed");
         // A trigger on the channel sets it off too.
-        mech.enter(&map, 0);
+        mech.enter(&map, PlayerId(0), 0);
         mech.apply(SwitchAction::Channel(8));
         assert_eq!(mech.take_blasts(), vec![map.blasts[1]]);
     }
