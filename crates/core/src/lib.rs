@@ -27,6 +27,7 @@ pub mod players;
 pub mod projectile;
 pub mod props;
 pub mod rng;
+pub mod snapshot;
 pub mod stats;
 pub mod trace;
 pub mod validate;

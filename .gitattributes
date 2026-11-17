@@ -1,0 +1,2 @@
+# Level and def files are hashed for the co-op asset check: keep them LF everywhere.
+*.ron text eol=lf

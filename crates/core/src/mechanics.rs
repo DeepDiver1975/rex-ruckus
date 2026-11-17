@@ -14,6 +14,7 @@ use crate::players::PlayerId;
 use crate::props::{PropKind, PropOutcome};
 use crate::vitals::Vitals;
 use glam::Vec2;
+use serde::{Deserialize, Serialize};
 
 /// Feet within this distance of a lift floor ride along with it.
 const CARRY_EPS: f32 = 0.01;
@@ -40,7 +41,7 @@ pub fn quake_fade(elapsed: f32, duration: f32) -> f32 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Motion {
     AtStart,
     ToEnd,
@@ -132,7 +133,7 @@ pub const JUKEBOX_SECS: f32 = 4.0;
 pub const PAYPHONE_COOLDOWN: f32 = 1.5;
 
 /// A prop's runtime state.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PropState {
     pub kind: PropKind,
     pub stock: u32,
@@ -356,6 +357,24 @@ impl Mechanics {
         exit
     }
 
+    /// Elapsed seconds of each authored quake while it runs (map order), for snapshots.
+    pub(crate) fn quake_times(&self) -> Vec<Option<f32>> {
+        self.quakes.iter().map(|&(_, t)| t).collect()
+    }
+
+    /// How many quakes the level authors.
+    pub(crate) fn quake_count(&self) -> usize {
+        self.quakes.len()
+    }
+
+    /// Sets each quake's elapsed time from a snapshot; `times` must hold one per quake.
+    pub(crate) fn set_quake_times(&mut self, times: &[Option<f32>]) {
+        debug_assert_eq!(times.len(), self.quakes.len());
+        for ((_, t), &s) in self.quakes.iter_mut().zip(times) {
+            *t = s;
+        }
+    }
+
     /// Current screen-shake strength in 0..=1: the strongest running quake, faded.
     pub fn quake_strength(&self) -> f32 {
         self.quakes
@@ -511,7 +530,7 @@ impl Mechanics {
             };
             if set_plane(map, mv, z, bodies) {
                 mv.z = z;
-                changed.push(mv.sector);
+                changed.push(moved_sector(mv));
                 if z == goal {
                     mv.motion = if goal == mv.end {
                         Motion::AtEnd { wait: 0.0 }
@@ -584,23 +603,19 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
     let before: Vec<f32> = touching.iter().map(|&i| squeeze(map, &bodies[i])).collect();
     let saved = bodies.to_vec();
     let (old_floor, old_ceil) = (map.sectors[s].floor_z, map.sectors[s].ceil_z);
-    match mv.def.kind {
-        MoverKind::Door | MoverKind::Crack => map.sectors[s].ceil_z = z,
-        MoverKind::Slide { .. } => unreachable!("handled by slide"),
-        MoverKind::Lift { .. } => {
-            map.sectors[s].floor_z = z;
-            for &i in &touching {
-                let b = &mut bodies[i];
-                let riding = b.on_ground && (b.pos.z - old_floor).abs() < CARRY_EPS;
-                // A rising floor also scoops up a body that was just above it (mid-jump).
-                let overrun = b.pos.z < z && b.pos.z > old_floor - CARRY_EPS;
-                if riding {
-                    // Land on the highest floor under the footprint: a rider overhanging a
-                    // ledge stays on it while the lift sinks away.
-                    b.pos.z = z_range(map, b.pos.truncate(), b.radius, b.sector).0;
-                } else if overrun {
-                    b.pos.z = z;
-                }
+    place_mover(map, mv, z);
+    if let MoverKind::Lift { .. } = mv.def.kind {
+        for &i in &touching {
+            let b = &mut bodies[i];
+            let riding = b.on_ground && (b.pos.z - old_floor).abs() < CARRY_EPS;
+            // A rising floor also scoops up a body that was just above it (mid-jump).
+            let overrun = b.pos.z < z && b.pos.z > old_floor - CARRY_EPS;
+            if riding {
+                // Land on the highest floor under the footprint: a rider overhanging a
+                // ledge stays on it while the lift sinks away.
+                b.pos.z = z_range(map, b.pos.truncate(), b.radius, b.sector).0;
+            } else if overrun {
+                b.pos.z = z;
             }
         }
     }
@@ -614,6 +629,24 @@ fn set_plane(map: &mut Map, mv: &Mover, z: f32, bodies: &mut [Body]) -> bool {
         bodies.copy_from_slice(&saved);
     }
     !worse
+}
+
+/// The sector to report as changed when mover `mv` moves (`Mechanics::tick` and a snapshot
+/// apply share it): its own. A slider's track is its neighbour, so the renderer's rebuild of a
+/// changed sector and its neighbours covers it.
+pub(crate) fn moved_sector(mv: &Mover) -> SectorId {
+    mv.sector
+}
+
+/// Writes mover `mv`'s pose at `z` into the map: a door's or crack's ceiling, a lift's floor, or
+/// a slider's walls `z` metres down its path. Moves no bodies (`Mechanics::tick` carries them;
+/// a snapshot apply only poses the map).
+pub(crate) fn place_mover(map: &mut Map, mv: &Mover, z: f32) {
+    match mv.def.kind {
+        MoverKind::Door | MoverKind::Crack => map.sectors[mv.sector].ceil_z = z,
+        MoverKind::Lift { .. } => map.sectors[mv.sector].floor_z = z,
+        MoverKind::Slide { by } => place_slider(map, mv, Vec2::from(by).normalize(), z),
+    }
 }
 
 /// Puts slider `mv` (and its twins in the track) `along` metres down its path `dir`.
@@ -664,7 +697,7 @@ fn slide(map: &mut Map, mv: &Mover, dir: Vec2, z: f32, bodies: &mut [Body]) -> b
     let cut_before: Vec<f32> = bodies.iter().map(|b| cut(map, s, b)).collect();
     let squeeze_before: Vec<f32> = bodies.iter().map(|b| squeeze(map, b)).collect();
     let saved = bodies.to_vec();
-    place_slider(map, mv, dir, z);
+    place_mover(map, mv, z);
     let delta = dir * (z - mv.z);
     for (b, &ride) in bodies.iter_mut().zip(&riders) {
         if ride {
@@ -686,7 +719,7 @@ fn slide(map: &mut Map, mv: &Mover, dir: Vec2, z: f32, bodies: &mut [Body]) -> b
             || squeeze(map, &bodies[i]) > squeeze_before[i].max(0.0) + 1e-4
     });
     if worse {
-        place_slider(map, mv, dir, mv.z);
+        place_mover(map, mv, mv.z);
         bodies.copy_from_slice(&saved);
     }
     !worse

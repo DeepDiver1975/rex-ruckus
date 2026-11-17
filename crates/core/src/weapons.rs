@@ -9,6 +9,7 @@
 use crate::defs::{AmmoKind, Attack, Defs, WeaponId};
 use crate::rng::Rng;
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WeaponInput {
@@ -22,7 +23,7 @@ pub struct WeaponInput {
     pub cycle: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum WeaponPhase {
     Ready,
     Cooldown(f32),
@@ -52,7 +53,7 @@ pub enum WeaponEvent {
     Switched(WeaponId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arsenal {
     pub current: WeaponId,
     pub phase: WeaponPhase,

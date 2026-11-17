@@ -159,7 +159,7 @@ impl Key {
 }
 
 /// The keycards someone holds.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeySet(u8);
 
 impl KeySet {

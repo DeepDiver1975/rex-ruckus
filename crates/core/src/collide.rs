@@ -4,13 +4,14 @@
 use crate::geom::closest_point_on_segment;
 use crate::map::{Map, Sector, SectorId, Wall};
 use glam::{Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 
 const SKIN: f32 = 1e-3;
 /// Overlap needed before a neighbouring sector's floor/ceiling affects `z_range`.
 const Z_RANGE_MARGIN: f32 = 0.01;
 const PUSH_ITERATIONS: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Body {
     /// Feet position in core coordinates.
     pub pos: Vec3,

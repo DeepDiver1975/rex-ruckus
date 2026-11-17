@@ -148,7 +148,7 @@ pub struct ProjectileDef {
 
 /// Area damage: full `damage` at the centre, falling off to nothing at `radius`; the
 /// shooter takes `self_scale` of it.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SplashDef {
     pub radius: f32,
     pub damage: i32,
@@ -222,7 +222,7 @@ pub struct Phase {
 /// `under` (untargetable, no collision), comes up at another of the level's burrow points and
 /// rises for `rise` seconds, bringing up to `spawn` of its `minions` with it. Needs at least two
 /// burrow points in the level.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BurrowDef {
     pub every: (f32, f32),
@@ -238,7 +238,7 @@ pub struct BurrowDef {
 /// available), with the target within `radius`, a chasing actor rears up for `windup` seconds
 /// and slams the floor: bodies on the ground within `radius` take `damage`, falling off
 /// linearly with the distance; airborne ones (jumping, jetpacking, flying) take none.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PoundDef {
     pub every: f32,

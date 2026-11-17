@@ -1,8 +1,10 @@
 //! Hit points shared by the player and actors.
 
+use serde::{Deserialize, Serialize};
+
 pub const PLAYER_MAX_HEALTH: i32 = 100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Health {
     pub hp: i32,
     pub max: i32,

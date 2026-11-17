@@ -7,8 +7,9 @@ use crate::map::{Map, SectorId};
 use crate::players::{BodyRef, PlayerId, body_ref, shooter_body};
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Shooter {
     Player(PlayerId),
     Actor(usize),
@@ -17,14 +18,14 @@ pub enum Shooter {
     World,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Targets {
     Players,
     Actors,
     All,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Projectile {
     /// Assigned by the caller; never changed by `step_projectile`.
     pub id: u32,

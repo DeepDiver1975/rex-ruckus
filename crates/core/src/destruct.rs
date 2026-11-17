@@ -8,6 +8,7 @@ use crate::map::{Map, MoverKind, SectorId, WallId};
 use crate::mechanics::{Mechanics, Motion};
 use crate::trace::{Hit, HitKind, can_see, ray_sphere};
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
 /// Whether `hit` landed on an intact glass pane itself: a wall hit on a glass portal at a
 /// height inside its opening (the higher floor to the lower ceiling of the two sectors). A hit
@@ -32,7 +33,7 @@ pub const CRACK_SPEED: f32 = 6.0;
 pub const FIXTURE_RADIUS: f32 = 0.2;
 
 /// Runtime destruction state of one level. Lives in `Combat::destruct`.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Destruct {
     /// Per light (index in `Map::lights`): the fixture has been broken.
     lights: Vec<bool>,
@@ -51,6 +52,15 @@ impl Destruct {
             secrets_found: vec![false; map.sectors.len()],
             secrets_total: map.sectors.iter().filter(|s| s.secret).count() as u32,
         }
+    }
+
+    /// Whether `other` was built for a level of the same shape (as many lights, sectors and
+    /// secrets), so it can replace this one.
+    pub(crate) fn same_shape(&self, other: &Destruct) -> bool {
+        self.lights.len() == other.lights.len()
+            && self.cracks_open.len() == other.cracks_open.len()
+            && self.secrets_found.len() == other.secrets_found.len()
+            && self.secrets_total == other.secrets_total
     }
 
     /// Sets crack wall `s` opening, fast and for good: no auto-return, and nothing closes it
@@ -106,6 +116,11 @@ impl Destruct {
             }
             _ => false,
         }
+    }
+
+    /// Whether crack wall `s` has been set off.
+    pub fn crack_open(&self, s: SectorId) -> bool {
+        self.cracks_open.get(s).copied().unwrap_or(false)
     }
 
     /// Whether light `i` has been broken.

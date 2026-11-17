@@ -1,6 +1,7 @@
 //! Carried utility items: medkit charge, jetpack fuel, night-vision battery.
 
 use crate::vitals::Vitals;
+use serde::{Deserialize, Serialize};
 
 pub const MEDKIT_MAX: i32 = 100;
 pub const FUEL_MAX: f32 = 100.0;
@@ -23,7 +24,7 @@ pub enum InvEvent {
     NightVisionOff,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Inventory {
     pub medkit: i32,
     pub fuel: f32,

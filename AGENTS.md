@@ -14,8 +14,9 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 
 | Path | What lives there |
 |---|---|
-| `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting, boss phases and special moves (`actors/special.rs`), automap (`automap.rs`). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
+| `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting, boss phases and special moves (`actors/special.rs`), automap (`automap.rs`), world snapshots (`snapshot.rs`: capture and apply of world state; a co-op client applies them and never ticks AI). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
 | `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals); `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
+| `crates/net` (`rr-net`) | Co-op wire layer, no sockets yet: protocol constants and messages, postcard encode/decode (`decode_server` also rejects non-finite snapshots), `check_hello`, the LAN `Beacon`, `InputFrame` and `assets_hash`. Depends on `rr-core` only. |
 | `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
 | `assets/episode.ron` | The episodes in menu order, each with its name and levels in play order (no levels = "coming soon"). |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
@@ -123,6 +124,7 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - Episode levels hold 30-45 enemies on Normal (barrels excluded); Easy is about 2/3 of that, Hard about 1.25x.
 - `validate`'s "cannot be reached from the start" item warnings are expected only for crack-wall stashes and jetpack-only ledges. It never counts on a barrel or rocket to open a Crack, so no key may sit behind one; a Crack that a scripted blast on a fired (reachable) channel reaches is passable.
 - `blasts: [(channel, at: (x, y, z), radius, damage, delay)]` are scripted explosions: the first time the channel fires, each goes off once after `delay` through combat's blast queue (splash with falloff, cracks, glass, lights, `Explosion`), owned by `Shooter::World` (no self-damage discount, no infighting). `Mechanics::fire` hands them to `Combat::tick` via `take_blasts`. `validate` wants a channel source, `at` inside a sector between floor and ceiling, radius > 0, damage and delay >= 0.
+- Bump `rr_net::PROTOCOL_VERSION` whenever a wire type or any snapshot type (`rr_core::snapshot` and what it embeds) changes shape; a host refuses a client with another version.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 - The Hive Queen (`HiveQueen`) is the second boss. Her moves are data: a phase's `burrow` and
   `pound` and the def's `minions` (Slashers, live cap per skill via `Combat::skill`) in

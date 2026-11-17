@@ -1,13 +1,14 @@
 //! Player vitals: health plus armour, with overcharge above 100.
 
 use crate::health::{DamageOutcome, Health, PLAYER_MAX_HEALTH};
+use serde::{Deserialize, Serialize};
 
 pub const ARMOUR_MAX: i32 = 100;
 /// Fraction of each hit armour soaks while it lasts.
 pub const ARMOUR_ABSORB: f32 = 0.5;
 pub const OVERCHARGE_MAX: i32 = 200;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Vitals {
     pub health: Health,
     pub armour: i32,

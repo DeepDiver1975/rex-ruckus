@@ -13,11 +13,12 @@ use crate::players::{BodyRef, PlayerId, body_ref};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 
 pub mod special;
 pub mod steer;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AiState {
     Sleep,
     /// Awake; `t` counts up to the reaction time, then the actor chases.
@@ -59,6 +60,38 @@ pub enum AiState {
         t: f32,
         plan: PoundDef,
     },
+}
+
+impl AiState {
+    /// Whether every float the state carries (timers and move plans) is finite.
+    pub fn is_finite(&self) -> bool {
+        let burrow = |b: &BurrowDef| {
+            b.every.0.is_finite()
+                && b.every.1.is_finite()
+                && b.first.is_finite()
+                && b.dig.is_finite()
+                && b.under.is_finite()
+                && b.rise.is_finite()
+        };
+        match self {
+            AiState::Sleep | AiState::Chase | AiState::Dead => true,
+            AiState::Alert { t }
+            | AiState::Attack { t, .. }
+            | AiState::Pain { t }
+            | AiState::Dying { t }
+            | AiState::Emerge { t } => t.is_finite(),
+            AiState::Burrow { t, plan } | AiState::Under { t, plan } => {
+                t.is_finite() && burrow(plan)
+            }
+            AiState::Pound { t, plan } => {
+                t.is_finite()
+                    && plan.every.is_finite()
+                    && plan.first.is_finite()
+                    && plan.windup.is_finite()
+                    && plan.radius.is_finite()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -257,7 +290,13 @@ impl Actor {
                 .max(floor);
             body.on_ground = false;
         }
-        Some(Actor {
+        Some(Actor::with_body(def, spawn, body))
+    }
+
+    /// An actor for `spawn` with `body` as given: no sector lookup and no flyer placement (a
+    /// snapshot apply overwrites the body with the host's anyway).
+    pub(crate) fn with_body(def: &EnemyDef, spawn: &ActorSpawn, body: Body) -> Actor {
+        Actor {
             kind: spawn.kind,
             body,
             prev_pos: body.pos,
@@ -285,7 +324,7 @@ impl Actor {
             burrow_at: None,
             summoner: None,
             grudge: 0.0,
-        })
+        }
     }
 
     /// Eye point: feet + 0.9 · height.
