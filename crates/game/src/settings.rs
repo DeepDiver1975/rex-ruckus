@@ -1,6 +1,6 @@
-//! Player settings: mouse, field of view, volumes, low-res and key bindings, saved as RON in the
-//! OS config dir (`$RR_SETTINGS` overrides the path). A missing file means defaults; a broken
-//! one means defaults and a warning, never a crash.
+//! Player settings: mouse, field of view, volumes, low-res, key bindings and the co-op name, saved
+//! as RON in the OS config dir (`$RR_SETTINGS` overrides the path). A missing file means defaults;
+//! a broken one means defaults and a warning, never a crash.
 
 use crate::audio::AudioVolumes;
 use crate::bindings::Bindings;
@@ -30,6 +30,27 @@ pub struct Settings {
     pub music: f32,
     pub low_res: bool,
     pub bindings: Bindings,
+    /// The name shown to the other players of a co-op game.
+    pub player_name: String,
+}
+
+/// `$USER` (or `$USERNAME`), else "Rex": the name a fresh settings file starts with.
+pub fn default_player_name() -> String {
+    let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME"));
+    name_from(user.ok().as_deref())
+}
+
+/// `user` trimmed and cut to [`rr_net::MAX_NAME`] bytes on a char boundary; "Rex" if empty.
+fn name_from(user: Option<&str>) -> String {
+    let user = user.unwrap_or("").trim();
+    let mut end = user.len().min(rr_net::MAX_NAME);
+    while !user.is_char_boundary(end) {
+        end -= 1;
+    }
+    match user[..end].trim_end() {
+        "" => "Rex".into(),
+        name => name.into(),
+    }
 }
 
 impl Default for Settings {
@@ -45,6 +66,7 @@ impl Default for Settings {
             music: v.music,
             low_res: false,
             bindings: Bindings::default(),
+            player_name: default_player_name(),
         }
     }
 }
@@ -88,6 +110,7 @@ impl Settings {
         self.voice = unit(self.voice);
         self.music = unit(self.music);
         self.bindings.sanitise();
+        self.player_name = name_from(Some(&self.player_name));
         self
     }
 
@@ -326,6 +349,31 @@ mod tests {
         assert_eq!(s.fov_deg, FOV_MAX);
         assert_eq!(s.mouse_sensitivity, Settings::default().mouse_sensitivity);
         assert_eq!(warn, None);
+    }
+
+    #[test]
+    fn a_file_without_a_name_gets_the_default_name() {
+        let dir = tempdir();
+        let p = dir.join("settings.ron");
+        std::fs::write(&p, "(invert_y: true)").unwrap();
+        let (s, warn) = Settings::load_from(&p);
+        assert_eq!(warn, None);
+        assert_eq!(s.player_name, default_player_name());
+        assert!(!s.player_name.is_empty() && s.player_name.len() <= rr_net::MAX_NAME);
+        let mut named = s.clone();
+        named.player_name = "Ann".into();
+        named.save_to(&p).unwrap();
+        assert_eq!(Settings::load_from(&p).0.player_name, "Ann");
+    }
+
+    #[test]
+    fn default_names_fit_on_a_char_boundary() {
+        assert_eq!(name_from(None), "Rex");
+        assert_eq!(name_from(Some("  ")), "Rex");
+        assert_eq!(name_from(Some("ann")), "ann");
+        // 23 bytes of ASCII and a 2-byte 'é': the 'é' would end at byte 25.
+        let long = format!("{}é", "a".repeat(23));
+        assert_eq!(name_from(Some(&long)), "a".repeat(23));
     }
 
     #[test]

@@ -5,6 +5,14 @@ use bevy::prelude::*;
 
 pub mod client;
 pub mod host;
+pub mod lobby;
+
+/// A co-op session the command line starts at once (`--host`, `--join ADDR`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetStart {
+    Host,
+    Join(std::net::SocketAddr),
+}
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NetMode {

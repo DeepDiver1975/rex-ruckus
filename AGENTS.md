@@ -15,8 +15,9 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | Path | What lives there |
 |---|---|
 | `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting, boss phases and special moves (`actors/special.rs`), automap (`automap.rs`), world snapshots (`snapshot.rs`: capture and apply of world state; a co-op client applies them and never ticks AI). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
-| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals); `src/menu/` holds the menu, pause, options, controls and stats screens. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
-| `crates/net` (`rr-net`) | Co-op wire layer, no sockets yet: protocol constants and messages, postcard encode/decode (`decode_server` also rejects non-finite or out-of-bounds snapshots, a bad seat, an oversized roster and bad level names), `check_hello`, `ServerMsg` `Snapshot{you,snap}`/`Roster`/`Load`, `valid_level_name`, `InputFrame::clamped`, `NETCODE_PROTOCOL_ID`, the LAN `Beacon`, `InputFrame` and `assets_hash`. Depends on `rr-core` only. |
+| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals); `src/menu/` holds the menu, pause, options, controls and stats screens, `menu/multiplayer.rs` the co-op screens (Multiplayer, Join, Lobby, NetNotice) and `menu/text_field.rs` their name and address fields. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
+| `crates/game/src/net/` | Co-op on the game side: `NetMode` (`mod.rs`), `host.rs` (seats, remote input, snapshots, LAN beacons), `client.rs` (applies snapshots, sends input, `NetNotice`) and `lobby.rs` (the Join screen's `LanGames`). |
+| `crates/net` (`rr-net`) | Co-op wire and socket layer: renet host and client (`session.rs`, `parse_addr`), LAN beacons (`lan.rs`: `BeaconSender`, `LanListener`), protocol constants and messages, postcard encode/decode (`decode_server` also rejects non-finite or out-of-bounds snapshots, a bad seat, an oversized roster and bad level names), `check_hello`, `ServerMsg` `Snapshot{you,snap}`/`Roster`/`Load`, `valid_level_name`, `InputFrame::clamped`, `NETCODE_PROTOCOL_ID`, the LAN `Beacon`, `InputFrame` and `assets_hash`. Depends on `rr-core` and renet (no Bevy). |
 | `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
 | `assets/episode.ron` | The episodes in menu order, each with its name and levels in play order (no levels = "coming soon"). |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
@@ -124,6 +125,11 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - Episode levels hold 30-45 enemies on Normal (barrels excluded); Easy is about 2/3 of that, Hard about 1.25x.
 - `validate`'s "cannot be reached from the start" item warnings are expected only for crack-wall stashes and jetpack-only ledges. It never counts on a barrel or rocket to open a Crack, so no key may sit behind one; a Crack that a scripted blast on a fired (reachable) channel reaches is passable.
 - `blasts: [(channel, at: (x, y, z), radius, damage, delay)]` are scripted explosions: the first time the channel fires, each goes off once after `delay` through combat's blast queue (splash with falloff, cracks, glass, lights, `Explosion`), owned by `Shooter::World` (no self-damage discount, no infighting). `Mechanics::fire` hands them to `Combat::tick` via `take_blasts`. `validate` wants a channel source, `at` inside a sector between floor and ceiling, radius > 0, damage and delay >= 0.
+- A co-op client applies the host's snapshots and never simulates: its sim systems run on
+  `sim_ticks`, which is false for `NetMode::Client`. `world_running` keeps a net game running under
+  the pause menu. The host's `LevelRuns` changing (any `restart_level`/`load_level`) is what sends
+  `Load` to the clients. Until PR 6 relays events, a client makes up `GlassBroken`, `LightBroken`
+  and `ActorSpawned` from what a snapshot changed (`net/client.rs`), so the visuals follow.
 - Bump `rr_net::PROTOCOL_VERSION` whenever a wire type or any snapshot type (`rr_core::snapshot` and what it embeds) changes shape; a host refuses a client with another version.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 - The Hive Queen (`HiveQueen`) is the second boss. Her moves are data: a phase's `burrow` and

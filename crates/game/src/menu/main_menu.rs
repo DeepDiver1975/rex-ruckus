@@ -22,6 +22,7 @@ pub fn spawn_main(commands: &mut Commands, ui: &UiFont) {
     commands.entity(root).with_children(|p| {
         label(p, ui, "MELTDOWN", 36.0, AMBER);
         button(p, ui, "New Game", MenuAction::NewGame);
+        button(p, ui, "Multiplayer", MenuAction::Multiplayer);
         button(p, ui, "Options", MenuAction::Options);
         button(p, ui, "Quit", MenuAction::QuitGame);
     });
