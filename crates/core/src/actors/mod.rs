@@ -13,11 +13,12 @@ use crate::players::{BodyRef, PlayerId, body_ref};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 
 pub mod special;
 pub mod steer;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AiState {
     Sleep,
     /// Awake; `t` counts up to the reaction time, then the actor chases.

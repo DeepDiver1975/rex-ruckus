@@ -10,9 +10,12 @@ use crate::movement::Tuning;
 use crate::projectile::Shooter;
 use crate::trace::can_see;
 use glam::Vec2;
+use serde::{Deserialize, Serialize};
 
 /// One player in the game, 0-based (`PlayerId(0)` is the local or host player).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
+)]
 pub struct PlayerId(pub u8);
 
 /// The most players one game holds.
