@@ -7,6 +7,7 @@ use crate::actors::Target;
 use crate::defs::WeaponId;
 use crate::fixtures::{combat_room, defs};
 use crate::map::ActorKind;
+use crate::players::PlayerId;
 use std::f32::consts::PI;
 
 /// Shipped defs with planted shooters, a fixed muzzle just ahead of the body's centre line (so
@@ -47,7 +48,7 @@ fn pellets_through_a_grunt_make_it_turn_on_the_enforcer() {
     assert_eq!(c.actors[1].target, Target::Actor(0));
     assert_eq!(
         c.actors[0].target,
-        Target::Player,
+        Target::Player(PlayerId(0)),
         "the enforcer was not hurt"
     );
 }
@@ -97,7 +98,7 @@ fn same_kind_hurts_but_never_infights() {
     for _ in 0..300 {
         p.tick(&mut c, &mut map, &d);
         if c.actors[1].health.hp < 200 {
-            assert_eq!(c.actors[1].target, Target::Player);
+            assert_eq!(c.actors[1].target, Target::Player(PlayerId(0)));
             return;
         }
     }
@@ -118,7 +119,7 @@ fn target_dying_mid_burst_returns_to_the_player() {
     c.actors[1].body.height = crate::actors::CORPSE_HEIGHT;
     let mut p = Player::at(&map, 1.0, 6.5);
     p.tick(&mut c, &mut map, &d);
-    assert_eq!(c.actors[0].target, Target::Player);
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(0)));
     assert_eq!(c.actors.len(), 2, "the dead keep their index");
 }
 
@@ -137,21 +138,21 @@ fn barrels_are_never_targets_and_their_blast_credits_the_killer() {
     }
     assert!(log.contains(&CombatEvent::ActorKilled {
         actor: 0,
-        by: Shooter::Player
+        by: Shooter::Player(PlayerId(0))
     }));
     assert!(
         log.contains(&CombatEvent::ActorKilled {
             actor: 1,
-            by: Shooter::Player
+            by: Shooter::Player(PlayerId(0))
         }),
         "{log:?}"
     );
-    assert_eq!(c.actors[1].target, Target::Player);
+    assert_eq!(c.actors[1].target, Target::Player(PlayerId(0)));
     // A barrel is never a target: a Grunt hurt "by" one stays on the player.
     let mut c = Combat::spawn(&map, &d, 1);
     c.damage_actor(&d, 1, 1, Shooter::Actor(0));
     assert_eq!(c.actors[1].health.hp, d.enemy(ActorKind::Grunt).health - 1);
-    assert_eq!(c.actors[1].target, Target::Player);
+    assert_eq!(c.actors[1].target, Target::Player(PlayerId(0)));
 }
 
 #[test]

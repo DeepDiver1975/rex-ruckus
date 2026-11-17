@@ -8,6 +8,7 @@ use crate::fixtures::{combat_room, defs, lift_shaft};
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::ActorKind;
 use crate::mechanics::{Mechanics, Motion};
+use crate::players::PlayerId;
 use crate::weapons::WeaponEvent;
 use crate::weapons::{Arsenal, WeaponInput, WeaponPhase};
 use std::f32::consts::PI;
@@ -103,7 +104,7 @@ fn player_rocket_hurts_grunt() {
     let ev = p.launch(&mut c, &mut map, &d, WeaponId::Rockets, dir);
     assert_eq!(c.projectiles.len(), 1, "{ev:?}");
     let r = &c.projectiles[0];
-    assert_eq!(r.owner, Shooter::Player);
+    assert_eq!(r.owner, Shooter::Player(PlayerId(0)));
     assert_eq!(r.targets, Targets::All);
     assert_eq!(r.pos, p.eye(), "launched from the eye");
     let pd = proj_def(&d, WeaponId::Rockets);
@@ -218,7 +219,7 @@ fn explosion_wakes_sleeping_grunt_out_of_splash_range() {
             center: Vec3::new(1.0, 7.0, 0.5),
             sector: 0,
             splash: rocket_splash(&d),
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let ev = p.tick(&mut c, &mut map, &d);
@@ -258,7 +259,7 @@ fn rocket_explodes_off_the_wall() {
     let (amount, from) = log
         .iter()
         .find_map(|e| match e {
-            CombatEvent::PlayerHurt { amount, from } => Some((*amount, *from)),
+            CombatEvent::PlayerHurt { amount, from, .. } => Some((*amount, *from)),
             _ => None,
         })
         .expect("the player is inside the splash");
@@ -397,7 +398,7 @@ fn resting_bomb(c: &mut Combat, map: &Map, d: &Defs, x: f32, y: f32) {
         sector,
         radius: pd.radius,
         damage: pd.damage,
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
         targets: Targets::All,
         life: pd.life,
         gravity: pd.gravity,
@@ -529,7 +530,7 @@ fn two_splashes_one_barrel_one_explosion() {
                 center: Vec3::new(6.0, y, 0.5),
                 sector: 0,
                 splash: rocket_splash(&d),
-                owner: Shooter::Player,
+                owner: Shooter::Player(PlayerId(0)),
             },
         });
     }
@@ -577,7 +578,7 @@ fn chain_terminates() {
             center: Vec3::new(0.5, 6.5, 0.5),
             sector: 0,
             splash: rocket_splash(&d),
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let mut log = Vec::new();
@@ -615,7 +616,7 @@ fn grunt_killed_by_splash_reports_once() {
             center: Vec3::new(6.5, 6.5, 0.5),
             sector: 0,
             splash: rocket_splash(&d),
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let ev = p.tick(&mut c, &mut map, &d);

@@ -82,7 +82,7 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
         CombatEvent::ActorFired { actor } => living(actor, Cue::ActorFire),
         CombatEvent::ActorKilled { actor, .. } => living(actor, Cue::ActorDeath),
         CombatEvent::PlayerHurt { .. } => out.push((Cue::PlayerHurt, None)),
-        CombatEvent::PlayerKilled => out.push((Cue::PlayerDeath, None)),
+        CombatEvent::PlayerKilled(_) => out.push((Cue::PlayerDeath, None)),
         CombatEvent::CrackOpened(s) => {
             if s < map.sectors.len() {
                 out.push((Cue::CrackOpen, Some(map.sector_centre(s))));
@@ -94,7 +94,7 @@ pub fn combat_cues(ev: &CombatEvent, combat: &Combat, map: &Map, out: &mut Out) 
             }
         }
         CombatEvent::SecretFound => out.push((Cue::Secret, None)),
-        CombatEvent::HazardBurn { kind } => out.push((
+        CombatEvent::HazardBurn { kind, .. } => out.push((
             match kind {
                 HazardKind::Slime => Cue::HazardSizzle,
                 HazardKind::Electric => Cue::HazardZap,
@@ -204,6 +204,7 @@ mod tests {
     use crate::difficulty::Difficulty;
     use crate::fixtures::{defs, door_rooms};
     use crate::map::{ActorSpawn, ItemKind, Key};
+    use crate::players::PlayerId;
     use crate::projectile::Shooter;
     use crate::props::{PropKind, PropOutcome};
     use glam::Vec2;
@@ -244,16 +245,21 @@ mod tests {
             },
             CombatEvent::ActorKilled {
                 actor: 0,
-                by: Shooter::Player,
+                by: Shooter::Player(PlayerId(0)),
             },
             CombatEvent::ActorWoke(0),
             CombatEvent::ActorFired { actor: 0 },
-            CombatEvent::PlayerHurt { amount: 5, from: p },
-            CombatEvent::PlayerKilled,
+            CombatEvent::PlayerHurt {
+                player: PlayerId(0),
+                amount: 5,
+                from: p,
+            },
+            CombatEvent::PlayerKilled(PlayerId(0)),
             CombatEvent::CrackOpened(1),
             CombatEvent::LightBroken(0),
             CombatEvent::SecretFound,
             CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: crate::hazard::HazardKind::Slime,
             },
             CombatEvent::Impact {
@@ -290,7 +296,7 @@ mod tests {
                 | CombatEvent::ActorWoke(_)
                 | CombatEvent::ActorFired { .. }
                 | CombatEvent::PlayerHurt { .. }
-                | CombatEvent::PlayerKilled
+                | CombatEvent::PlayerKilled(_)
                 | CombatEvent::CrackOpened(_)
                 | CombatEvent::LightBroken(_)
                 | CombatEvent::SecretFound
@@ -357,7 +363,7 @@ mod tests {
             run_combat(
                 &CombatEvent::ActorKilled {
                     actor: 1,
-                    by: Shooter::Player
+                    by: Shooter::Player(PlayerId(0))
                 },
                 &c,
                 &map
@@ -394,7 +400,7 @@ mod tests {
                 &c,
                 CombatEvent::ActorKilled {
                     actor: 2,
-                    by: Shooter::Player
+                    by: Shooter::Player(PlayerId(0))
                 }
             ),
             vec![Cue::BossDeath]
@@ -436,7 +442,7 @@ mod tests {
         );
         let kill = CombatEvent::ActorKilled {
             actor: 3,
-            by: Shooter::Player,
+            by: Shooter::Player(PlayerId(0)),
         };
         assert_eq!(cue(&c, kill), vec![Cue::QueenDeath]);
         let hurt = CombatEvent::ActorHurt {
@@ -457,18 +463,21 @@ mod tests {
         let one = |e: &CombatEvent| run_combat(e, &c, &map);
         assert_eq!(
             one(&CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: HazardKind::Slime
             }),
             vec![(Cue::HazardSizzle, None)]
         );
         assert_eq!(
             one(&CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: HazardKind::Electric
             }),
             vec![(Cue::HazardZap, None)]
         );
         assert_eq!(
             one(&CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: HazardKind::Burn
             }),
             vec![(Cue::HazardScorch, None)]
@@ -562,7 +571,7 @@ mod tests {
             CombatEvent::ActorFired { actor: 1 },
             CombatEvent::ActorKilled {
                 actor: 1,
-                by: Shooter::Player,
+                by: Shooter::Player(PlayerId(0)),
             },
         ] {
             assert!(run_combat(&ev, &c, &map).is_empty(), "{ev:?}");
@@ -579,7 +588,7 @@ mod tests {
             },
             CombatEvent::ActorKilled {
                 actor: 99,
-                by: Shooter::Player,
+                by: Shooter::Player(PlayerId(0)),
             },
             CombatEvent::ActorWoke(99),
             CombatEvent::ActorFired { actor: 99 },
@@ -801,7 +810,7 @@ mod tests {
                 },
                 CombatEvent::ActorKilled {
                     actor: 0,
-                    by: Shooter::Player,
+                    by: Shooter::Player(PlayerId(0)),
                 },
                 CombatEvent::ActorWoke(0),
                 CombatEvent::ActorFired { actor: 0 },
@@ -814,12 +823,15 @@ mod tests {
         for e in [
             CombatEvent::PhaseChanged { actor: 2, phase: 1 },
             CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: crate::hazard::HazardKind::Slime,
             },
             CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: crate::hazard::HazardKind::Electric,
             },
             CombatEvent::HazardBurn {
+                player: PlayerId(0),
                 kind: crate::hazard::HazardKind::Burn,
             },
         ] {

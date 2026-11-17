@@ -23,6 +23,7 @@ pub mod mechanics;
 pub mod models;
 pub mod movement;
 pub mod pickups;
+pub mod players;
 pub mod projectile;
 pub mod props;
 pub mod rng;

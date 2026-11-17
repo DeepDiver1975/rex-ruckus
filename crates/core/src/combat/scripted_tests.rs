@@ -5,6 +5,7 @@ use super::tests::{DT, Player, count, spawn_at};
 use super::*;
 use crate::fixtures::{defs, door_rooms};
 use crate::mechanics::{Mechanics, Motion};
+use crate::players::PlayerId;
 
 /// Room A x∈[0,4], a crack (sector 1) at x∈[4,4.5], room B x∈[4.5,8.5]. Blasts centred in B
 /// at (7.5, 2, 1), 3 m from the crack's wall: channel 5 reaches it (3.5 m), channel 6 does not
@@ -103,7 +104,10 @@ fn a_scripted_blast_hurts_with_falloff_and_opens_cracks_in_reach_only() {
     );
     assert_eq!(p.vitals.health.hp, 74);
     // A level blast is nobody's: the Grunt does not turn on anyone for it.
-    assert_eq!(c.actors[0].target, crate::actors::Target::Player);
+    assert_eq!(
+        c.actors[0].target,
+        crate::actors::Target::Player(PlayerId(0))
+    );
 
     // Channel 5: 3.5 m reaches the crack.
     mech.fire(5);

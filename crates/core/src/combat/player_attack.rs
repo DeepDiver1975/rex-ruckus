@@ -2,7 +2,7 @@
 //! detonation.
 
 use super::blasts::{PendingBlast, Via};
-use super::{Combat, CombatEvent};
+use super::{Combat, CombatEvent, P0};
 use crate::collide::Body;
 use crate::defs::{Attack, Defs, WeaponId};
 use crate::destruct::hits_pane;
@@ -98,7 +98,7 @@ impl Combat {
         }
         for (i, &n) in dealt.iter().enumerate() {
             if n > 0 {
-                out.extend(self.damage_actor(defs, i, n, Shooter::Player));
+                out.extend(self.damage_actor(defs, i, n, Shooter::Player(P0)));
             }
         }
         let woken = self.make_noise(map, eye, sector, noise);
@@ -127,7 +127,7 @@ impl Combat {
             sector,
             radius: pd.radius,
             damage: pd.damage,
-            owner: Shooter::Player,
+            owner: Shooter::Player(P0),
             targets: Targets::All,
             life: pd.life,
             gravity: pd.gravity,
@@ -181,5 +181,5 @@ impl Combat {
 
 /// A remote-fused projectile thrown by the player.
 fn is_player_bomb(p: &Projectile) -> bool {
-    p.remote && p.owner == Shooter::Player
+    p.remote && p.owner == Shooter::Player(P0)
 }

@@ -9,6 +9,7 @@ use crate::defs::{BurrowDef, EnemyAttack, EnemyDef, Locomotion, PoundDef};
 use crate::health::{DamageOutcome, Health};
 use crate::map::{ActorKind, ActorSpawn, Map, SectorId, SwitchAction, WallId};
 use crate::movement::{FLYER_MIN_CLEARANCE, MoveInput, Pass, Tuning};
+use crate::players::{BodyRef, PlayerId, body_ref};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind, Ray, trace};
 use glam::{Vec2, Vec3};
@@ -107,11 +108,16 @@ pub struct Actor {
 
 /// Whom an actor hunts. Infighting points it at another actor (by index; actors are never
 /// removed, so indices stay valid); when that one dies it goes back to the player.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
-    #[default]
-    Player,
+    Player(PlayerId),
     Actor(usize),
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Target::Player(PlayerId(0))
+    }
 }
 
 /// What an actor knows about its target (the player, or another actor) this tick.
@@ -200,7 +206,7 @@ impl Actor {
             strafe: 0.0,
             muzzle_offset: Vec3::from(def.muzzle),
             locomotion: def.locomotion,
-            target: Target::Player,
+            target: Target::default(),
             phase: 0,
             boss: def.boss,
             on_death: spawn.on_death,
@@ -504,8 +510,8 @@ pub fn effective_muzzle(map: &Map, a: &Actor) -> (Vec3, SectorId) {
 /// Result of an enemy hitscan volley.
 #[derive(Debug, Default, PartialEq)]
 pub struct Volley {
-    /// Damage of the pellets that hit the player body.
-    pub player_damage: i32,
+    /// Damage per player (id, sum) from pellets that hit a player body, ascending, non-zero only.
+    pub player_damage: Vec<(PlayerId, i32)>,
     /// Every pellet that hit the world, glass aside.
     pub impacts: Vec<Hit>,
     /// Glass walls pellets hit, once each. The volley is traced on the map as it was, so every
@@ -517,8 +523,9 @@ pub struct Volley {
 
 /// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
 /// direction, already jittered by the aim error) with `spread_deg` extra spread, up to
-/// `def.attack_range`. `bodies` is `[player, actor 0, actor 1, ...]` and `alive(i)` says whether
-/// actor `i` is a living target. Pellets that stop at another actor hurt it (`actor_damage`).
+/// `def.attack_range`. `bodies` is the combat layout `[players.., actors..]` with `players`
+/// player bodies (see `players`), and `alive(i)` says whether actor `i` is a living target.
+/// Pellets that stop at another actor hurt it (`actor_damage`).
 #[allow(clippy::too_many_arguments)]
 pub fn volley(
     map: &Map,
@@ -527,6 +534,7 @@ pub fn volley(
     def: &EnemyDef,
     dir: Vec3,
     bodies: &[Body],
+    players: usize,
     alive: impl Fn(usize) -> bool,
     rng: &mut Rng,
 ) -> Volley {
@@ -539,7 +547,10 @@ pub fn volley(
         return Volley::default();
     };
     let (origin, sector) = effective_muzzle(map, a);
-    let skip = |i: usize| i != 0 && (i - 1 == shooter || !alive(i - 1));
+    let skip = |i: usize| match body_ref(players, i) {
+        BodyRef::Player(_) => false,
+        BodyRef::Actor(a) => a == shooter || !alive(a),
+    };
     let mut out = Volley::default();
     let mut dealt = vec![0; bodies.len()];
     for d in crate::weapons::spread_dirs(dir, pellets, spread_deg, rng) {
@@ -553,7 +564,6 @@ pub fn volley(
             continue;
         };
         match h.kind {
-            HitKind::Body(0) => out.player_damage += damage,
             HitKind::Body(b) => dealt[b] += damage,
             HitKind::Wall(w) if crate::destruct::hits_pane(map, &h) => {
                 if !out.glass.contains(&w) {
@@ -563,10 +573,12 @@ pub fn volley(
             _ => out.impacts.push(h),
         }
     }
-    out.actor_damage = (1..dealt.len())
-        .filter(|&b| dealt[b] > 0)
-        .map(|b| (b - 1, dealt[b]))
-        .collect();
+    for (b, &d) in dealt.iter().enumerate().filter(|&(_, &d)| d > 0) {
+        match body_ref(players, b) {
+            BodyRef::Player(p) => out.player_damage.push((p, d)),
+            BodyRef::Actor(a) => out.actor_damage.push((a, d)),
+        }
+    }
     out
 }
 

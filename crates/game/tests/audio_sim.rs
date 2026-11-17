@@ -12,6 +12,7 @@ use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::door_rooms;
 use rr_core::map::{ItemKind, Key, Map, MoverKind};
 use rr_core::mechanics::MechEvent;
+use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
 use rr_game::audio::{
@@ -344,7 +345,7 @@ fn kill_burst(app: &mut App) {
     for _ in 0..3 {
         fx(app).combat.push(CombatEvent::ActorKilled {
             actor: 0,
-            by: Shooter::Player,
+            by: Shooter::Player(PlayerId(0)),
         });
     }
 }

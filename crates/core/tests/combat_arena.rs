@@ -5,6 +5,7 @@ use rr_core::defs::{Defs, WeaponId};
 use rr_core::glam::{Vec2, Vec3};
 use rr_core::map::{ActorKind, ItemKind, Key, Map};
 use rr_core::mechanics::Mechanics;
+use rr_core::players::PlayerId;
 use rr_core::validate::validate;
 use rr_core::vitals::Vitals;
 use rr_core::weapons::{Arsenal, WeaponEvent, WeaponInput};
@@ -90,7 +91,10 @@ fn scripted_arena_fight() {
             eye,
         };
         let events = combat.tick(&mut map, &mut mech, &defs, &mut player, DT);
-        assert!(!events.contains(&CombatEvent::PlayerKilled), "player died");
+        assert!(
+            !events.contains(&CombatEvent::PlayerKilled(PlayerId(0))),
+            "player died"
+        );
         let (idx, mut bodies) = combat.living_bodies();
         mech.tick(&mut map, &mut bodies, DT);
         combat.write_back(&idx, &bodies);

@@ -528,7 +528,7 @@ fn frozen_play_collapses_interpolation_endpoints() {
             radius: 0.12,
             damage: 8,
             owner: Shooter::Actor(0),
-            targets: Targets::Player,
+            targets: Targets::Players,
             life: 2.0,
             gravity: 0.0,
             bounce: None,

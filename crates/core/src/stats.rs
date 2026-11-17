@@ -84,6 +84,7 @@ mod tests {
     use crate::difficulty::Difficulty;
     use crate::fixtures::{combat_room, defs};
     use crate::map::{ActorKind, ActorSpawn};
+    use crate::players::PlayerId;
     use crate::projectile::Shooter;
     use glam::Vec2;
 
@@ -125,7 +126,7 @@ mod tests {
                 },
                 CombatEvent::ActorKilled {
                     actor: grunt,
-                    by: Shooter::Player,
+                    by: Shooter::Player(PlayerId(0)),
                 },
             ],
         );
@@ -149,7 +150,7 @@ mod tests {
             &combat,
             &[CombatEvent::ActorKilled {
                 actor: 1,
-                by: Shooter::Player,
+                by: Shooter::Player(PlayerId(0)),
             }],
         );
         assert_eq!((s.kills, s.kills_total), (1, 2));

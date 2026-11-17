@@ -1,7 +1,7 @@
 //! What the bosses' special moves (`actors::special`) do to the rest of the fight: the minions
 //! a surfacing burrower brings up and the ground pound's shockwave.
 
-use super::{Combat, CombatEvent, PlayerTarget, hurt_player};
+use super::{Combat, CombatEvent, P0, PlayerTarget, hurt_player};
 use crate::actors::special::Move;
 use crate::actors::{Actor, Target};
 use crate::collide::Body;
@@ -114,7 +114,7 @@ impl Combat {
                 continue;
             };
             a.summoner = Some(i);
-            a.target = Target::Player;
+            a.target = Target::default();
             self.actors.push(a);
             out.push(CombatEvent::ActorSpawned(self.actors.len() - 1));
             left -= 1;
@@ -146,7 +146,7 @@ impl Combat {
         if player.vitals.health.alive()
             && let Some(n) = dealt(player.body)
         {
-            hurt_player(player, n, self.damage_scale, centre, out);
+            hurt_player(player, P0, n, self.damage_scale, centre, out);
         }
         let hits: Vec<(usize, i32)> = (0..self.actors.len())
             .filter(|&j| j != i && self.actors[j].targetable())

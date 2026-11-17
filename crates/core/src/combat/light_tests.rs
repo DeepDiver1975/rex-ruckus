@@ -6,6 +6,7 @@ use crate::defs::{SplashDef, WeaponId};
 use crate::explosion::Blast;
 use crate::fixtures::{defs, glass_rooms};
 use crate::map::RawLight;
+use crate::players::PlayerId;
 use crate::projectile::Shooter;
 
 fn light(pos: (f32, f32, f32), breakable: bool) -> RawLight {
@@ -120,7 +121,7 @@ fn blast(map: &Map, center: Vec3, radius: f32) -> Blast {
             damage: 10,
             self_scale: 0.5,
         },
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
     }
 }
 

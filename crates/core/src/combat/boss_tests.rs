@@ -7,6 +7,7 @@ use crate::actors::Target;
 use crate::difficulty::Difficulty;
 use crate::fixtures::{combat_room, defs};
 use crate::map::{ActorKind, ActorSpawn, SwitchAction};
+use crate::players::PlayerId;
 use std::f32::consts::PI;
 
 fn boss_room(on_death: Option<SwitchAction>) -> Map {
@@ -44,12 +45,12 @@ fn damage_below_half_changes_phase_once() {
     let d = defs();
     let mut c = Combat::spawn(&map, &d, 1);
     let max = c.actors[0].health.max;
-    let ev = c.damage_actor(&d, 0, max / 2 + 1, Shooter::Player);
+    let ev = c.damage_actor(&d, 0, max / 2 + 1, Shooter::Player(PlayerId(0)));
     assert!(
         ev.contains(&CombatEvent::PhaseChanged { actor: 0, phase: 1 }),
         "{ev:?}"
     );
-    let ev = c.damage_actor(&d, 0, 1, Shooter::Player);
+    let ev = c.damage_actor(&d, 0, 1, Shooter::Player(PlayerId(0)));
     assert!(
         !ev.iter()
             .any(|e| matches!(e, CombatEvent::PhaseChanged { .. }))
@@ -63,7 +64,7 @@ fn phase_two_fires_hitscan_not_rockets() {
     let d = defs();
     let mut c = Combat::spawn(&map, &d, 1);
     let max = c.actors[0].health.max;
-    c.damage_actor(&d, 0, max / 2 + 1, Shooter::Player);
+    c.damage_actor(&d, 0, max / 2 + 1, Shooter::Player(PlayerId(0)));
     c.actors[0].state = AiState::Chase;
     let mut p = Player::at(&map, 1.5, 6.5);
     p.vitals.health.max = 100_000;
@@ -87,10 +88,10 @@ fn on_death_fires_once_when_dead_not_at_the_kill() {
     let mut c = Combat::spawn(&map, &d, 1);
     let mut p = Player::at(&map, 1.5, 1.5);
     let max = c.actors[0].health.max;
-    let kill = c.damage_actor(&d, 0, max, Shooter::Player);
+    let kill = c.damage_actor(&d, 0, max, Shooter::Player(PlayerId(0)));
     assert!(kill.contains(&CombatEvent::ActorKilled {
         actor: 0,
-        by: Shooter::Player
+        by: Shooter::Player(PlayerId(0))
     }));
     assert!(
         !kill
@@ -122,7 +123,7 @@ fn boss_ignores_its_own_splash_and_never_retargets() {
     assert!(c.damage_actor(&d, 0, 50, Shooter::Actor(0)).is_empty());
     assert_eq!(c.actors[0].health.hp, hp);
     c.damage_actor(&d, 0, 5, Shooter::Actor(1));
-    assert_eq!(c.actors[0].target, Target::Player);
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(0)));
 }
 
 #[test]
@@ -134,7 +135,7 @@ fn boss_health_shows_while_the_boss_is_awake() {
     c.actors[0].state = AiState::Chase;
     assert_eq!(c.boss_health(), Some(1.0));
     let max = c.actors[0].health.max;
-    c.damage_actor(&d, 0, max / 4, Shooter::Player);
+    c.damage_actor(&d, 0, max / 4, Shooter::Player(PlayerId(0)));
     assert!((c.boss_health().unwrap() - 0.75).abs() < 0.01);
 }
 

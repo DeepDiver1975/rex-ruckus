@@ -7,6 +7,7 @@ use crate::defs::{SplashDef, WeaponId};
 use crate::fixtures::{defs, glass_rooms};
 use crate::health::PLAYER_MAX_HEALTH;
 use crate::map::ActorKind;
+use crate::players::PlayerId;
 use crate::weapons::WeaponEvent;
 use std::f32::consts::PI;
 
@@ -134,7 +135,7 @@ fn blast_shatters_glass_in_reach_but_glass_shields_this_blast() {
                 damage: 100,
                 self_scale: 0.5,
             },
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
         },
     });
     let ev = p.tick(&mut c, &mut map, &d);
@@ -215,13 +216,14 @@ fn enemy_hitscan_volley_reports_glass_once() {
         d.enemy(ActorKind::Enforcer),
         Vec3::NEG_X,
         &bodies,
+        1,
         |_| true,
         &mut c.rng,
     );
     // Every pellet stops at the pane, which is reported once (from the booth side).
     assert_eq!(v.glass, vec![back]);
     assert!(v.impacts.is_empty(), "{v:?}");
-    assert_eq!(v.player_damage, 0);
+    assert!(v.player_damage.is_empty());
 }
 
 #[test]
@@ -301,6 +303,7 @@ fn enemy_volley_into_soffit_does_not_report_glass() {
         d.enemy(ActorKind::Enforcer),
         dir,
         &bodies,
+        1,
         |_| true,
         &mut c.rng,
     );

@@ -13,6 +13,7 @@ use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
 use rr_core::map::{ActorKind, ActorSpawn, Map};
+use rr_core::players::PlayerId;
 use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_game::actors::{
     ActorVisual, ActorVisualsPlugin, BarrelVisual, BoltVisual, BombVisual, DroneVisual,
@@ -93,7 +94,7 @@ fn bolt(id: u32) -> Projectile {
         radius: 0.12,
         damage: 8,
         owner: Shooter::Actor(0),
-        targets: Targets::Player,
+        targets: Targets::Players,
         life: 2.0,
         gravity: 0.0,
         bounce: None,
@@ -272,7 +273,7 @@ fn pain_material_wins_over_the_hit_flash() {
 
 fn bomb(id: u32) -> Projectile {
     Projectile {
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
         targets: Targets::All,
         gravity: 20.0,
         bounce: Some(0.5),
@@ -284,7 +285,7 @@ fn bomb(id: u32) -> Projectile {
 
 fn rocket(id: u32) -> Projectile {
     Projectile {
-        owner: Shooter::Player,
+        owner: Shooter::Player(PlayerId(0)),
         targets: Targets::All,
         vel: Vec3::new(20.0, 0.0, 0.0),
         splash: Some(rr_core::defs::SplashDef {

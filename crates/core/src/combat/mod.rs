@@ -32,6 +32,7 @@ use crate::health::DamageOutcome;
 use crate::map::{Map, OPEN_GAP, SectorId, SwitchAction, WallId};
 use crate::mechanics::Mechanics;
 use crate::movement::{Tuning, step_flyer, step_player};
+use crate::players::{BodyRef, PlayerId, body_ref};
 use crate::projectile::{Projectile, ProjectileStep, Shooter, Targets, step_projectile};
 use crate::rng::Rng;
 use crate::trace::{Hit, HitKind};
@@ -39,9 +40,11 @@ use crate::vitals::Vitals;
 use blasts::sector_of;
 use glam::{Vec2, Vec3};
 
-/// Index of the player in the bodies slice `[player, actor 0, actor 1, ...]`; actor `i` is
-/// body `i + 1`.
-pub const BODY_PLAYER: usize = 0;
+/// Player bodies in the combat layout `[players.., actors..]` (see `players`). `tick` still
+/// takes the one player, `PlayerId(0)`.
+const PLAYERS: usize = 1;
+/// The one player `tick` takes.
+const P0: PlayerId = PlayerId(0);
 
 /// What a combat tick did, for the game's presentation. The game's audio maps events to sounds
 /// (`audio::cues`; a boss's `ActorWoke` and `PhaseChanged` get its roar), `ActorKilled` also
@@ -70,11 +73,12 @@ pub enum CombatEvent {
     /// `from` is the bolt's position at the start of the tick it hit, i.e. a point on its
     /// incoming line: `from - player` gives the direction the shot came from.
     PlayerHurt {
+        player: PlayerId,
         amount: i32,
         from: Vec3,
     },
     /// Reported exactly once, on the hit that empties the player's health.
-    PlayerKilled,
+    PlayerKilled(PlayerId),
     /// A blast opened crack wall `s`; its mesh changes as the mover animates.
     CrackOpened(SectorId),
     /// The fixture of light `i` (index in `Map::lights`) broke; the light is out for good.
@@ -84,6 +88,7 @@ pub enum CombatEvent {
     /// The player's floor burned them; usually followed by a `PlayerHurt` (none when the hurt is
     /// ignored, e.g. an invulnerable demo run).
     HazardBurn {
+        player: PlayerId,
         kind: HazardKind,
     },
     /// A shot or projectile hit the world at `point` (in `sector`).
@@ -186,9 +191,10 @@ pub fn level_seed(name: &str) -> u64 {
     })
 }
 
-/// Damages the player and reports `PlayerHurt { from }` (and `PlayerKilled` on the fatal hit).
+/// Damages player `id` and reports `PlayerHurt { from }` (and `PlayerKilled` on the fatal hit).
 fn hurt_player(
     player: &mut PlayerTarget,
+    id: PlayerId,
     amount: i32,
     scale: f32,
     from: Vec3,
@@ -198,9 +204,13 @@ fn hurt_player(
     match player.vitals.damage(amount) {
         DamageOutcome::Ignored => {}
         outcome => {
-            out.push(CombatEvent::PlayerHurt { amount, from });
+            out.push(CombatEvent::PlayerHurt {
+                player: id,
+                amount,
+                from,
+            });
             if outcome == DamageOutcome::Killed {
-                out.push(CombatEvent::PlayerKilled);
+                out.push(CombatEvent::PlayerKilled(id));
             }
         }
     }
@@ -394,9 +404,12 @@ impl Combat {
         if let Some(h) = self.hazard.tick(touching, dt)
             && player.vitals.health.alive()
         {
-            out.push(CombatEvent::HazardBurn { kind: h.kind });
+            out.push(CombatEvent::HazardBurn {
+                player: P0,
+                kind: h.kind,
+            });
             let at = player.body.pos;
-            hurt_player(player, h.damage, self.damage_scale, at, &mut out);
+            hurt_player(player, P0, h.damage, self.damage_scale, at, &mut out);
         }
         for a in &mut self.actors {
             a.prev_pos = a.body.pos;
@@ -423,10 +436,10 @@ impl Combat {
             if let Target::Actor(j) = a.target
                 && !snapshot[j].1
             {
-                a.target = Target::Player;
+                a.target = Target::default();
             }
             let perception = match a.target {
-                Target::Player => player_view,
+                Target::Player(_) => player_view,
                 Target::Actor(j) => Perception::of_body(&snapshot[j].0),
             };
             let def = defs.enemy(a.kind).phased(a.phase);
@@ -478,6 +491,7 @@ impl Combat {
                             def,
                             dir,
                             &bodies,
+                            PLAYERS,
                             |j| alive[j],
                             &mut self.rng,
                         );
@@ -488,16 +502,25 @@ impl Combat {
                         for (j, n) in v.actor_damage {
                             out.extend(self.damage_actor(defs, j, n, Shooter::Actor(i)));
                         }
-                        if v.player_damage > 0 {
+                        if !v.player_damage.is_empty() {
                             let from = effective_muzzle(map, &self.actors[i]).0;
-                            hurt_player(player, v.player_damage, self.damage_scale, from, &mut out);
+                            for (id, n) in v.player_damage {
+                                hurt_player(player, id, n, self.damage_scale, from, &mut out);
+                            }
                         }
                     }
                     EnemyAttack::Melee { damage, .. } => match target {
-                        Target::Player => {
+                        Target::Player(id) => {
                             let a = &self.actors[i];
                             if swipe_reaches(a, def, player.body) {
-                                hurt_player(player, damage, self.damage_scale, a.eye(), &mut out);
+                                hurt_player(
+                                    player,
+                                    id,
+                                    damage,
+                                    self.damage_scale,
+                                    a.eye(),
+                                    &mut out,
+                                );
                             }
                         }
                         Target::Actor(j) => {
@@ -609,8 +632,11 @@ impl Combat {
             if p.resting {
                 follow_floor(map, p);
             }
-            let skip = |i: usize| i != BODY_PLAYER && !self.actors[i - 1].targetable();
-            match step_projectile(map, p, &bodies, skip, dt) {
+            let skip = |i: usize| match body_ref(PLAYERS, i) {
+                BodyRef::Player(_) => false,
+                BodyRef::Actor(a) => !self.actors[a].targetable(),
+            };
+            match step_projectile(map, p, &bodies, PLAYERS, skip, dt) {
                 ProjectileStep::Flying | ProjectileStep::Resting => return true,
                 ProjectileStep::HitBody(i) if p.bounce.is_some() => {
                     bounce_off_body(map, p, &bodies[i]);
@@ -629,12 +655,14 @@ impl Combat {
                     p.pos = h.point + h.normal * BLAST_NUDGE;
                     p.sector = sector_of(map, p.pos, h.sector);
                 }
-                ProjectileStep::HitBody(BODY_PLAYER) => {
-                    hurt_player(player, p.damage, self.damage_scale, p.prev, &mut out);
-                }
-                ProjectileStep::HitBody(i) => {
-                    out.extend(self.damage_actor(defs, i - 1, p.damage, p.owner));
-                }
+                ProjectileStep::HitBody(i) => match body_ref(PLAYERS, i) {
+                    BodyRef::Player(id) => {
+                        hurt_player(player, id, p.damage, self.damage_scale, p.prev, &mut out);
+                    }
+                    BodyRef::Actor(a) => {
+                        out.extend(self.damage_actor(defs, a, p.damage, p.owner));
+                    }
+                },
             }
             if let Some(splash) = p.splash {
                 // An expiry outside the map leaves `pos` stale; go off at the last good point.

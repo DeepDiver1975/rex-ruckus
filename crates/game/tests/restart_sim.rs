@@ -9,6 +9,7 @@ use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
 use rr_core::mechanics::Motion;
+use rr_core::players::PlayerId;
 use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_game::breakables::{BreakablesPlugin, LightFixture};
 use rr_game::combat::{
@@ -234,7 +235,7 @@ fn restart_clears_decals_and_bombs() {
             sector: 0,
             radius: 0.15,
             damage: 0,
-            owner: Shooter::Player,
+            owner: Shooter::Player(PlayerId(0)),
             targets: Targets::All,
             life: 4.0,
             gravity: 9.8,

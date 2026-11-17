@@ -1,12 +1,13 @@
 //! The explosion queue: rockets, detonated bombs, barrels and scripted blasts all go off through
 //! [`Combat::process_blasts`], one tick at a time.
 
-use super::{BODY_PLAYER, Combat, CombatEvent, PlayerTarget, hurt_player};
+use super::{Combat, CombatEvent, PLAYERS, PlayerTarget, hurt_player};
 use crate::collide::Body;
 use crate::defs::{Defs, SplashDef};
 use crate::explosion::{Blast, sectors_in_reach, solve, walls_in_reach};
 use crate::map::Map;
 use crate::mechanics::Mechanics;
+use crate::players::{BodyRef, body_ref};
 use crate::projectile::Shooter;
 use glam::Vec3;
 
@@ -133,24 +134,18 @@ impl Combat {
         });
         let mut bodies: Vec<Body> = vec![*player.body];
         bodies.extend(self.actors.iter().map(|a| a.body));
-        let skip = |i: usize| {
-            if i == BODY_PLAYER {
-                !player.vitals.health.alive()
-            } else {
-                !self.actors[i - 1].targetable()
-            }
+        let skip = |i: usize| match body_ref(PLAYERS, i) {
+            BodyRef::Player(_) => !player.vitals.health.alive(),
+            BodyRef::Actor(a) => !self.actors[a].targetable(),
         };
-        for hit in solve(map, blast, &bodies, skip) {
-            if hit.body == BODY_PLAYER {
-                hurt_player(player, hit.damage, self.damage_scale, blast.center, out);
-            } else {
-                out.extend(self.damage_actor_via(
-                    defs,
-                    hit.body - 1,
-                    hit.damage,
-                    blast.owner,
-                    pb.via,
-                ));
+        for hit in solve(map, blast, &bodies, PLAYERS, skip) {
+            match body_ref(PLAYERS, hit.body) {
+                BodyRef::Player(id) => {
+                    hurt_player(player, id, hit.damage, self.damage_scale, blast.center, out);
+                }
+                BodyRef::Actor(a) => {
+                    out.extend(self.damage_actor_via(defs, a, hit.damage, blast.owner, pb.via));
+                }
             }
         }
         // Everything the blast reaches is found before any pane breaks, so a pane shields what
