@@ -31,7 +31,13 @@ fn sim_app(map: Map) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     insert_level(&mut app, map, Difficulty::Normal);
-    insert_defs(&mut app, Defs::builtin());
+    let mut defs = Defs::builtin();
+    // Enemies fire at once instead of standing to raise the gun first, so "the grunt is
+    // moving" holds at any tick.
+    for e in &mut defs.enemies {
+        e.aim_time = 0.0;
+    }
+    insert_defs(&mut app, defs);
     app.add_plugins((
         FlowPlugin,
         PlayerSimPlugin,

@@ -103,6 +103,12 @@ pub(super) struct EnemyAnim {
     hold: bool,
 }
 
+/// Whether an actor is raising its gun before a burst (an aimer in `Attack` with shots to go
+/// that has not fired yet). The burst's later shots also count, but the clip runs by then.
+pub fn aiming(aim_time: f32, state: &AiState) -> bool {
+    aim_time > 0.0 && matches!(state, AiState::Attack { left, .. } if *left > 0)
+}
+
 /// Attack clip speed-up in the boss's later phases.
 pub const PHASE_ATTACK_SPEED: f32 = 1.6;
 
@@ -190,6 +196,11 @@ pub(super) fn animate_enemies(
                 if own && cmd.hold_end && started {
                     active.seek_to(secs(role).unwrap_or(0.0)).pause();
                 }
+                // Raising the gun (`aim_time`): hold the clip's first frame, the aim pose, until
+                // the shot; the fade brings the arm up. The recoil plays from the shot on.
+                if own && started && aiming(def.aim_time, &actor.state) {
+                    active.seek_to(0.0).pause();
+                }
             }
             anim.role = Some(role);
             anim.hold = cmd.hold_end;
@@ -202,6 +213,7 @@ pub(super) fn animate_enemies(
             && let Some(active) = player.animation_mut(node)
         {
             active.replay();
+            active.resume();
             // A boss that crossed into a later phase mid-attack speeds up on the next shot
             // (not for a stand-in clip, which keeps its own speed).
             if role == cmd.role {
@@ -229,6 +241,16 @@ mod tests {
     fn phase_two_attacks_faster() {
         assert_eq!(attack_speed(0), 1.0);
         assert_eq!(attack_speed(1), 1.6);
+    }
+
+    #[test]
+    fn only_an_aimer_with_shots_to_go_holds_the_aim_frame() {
+        let windup = AiState::Attack { t: 0.3, left: 1 };
+        let recoil = AiState::Attack { t: 0.3, left: 0 };
+        assert!(aiming(0.3, &windup));
+        assert!(!aiming(0.3, &recoil), "the recoil hold plays the clip");
+        assert!(!aiming(0.0, &windup), "non-aimers play the clip at once");
+        assert!(!aiming(0.3, &AiState::Chase));
     }
 
     #[test]

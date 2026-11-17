@@ -73,7 +73,12 @@
         // The control room: the sluice switch (channel 5).
         (secs: 2.0, goto: Some((38.0, 64.5))),
         (secs: 2.0, goto: Some((38.0, 68.0))),
+        // Clear the room first: a body that shoves the player off the switch spoils the surge.
+        (secs: 5.0, hunt: true),
+        (secs: 0.3, pitch_deg: Some(0.0)),
         (secs: 2.0, goto: Some((44.0, 68.5))),
+        (secs: 3.0, hunt: true),
+        (secs: 0.3, pitch_deg: Some(0.0)),
         (secs: 2.0, goto: Some((45.0, 74.0))),
         (secs: 1.0, goto: Some((47.0, 75.2))),
         (secs: 0.4, face_deg: Some(90.0)),

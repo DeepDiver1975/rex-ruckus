@@ -282,7 +282,11 @@ fn hit_wakes_sleeper_but_kill_reports_only_killed() {
 
 #[test]
 fn actor_killed_this_tick_does_not_fire() {
-    let d = defs();
+    let mut d = defs();
+    // The grunt fires on its first tick instead of raising the gun first.
+    for e in &mut d.enemies {
+        e.aim_time = 0.0;
+    }
     let mut map = combat_room();
     spawn_at(&mut map, 6.0, 1.5, PI, false);
     let mut c = Combat::spawn(&map, &d, 1);
@@ -650,6 +654,8 @@ fn standing_enforcer() -> Defs {
     for e in &mut d.enemies {
         if e.kind == ActorKind::Enforcer {
             e.strafe = false;
+            // Fire on the first tick instead of raising the gun first.
+            e.aim_time = 0.0;
         }
     }
     d

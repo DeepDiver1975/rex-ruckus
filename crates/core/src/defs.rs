@@ -299,6 +299,10 @@ pub struct EnemyDef {
     pub reaction: f32,
     pub attack_range: f32,
     pub attack_refire: f32,
+    /// Seconds a ranged walker raises its gun before a burst (0 = fires at once). It also
+    /// holds the gun up for `actors::AIM_HOLD` after the burst. Counted after `attack_refire`.
+    #[serde(default)]
+    pub aim_time: f32,
     pub aim_error_deg: f32,
     pub attack: EnemyAttack,
     #[serde(default)]
@@ -705,6 +709,7 @@ impl Defs {
                 return Err(invalid(what, "fov must be in (0, 360]"));
             }
             if !nonneg(e.reaction)
+                || !nonneg(e.aim_time)
                 || !nonneg(e.aim_error_deg)
                 || !nonneg(e.pain_time)
                 || !nonneg(e.pain_cooldown)

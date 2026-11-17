@@ -130,9 +130,8 @@
         (secs: 2.0, goto: Some((93.0, -4.0))),
         // The hall's guards drop down the shaft and the floor's grunt closes in: clear the lift
         // of them first, or a body caught on its edge stops it.
-        (secs: 0.4, face_deg: Some(150.0)),
-        (secs: 4.0, fire: true, turn_deg: 60.0),
-        (secs: 0.4, face_deg: Some(0.0)),
+        (secs: 6.0, hunt: true),
+        (secs: 0.4, face_deg: Some(0.0), pitch_deg: Some(0.0)),
         (secs: 1.0, use_key: true),
         (secs: 2.5),
         // South past the transmitter onto the gantry (channel 4): it drops into the cable well.

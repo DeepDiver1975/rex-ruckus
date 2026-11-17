@@ -16,6 +16,8 @@ fn infight_defs() -> Defs {
     let mut d = defs();
     for e in &mut d.enemies {
         e.strafe = false;
+        // Fire on the first tick instead of raising the gun first.
+        e.aim_time = 0.0;
         e.muzzle.0 = 0.6;
         e.muzzle.1 = 0.0;
         if e.kind == ActorKind::Grunt {
