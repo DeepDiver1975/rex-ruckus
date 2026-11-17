@@ -83,6 +83,52 @@ pub enum ApplyError {
 }
 
 impl Snapshot {
+    /// Whether every float in the snapshot is finite. A snapshot decoded from the network is
+    /// untrusted: one NaN would poison positions and collision on the client.
+    pub fn is_finite(&self) -> bool {
+        let v3 = |v: glam::Vec3| v.is_finite();
+        let body =
+            |b: &Body| v3(b.pos) && v3(b.vel) && b.radius.is_finite() && b.height.is_finite();
+        let actors = self
+            .actors
+            .iter()
+            .all(|a| body(&a.body) && a.angle.is_finite());
+        let shots = self.projectiles.iter().all(|p| {
+            v3(p.pos)
+                && v3(p.prev)
+                && v3(p.vel)
+                && p.radius.is_finite()
+                && p.life.is_finite()
+                && p.gravity.is_finite()
+                && p.bounce.is_none_or(f32::is_finite)
+                && p.splash
+                    .is_none_or(|s| s.radius.is_finite() && s.self_scale.is_finite())
+        });
+        let movers = self.world.movers.iter().all(|m| {
+            m.z.is_finite()
+                && match m.motion {
+                    Motion::AtEnd { wait } => wait.is_finite(),
+                    _ => true,
+                }
+        });
+        let props = self.world.props.iter().all(|p| p.cooldown.is_finite());
+        let players = self.players.iter().all(|p| {
+            use crate::weapons::WeaponPhase;
+            body(&p.body)
+                && p.angle.is_finite()
+                && p.pitch.is_finite()
+                && p.inventory.fuel.is_finite()
+                && p.inventory.battery.is_finite()
+                && p.arsenal.kick_cooldown.is_finite()
+                && match p.arsenal.phase {
+                    WeaponPhase::Ready => true,
+                    WeaponPhase::Cooldown(t) | WeaponPhase::Reloading(t) => t.is_finite(),
+                    WeaponPhase::Switching { left, .. } => left.is_finite(),
+                }
+        });
+        actors && shots && movers && props && players
+    }
+
     /// `source` is the authored map the live `map` started from (for broken glass).
     pub fn capture(
         tick: u32,
@@ -691,5 +737,31 @@ mod tests {
         let text = ron::to_string(&snap).expect("serialises");
         let back: Snapshot = ron::from_str(&text).expect("deserialises");
         assert_eq!(back, snap);
+    }
+
+    #[test]
+    fn is_finite_flags_nan_and_infinity() {
+        let defs = Defs::builtin();
+        let mut host = fought_arena(&defs);
+        host.combat
+            .projectiles
+            .push(bolt(9, Vec3::new(5.0, 9.0, 1.0)));
+        let snap = host.capture(1);
+        assert!(snap.is_finite());
+        let mut bad = snap.clone();
+        bad.actors[0].angle = f32::NAN;
+        assert!(!bad.is_finite());
+        let mut bad = snap.clone();
+        bad.actors[0].body.pos.x = f32::INFINITY;
+        assert!(!bad.is_finite());
+        let mut bad = snap.clone();
+        bad.projectiles[0].vel.y = f32::NAN;
+        assert!(!bad.is_finite());
+        let mut bad = snap;
+        bad.world.movers.push(MoverSnap {
+            z: f32::NAN,
+            motion: Motion::AtStart,
+        });
+        assert!(!bad.is_finite());
     }
 }
