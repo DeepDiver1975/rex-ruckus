@@ -10,7 +10,7 @@ use crate::episode::Episode;
 use crate::mechanics::{
     DirtySectors, HudMessage, HudSubtitle, UsePrompt, fresh_level, pickup_items,
 };
-use crate::player::{PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
+use crate::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimSet, PrevFeet};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -133,8 +133,9 @@ pub fn run_spawn_level(world: &mut World) {
     world.run_schedule(SpawnLevel);
 }
 
+/// Play is over once every player is dead; a living co-op partner plays on.
 fn check_player_death(mut state: ResMut<PlayState>, q: Query<&PlayerVitals, With<Player>>) {
-    if q.iter().any(|v| !v.0.health.alive()) {
+    if !q.is_empty() && q.iter().all(|v| !v.0.health.alive()) {
         *state = PlayState::Dead;
     }
 }
@@ -184,12 +185,13 @@ fn restart_on_press(
     mut request: ResMut<RestartRequested>,
     mut advance: ResMut<AdvanceRequested>,
     episode: Option<Res<Episode>>,
-    mut q: Query<&mut PendingInput, With<Player>>,
+    mut q: Query<(Has<LocalPlayer>, &mut PendingInput), With<Player>>,
 ) {
-    for mut input in &mut q {
+    // Every player's latches are consumed; only the local player's presses restart.
+    for (local, mut input) in &mut q {
         let use_pressed = std::mem::take(&mut input.use_pressed);
         let fire_pressed = std::mem::take(&mut input.fire_pressed);
-        if restart_requested(*state, age.0, use_pressed, fire_pressed) {
+        if local && restart_requested(*state, age.0, use_pressed, fire_pressed) {
             // A completed level of an episode moves on; anything else restarts the level.
             if *state == PlayState::Complete && episode.is_some() {
                 advance.0 = true;

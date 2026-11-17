@@ -6,11 +6,12 @@
 use crate::bindings::{Action, Bindings};
 use crate::combat::{
     FxQueue, FxReaders, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+    shown_locally,
 };
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, HudSubtitle, LevelMechanics, UsePrompt};
-use crate::player::{Inventory, Player};
+use crate::player::{Inventory, LocalId, LocalPlayer};
 use crate::props::key_color;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
@@ -19,6 +20,7 @@ use rr_core::hazard::HazardKind;
 use rr_core::inventory::{BATTERY_MAX, FUEL_MAX, Inventory as Carried, MEDKIT_MAX};
 use rr_core::map::{Key, Map, MoverKind, SwitchAction};
 use rr_core::mechanics::{Mechanics, UseTarget};
+use rr_core::players::PlayerId;
 use rr_core::props::PropKind;
 
 /// Damage that fills the flash completely.
@@ -97,19 +99,19 @@ pub fn hazard_color(kind: HazardKind) -> Color {
     }
 }
 
-/// The flash colour for a frame's events: `None` without a `PlayerHurt`; a hazard's colour when
-/// a `HazardBurn` came with it; red otherwise.
-pub fn hurt_tint(events: &[CombatEvent]) -> Option<Color> {
-    if !events
-        .iter()
-        .any(|e| matches!(e, CombatEvent::PlayerHurt { .. }))
-    {
+/// The flash colour for a frame's events: `None` without a `PlayerHurt` of the `local` player;
+/// a hazard's colour when a `HazardBurn` of theirs came with it; red otherwise.
+pub fn hurt_tint(events: &[CombatEvent], local: Option<PlayerId>) -> Option<Color> {
+    let mine = || events.iter().filter(|e| shown_locally(e, local));
+    if !mine().any(|e| matches!(e, CombatEvent::PlayerHurt { .. })) {
         return None;
     }
-    let hazard = events.iter().rev().find_map(|e| match e {
-        CombatEvent::HazardBurn { kind, .. } => Some(hazard_color(*kind)),
-        _ => None,
-    });
+    let hazard = mine()
+        .filter_map(|e| match e {
+            CombatEvent::HazardBurn { kind, .. } => Some(hazard_color(*kind)),
+            _ => None,
+        })
+        .next_back();
     Some(hazard.unwrap_or(HURT_RED))
 }
 
@@ -577,7 +579,7 @@ fn update_subtitle(
 /// Health, ammo, weapon name and slot highlighting. Skips frames without a player.
 fn update_status(
     defs: Res<GameDefs>,
-    player: Query<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<Player>>,
+    player: Query<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<LocalPlayer>>,
     mut cells: Query<(&StatusCell, &mut Text, &mut TextColor)>,
 ) {
     let Ok((health, arsenal, carried)) = player.single() else {
@@ -613,7 +615,7 @@ fn update_status(
 }
 
 fn update_keycards(
-    player: Query<&Inventory, With<Player>>,
+    player: Query<&Inventory, With<LocalPlayer>>,
     mut cards: Query<(&KeyCard, &mut BackgroundColor)>,
 ) {
     let Ok(inv) = player.single() else { return };
@@ -627,13 +629,22 @@ fn update_keycards(
     }
 }
 
-/// An [`FxReaders`] system: it only reads the queue.
-fn read_hurt(fx: Res<FxQueue>, mut flash: ResMut<DamageFlash>, mut color: ResMut<FlashColor>) {
-    if let Some(c) = hurt_tint(&fx.combat) {
+/// Flashes the screen for the local player's hurts (a partner's stay on their screen). An
+/// [`FxReaders`] system: it only reads the queue.
+pub fn read_hurt(
+    fx: Res<FxQueue>,
+    local: LocalId,
+    mut flash: ResMut<DamageFlash>,
+    mut color: ResMut<FlashColor>,
+) {
+    let local = local.get();
+    if let Some(c) = hurt_tint(&fx.combat, local) {
         color.0 = c;
     }
     for ev in &fx.combat {
-        if let CombatEvent::PlayerHurt { amount, .. } = ev {
+        if let CombatEvent::PlayerHurt { player, amount, .. } = ev
+            && Some(*player) == local
+        {
             flash.0 = flash_add(flash.0, *amount);
         }
     }
@@ -674,7 +685,6 @@ fn update_overlay(
 mod tests {
     use super::*;
     use rr_core::hazard::HazardKind;
-    use rr_core::players::PlayerId;
 
     #[test]
     fn hazard_burns_tint_the_flash() {
@@ -683,14 +693,20 @@ mod tests {
             amount: 4,
             from: Vec3::ZERO,
         };
-        assert_eq!(hurt_tint(&[]), None);
-        assert_eq!(hurt_tint(std::slice::from_ref(&hurt)), Some(HURT_RED));
+        let me = Some(PlayerId(0));
+        assert_eq!(hurt_tint(&[], me), None);
+        assert_eq!(hurt_tint(std::slice::from_ref(&hurt), me), Some(HURT_RED));
+        // A partner's hurt flashes their screen, not this one.
+        assert_eq!(
+            hurt_tint(std::slice::from_ref(&hurt), Some(PlayerId(1))),
+            None
+        );
         let slime = CombatEvent::HazardBurn {
             player: PlayerId(0),
             kind: HazardKind::Slime,
         };
         assert_eq!(
-            hurt_tint(&[slime, hurt]),
+            hurt_tint(&[slime, hurt], me),
             Some(hazard_color(HazardKind::Slime))
         );
         let magma = CombatEvent::HazardBurn {
@@ -703,7 +719,7 @@ mod tests {
             from: Vec3::ZERO,
         };
         assert_eq!(
-            hurt_tint(&[magma, hurt]),
+            hurt_tint(&[magma, hurt], me),
             Some(hazard_color(HazardKind::Burn))
         );
         assert_ne!(

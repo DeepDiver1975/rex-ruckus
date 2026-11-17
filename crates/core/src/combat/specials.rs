@@ -7,10 +7,9 @@ use crate::actors::{Actor, Target};
 use crate::collide::Body;
 use crate::defs::{Defs, PoundDef};
 use crate::difficulty::Difficulty;
-use crate::geom::closest_point_on_segment;
 use crate::map::{ActorSpawn, Map, SectorId};
 use crate::movement::Tuning;
-use crate::players::PlayerId;
+use crate::players::{PlayerId, fits};
 use crate::projectile::Shooter;
 use crate::trace::can_see;
 use glam::{Vec2, Vec3};
@@ -204,23 +203,21 @@ fn spot_free(
     height: f32,
     bodies: &[Body],
 ) -> bool {
-    let Some(s) = map.find_sector(at, Some(sector)) else {
+    let Some(s) = fits(map, at, Some(sector), radius, height) else {
         return false;
     };
-    let sec = &map.sectors[s];
-    if sec.mover.is_some()
-        || sec.hazard.is_some()
-        || sec.ceil_z - sec.floor_z < height
-        || (sec.floor_z - from.z).abs() > Tuning::default().step_height
-    {
+    if (map.sectors[s].floor_z - from.z).abs() > Tuning::default().step_height {
         return false;
     }
-    let near_wall = map.walls.iter().any(|w| {
-        w.passage().is_none() && closest_point_on_segment(at, w.a, w.b).distance(at) < radius
-    });
     let crowded = bodies
         .iter()
         .any(|b| b.pos.truncate().distance(at) < b.radius + radius);
     let lift = Vec3::Z * LOW_TRACE;
-    !near_wall && !crowded && can_see(map, from + lift, sector, at.extend(sec.floor_z) + lift)
+    !crowded
+        && can_see(
+            map,
+            from + lift,
+            sector,
+            at.extend(map.sectors[s].floor_z) + lift,
+        )
 }

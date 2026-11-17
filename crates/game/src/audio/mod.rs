@@ -23,7 +23,7 @@ use crate::flow::{PlayState, SpawnLevel, run_spawn_level};
 use crate::mechanics::HudMessage;
 use crate::menu::Capture;
 use crate::paths::assets_dir;
-use crate::player::{Player, PlayerBody, PlayerCamera, PlayerSimSet, spawn_player};
+use crate::player::{LocalPlayer, PlayerBody, PlayerCamera, PlayerSimSet, spawn_player};
 use crate::settings::{SaveSettings, Settings};
 use bevy::audio::{AudioSink, AudioSinkPlayback, SpatialAudioSink, SpatialScale, Volume};
 use bevy::prelude::*;
@@ -33,7 +33,7 @@ use rr_core::rng::Rng;
 use std::collections::HashMap;
 
 pub use music::{MUSIC_DUCK, MusicDuck, MusicTrack};
-pub use quips::{QuipLines, QuipState, QuipVoice};
+pub use quips::{QuipLines, QuipState, QuipVoice, combat_quips};
 pub use sfx::play_cues;
 
 /// At most this many sounds play at once, over all cues.
@@ -274,7 +274,7 @@ fn attach_listener(
 fn attach_player_audio(
     mut commands: Commands,
     mut cues: ResMut<GameCues>,
-    players: Query<Entity, With<Player>>,
+    players: Query<Entity, With<LocalPlayer>>,
 ) {
     cues.0.clear();
     for e in &players {
@@ -418,7 +418,7 @@ fn loop_gain(
     bank: Res<SoundBank>,
     volumes: Res<AudioVolumes>,
     global: Option<Res<GlobalVolume>>,
-    player: Query<&PlayerBody, With<Player>>,
+    player: Query<&PlayerBody, With<LocalPlayer>>,
     mut loops: Query<(&SfxVoice, &Transform, &mut SpatialAudioSink), With<MoverLoop>>,
 ) {
     let Ok(body) = player.single() else { return };

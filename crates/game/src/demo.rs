@@ -4,7 +4,7 @@
 //! `scripts/record-demo.sh`).
 
 use crate::combat::PlayerVitals;
-use crate::player::{Look, PendingInput, Player, PlayerBody};
+use crate::player::{LocalPlayer, Look, PendingInput, PlayerBody};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
@@ -308,7 +308,7 @@ fn hunt_target(
 /// Logs where each segment ends, which is what script authoring needs.
 fn drive_player(
     mut playback: ResMut<DemoPlayback>,
-    mut player: Query<DemoPlayer, With<Player>>,
+    mut player: Query<DemoPlayer, With<LocalPlayer>>,
     map: Option<Res<crate::level::CurrentMap>>,
     combat: Option<Res<crate::combat::LevelCombat>>,
 ) {

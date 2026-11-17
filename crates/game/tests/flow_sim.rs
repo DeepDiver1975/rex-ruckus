@@ -403,7 +403,7 @@ impl InputRig {
             .resource::<FxQueue>()
             .weapon
             .iter()
-            .filter(|e| matches!(e, WeaponEvent::Fire { .. }))
+            .filter(|(_, e)| matches!(e, WeaponEvent::Fire { .. }))
             .count()
     }
 }

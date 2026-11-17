@@ -122,11 +122,14 @@ fn the_rumble_stops_on_death_and_holds_through_pause() {
     assert_eq!(count::<QuakeLoop>(&mut app), 0);
 }
 
-fn fire(weapon: WeaponId) -> WeaponEvent {
-    WeaponEvent::Fire {
-        weapon,
-        dirs: vec![Vec3::X],
-    }
+fn fire(weapon: WeaponId) -> (PlayerId, WeaponEvent) {
+    (
+        PlayerId(0),
+        WeaponEvent::Fire {
+            weapon,
+            dirs: vec![Vec3::X],
+        },
+    )
 }
 
 #[test]

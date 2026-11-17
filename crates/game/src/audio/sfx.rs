@@ -5,11 +5,11 @@ use super::{
     AudioVolumes, GameCues, JetpackHum, MAX_LIVE_VOICES, MoverLoop, QUAKE_FADE, QuakeLoop, SfxRng,
     SfxVoice, SoundBank, spatial_scale, voice_volume,
 };
-use crate::combat::{FxQueue, LevelCombat, eye_of};
+use crate::combat::{FxQueue, LevelCombat, eye_of, shown_locally};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
-use crate::player::{Player, PlayerBody};
+use crate::player::{LocalId, LocalPlayer, PlayerBody};
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -18,10 +18,11 @@ use rr_core::map::{MoverKind, SectorId};
 use rr_core::mechanics::MechEvent;
 use std::collections::HashMap;
 
-/// Where this frame's cues come from.
+/// Where this frame's cues come from; `local` sorts the personal events.
 #[derive(SystemParam)]
-pub struct CueSources<'w> {
+pub struct CueSources<'w, 's> {
     fx: Res<'w, FxQueue>,
+    local: LocalId<'w, 's>,
     game: ResMut<'w, GameCues>,
     combat: Option<Res<'w, LevelCombat>>,
     map: Res<'w, CurrentMap>,
@@ -109,10 +110,11 @@ pub fn play_cues(
     mut src: CueSources,
     volumes: Res<AudioVolumes>,
     mut live: LiveSounds,
-    player: Query<&PlayerBody, With<Player>>,
+    player: Query<&PlayerBody, With<LocalPlayer>>,
 ) {
     let game = std::mem::take(&mut src.game.0);
     let Ok(body) = player.single() else { return };
+    let local = src.local.get();
     let map = &src.map.0;
 
     let mut per_cue: HashMap<Cue, usize> = HashMap::new();
@@ -174,11 +176,12 @@ pub fn play_cues(
 
     let mut cues = Vec::new();
     if let Some(combat) = &src.combat {
-        for ev in &src.fx.combat {
+        // A partner's pain and death sound on their machine; their gun (for now) too.
+        for ev in src.fx.combat.iter().filter(|e| shown_locally(e, local)) {
             combat_cues(ev, &combat.0, map, &mut cues);
         }
     }
-    for ev in &src.fx.weapon {
+    for (_, ev) in src.fx.weapon.iter().filter(|(p, _)| Some(*p) == local) {
         weapon_cues(ev, &mut cues);
     }
     for ev in &src.fx.mech {

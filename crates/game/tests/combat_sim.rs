@@ -60,7 +60,7 @@ fn shots(app: &App) -> usize {
         .resource::<FxQueue>()
         .weapon
         .iter()
-        .filter(|e| matches!(e, WeaponEvent::Fire { .. }))
+        .filter(|(_, e)| matches!(e, WeaponEvent::Fire { .. }))
         .count()
 }
 
@@ -130,11 +130,11 @@ fn reload_and_kick_are_latched() {
     ticks(&mut app, 1);
     assert!(!input(&mut app).reload && !input(&mut app).kick);
     let fx = take_fx(&mut app);
-    assert!(fx.weapon.contains(&WeaponEvent::ReloadStart));
+    assert!(fx.weapon.contains(&(PlayerId(0), WeaponEvent::ReloadStart)));
     assert!(
         fx.weapon
             .iter()
-            .any(|e| matches!(e, WeaponEvent::Kick { .. }))
+            .any(|(_, e)| matches!(e, WeaponEvent::Kick { .. }))
     );
 }
 
@@ -170,7 +170,7 @@ fn pressing_2_then_wheel_switches_weapons() {
     let switched: Vec<_> = take_fx(&mut app)
         .weapon
         .into_iter()
-        .filter_map(|e| match e {
+        .filter_map(|(_, e)| match e {
             WeaponEvent::Switched(w) => Some(w),
             _ => None,
         })
@@ -392,7 +392,7 @@ fn pipe_bombs_throw_and_detonate_in_game() {
     input(&mut app).fire_pressed = true;
     ticks(&mut app, 1);
     let fx = take_fx(&mut app);
-    assert!(fx.weapon.contains(&WeaponEvent::Detonate));
+    assert!(fx.weapon.contains(&(PlayerId(0), WeaponEvent::Detonate)));
     assert!(fx.combat.contains(&CombatEvent::BombsDetonated));
     assert_eq!(
         fx.combat

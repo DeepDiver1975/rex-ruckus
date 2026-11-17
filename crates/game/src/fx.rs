@@ -5,7 +5,7 @@ use crate::combat::{FxQueue, FxReaders, eye_of};
 use crate::coords::to_bevy;
 use crate::flow::{LevelEntity, PlayState};
 use crate::mechanics::LevelMechanics;
-use crate::player::{Player, PlayerBody, PlayerCamera, update_camera};
+use crate::player::{LocalPlayer, PlayerBody, PlayerCamera, update_camera};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
@@ -107,7 +107,7 @@ fn spawn_explosions(
     mut commands: Commands,
     fx: Res<FxQueue>,
     mut shake: ResMut<ScreenShake>,
-    player: Query<&PlayerBody, With<Player>>,
+    player: Query<&PlayerBody, With<LocalPlayer>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut sphere: Local<Option<Handle<Mesh>>>,
