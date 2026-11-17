@@ -188,7 +188,8 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, NetError> {
 
 /// [`decode`] for what clients receive: a snapshot with a NaN or infinity, or one out of
 /// bounds ([`Snapshot::is_sane`], or `you` not a seat in it), is rejected; so are a roster that
-/// is too long or has an over-long name, and a `Welcome`/`Load` with a bad level name.
+/// is too long or has an over-long name, a `Welcome` to a seat past `MAX_PLAYERS`, and a
+/// `Welcome`/`Load` with a bad level name.
 pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
     let msg: ServerMsg = decode(bytes)?;
     match &msg {
@@ -201,6 +202,9 @@ pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
         ServerMsg::Roster(names)
             if names.len() > MAX_PLAYERS || names.iter().any(|n| n.len() > MAX_NAME) =>
         {
+            Err(NetError::Invalid)
+        }
+        ServerMsg::Welcome(Welcome { player, .. }) if usize::from(player.0) >= MAX_PLAYERS => {
             Err(NetError::Invalid)
         }
         ServerMsg::Welcome(Welcome { level, .. }) | ServerMsg::Load(Load { level, .. })
@@ -603,6 +607,24 @@ mod tests {
                 tick: 0,
             });
             assert!(matches!(decode_server(&encode(&l)), Err(NetError::Invalid)));
+        }
+    }
+
+    #[test]
+    fn welcome_to_a_seat_past_the_last_is_invalid() {
+        let w = |id: usize| {
+            encode(&ServerMsg::Welcome(Welcome {
+                player: PlayerId(id as u8),
+                level: "test_yard.ron".into(),
+                skill: Difficulty::Normal,
+            }))
+        };
+        assert!(decode_server(&w(MAX_PLAYERS - 1)).is_ok());
+        for id in [MAX_PLAYERS, 255] {
+            assert!(
+                matches!(decode_server(&w(id)), Err(NetError::Invalid)),
+                "seat {id}"
+            );
         }
     }
 

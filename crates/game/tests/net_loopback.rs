@@ -22,7 +22,7 @@ use rr_game::net::client::{
     NetClient, NetClientPlugin, NetNotice, client_apply, client_handle, start_joining,
 };
 use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity, start_hosting};
-use rr_game::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimPlugin};
+use rr_game::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
 use rr_net::{Load, ServerMsg};
 
 fn sim_plugins(app: &mut App) {
@@ -189,12 +189,6 @@ fn client_input_moves_its_player_on_both_sides() {
     let mut host = host_app("test_yard.ron");
     let mut client = joined(&mut host);
     let start = pos(&mut host, PlayerId(1));
-    let set_forward = |client: &mut App, f: f32| {
-        let mut q = client
-            .world_mut()
-            .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
-        q.single_mut(client.world_mut()).unwrap().forward = f;
-    };
     for _ in 0..60 {
         set_forward(&mut client, 1.0);
         round(&mut host, &mut client);
@@ -212,6 +206,49 @@ fn client_input_moves_its_player_on_both_sides() {
     });
     let (h, c) = (pos(&mut host, PlayerId(1)), local_pos(&mut client));
     assert!(h.distance(c) < 0.05, "host {h} client {c}");
+}
+
+fn set_forward(client: &mut App, f: f32) {
+    let mut q = client
+        .world_mut()
+        .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+    q.single_mut(client.world_mut()).unwrap().forward = f;
+}
+
+/// Whether every player's `PrevFeet` and every actor's `prev_pos` is its current pose.
+fn at_rest(app: &mut App) -> bool {
+    let mut q = app.world_mut().query::<(&PlayerBody, &PrevFeet)>();
+    let players = q.iter(app.world()).all(|(b, p)| b.0.pos == p.0);
+    let combat = &app.world().resource::<LevelCombat>().0;
+    players && combat.actors.iter().all(|a| a.prev_pos == a.body.pos)
+}
+
+#[test]
+fn interpolation_rests_between_snapshots() {
+    let mut host = host_app("combat_arena.ron");
+    let mut client = joined(&mut host);
+    let (mut stepped, mut rested) = (0, 0);
+    let mut applied_before = false;
+    for _ in 0..120 {
+        set_forward(&mut client, 1.0);
+        let before = client.world().resource::<NetClient>().last_tick;
+        round(&mut host, &mut client);
+        let applied = client.world().resource::<NetClient>().last_tick != before;
+        if applied && !at_rest(&mut client) {
+            stepped += 1;
+        } else if !applied && applied_before {
+            assert!(
+                at_rest(&mut client),
+                "a tick without a snapshot replays the step"
+            );
+            rested += 1;
+        }
+        applied_before = applied;
+    }
+    assert!(
+        stepped > 0 && rested > 0,
+        "stepped {stepped} rested {rested}"
+    );
 }
 
 #[test]
@@ -403,11 +440,25 @@ fn glass_broken_on_host_remeshes_on_client() {
         });
     }
     client.world_mut().resource_mut::<DirtySectors>().0.clear();
+    let panes = |c: &App| -> Vec<usize> {
+        c.world()
+            .resource::<FxQueue>()
+            .combat
+            .iter()
+            .filter_map(|e| match e {
+                rr_core::combat::CombatEvent::GlassBroken { wall, .. } => Some(*wall),
+                _ => None,
+            })
+            .collect()
+    };
     pump_until(&mut host, &mut client, "the glass", |_, c| {
-        c.world().resource::<FxQueue>().combat.iter().any(|e| {
-            matches!(e, rr_core::combat::CombatEvent::GlassBroken { wall: w, .. } if *w == wall)
-        })
+        !panes(c).is_empty()
     });
+    // One event for the pane, not one per side.
+    let twin = host.world().resource::<CurrentMap>().0.walls[wall]
+        .next_wall
+        .unwrap();
+    assert_eq!(panes(&client), [wall.min(twin)]);
     let dirty = &client.world().resource::<DirtySectors>().0;
     assert!(dirty.contains(&side) && dirty.contains(&back), "{dirty:?}");
     assert!(!client.world().resource::<CurrentMap>().0.walls[wall].glass);

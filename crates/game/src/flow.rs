@@ -192,7 +192,9 @@ pub(crate) fn check_player_death(
 /// previous position would make the frame loop redraw the last tick's step over and over
 /// (visible shake on the death camera, chasing Grunts and bolts). Runs at the start of the
 /// tick, so frames up to the first frozen tick still interpolate the final step normally.
-fn freeze_interpolation(
+/// A co-op client runs it too on every tick that applied no snapshot (`net::client`): it never
+/// steps the sim, so the last snapshot's step would replay the same way.
+pub(crate) fn freeze_interpolation(
     combat: Option<ResMut<LevelCombat>>,
     mut players: Query<(&PlayerBody, &mut PrevFeet)>,
 ) {

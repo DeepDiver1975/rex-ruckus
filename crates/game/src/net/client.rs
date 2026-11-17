@@ -18,7 +18,8 @@ use super::host::NetIdentity;
 use crate::combat::{FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::episode::Episode;
 use crate::flow::{
-    LevelDifficulty, LevelFile, LevelRuns, LocalSeat, PlayState, load_level, world_running,
+    LevelDifficulty, LevelFile, LevelRuns, LocalSeat, PlayState, freeze_interpolation, load_level,
+    world_running,
 };
 use crate::level::{CurrentMap, try_load_map};
 use crate::mechanics::{DirtySectors, LevelMechanics, use_key};
@@ -211,17 +212,28 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
     }
 }
 
-/// Applies the newest snapshot received to the level and the players.
+/// Applies the newest snapshot received to the level and the players. On a tick without one,
+/// every render-interpolation endpoint rests on the current pose, so the frames between
+/// snapshots hold still instead of replaying the last snapshot's step.
 pub fn client_apply(world: &mut World) {
+    if !apply_pending(world)
+        && let Err(e) = world.run_system_cached(freeze_interpolation)
+    {
+        warn!("cannot settle interpolation: {e}");
+    }
+}
+
+/// Applies the pending snapshot; false if there was none to apply.
+fn apply_pending(world: &mut World) -> bool {
     let Some((you, snap)) = world.resource_mut::<NetClient>().pending.take() else {
-        return;
+        return false;
     };
     let last = world.resource::<NetClient>().last_tick;
     if last.is_none_or(|t| snap.tick <= t) {
-        return;
+        return false;
     }
     if !world.contains_resource::<LevelCombat>() || !world.contains_resource::<LevelMechanics>() {
-        return;
+        return false;
     }
     let result = world.resource_scope(|world, mut combat: Mut<LevelCombat>| {
         world.resource_scope(|world, mut mech: Mut<LevelMechanics>| {
@@ -240,7 +252,7 @@ pub fn client_apply(world: &mut World) {
                 net.warned_run = Some(run);
                 warn!("dropped a snapshot that does not fit the level: {e:?}");
             }
-            return;
+            return false;
         }
     };
     world.resource_mut::<NetClient>().last_tick = Some(snap.tick);
@@ -256,10 +268,24 @@ pub fn client_apply(world: &mut World) {
         .resource_mut::<DirtySectors>()
         .0
         .extend(changes.sectors.iter().copied().chain(glass_sectors));
+    // `changes.glass` lists both sides of a pane; one event per pane.
+    let panes: Vec<usize> = {
+        let map = &world.resource::<CurrentMap>().0;
+        changes
+            .glass
+            .iter()
+            .copied()
+            .filter(|&w| {
+                map.walls[w]
+                    .next_wall
+                    .is_none_or(|t| t > w || !changes.glass.contains(&t))
+            })
+            .collect()
+    };
     {
         let mut fx = world.resource_mut::<FxQueue>();
         fx.combat
-            .extend(changes.glass.iter().map(|&wall| CombatEvent::GlassBroken {
+            .extend(panes.into_iter().map(|wall| CombatEvent::GlassBroken {
                 wall,
                 dirty: vec![],
             }));
@@ -269,6 +295,7 @@ pub fn client_apply(world: &mut World) {
             .extend(changes.actors_added.clone().map(CombatEvent::ActorSpawned));
     }
     apply_players(world, you, &snap.players);
+    true
 }
 
 /// Seats the local player as `you` and brings every player in line with its snap; players the
