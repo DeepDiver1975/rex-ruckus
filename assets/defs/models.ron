@@ -183,12 +183,13 @@
         // the grip sits about 0.05 m down the hand (rex.py `GRIP`). A gun authored barrel-forwards
         // (+z) and sights-up (+y), like the chaingun, lines up with a 180° pitch; the pistol and
         // shotgun lie along +x (yaw 90 then pitch 180); the launcher points along -z (roll 180).
-        // Sizes 0.3-0.8 m; first guesses, to be tuned from an in-game screenshot.
+        // Sizes 0.3-0.75 m. Checked in-game (`--partners`): the pistol and shotgun scenes have
+        // their grip near the origin, the launcher's grips sit just ahead of its centre.
         held: [
             (id: Pistol, scene: "models/weapons/pistol.glb", place: (scale: 0.165, yaw_deg: 90.0, pitch_deg: 180.0, offset: (0.0, 0.05, -0.04))), // 0.3 / 1.82
-            (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.19, yaw_deg: 90.0, pitch_deg: 180.0, offset: (0.0, 0.06, -0.2))), // 0.7 / 3.69
+            (id: Shotgun, scene: "models/weapons/shotgun.glb", place: (scale: 0.19, yaw_deg: 90.0, pitch_deg: 180.0, offset: (0.0, 0.05, -0.03))), // 0.7 / 3.69
             (id: Chaingun, scene: "models/weapons/chaingun.glb", place: (scale: 0.9, pitch_deg: 180.0, offset: (0.0, 0.05, -0.01))), // 0.6 / 0.665
-            (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.22, roll_deg: 180.0, offset: (0.0, 0.06, -0.15))), // 0.7 / 3.14
+            (id: Rockets, scene: "models/weapons/rocket_launcher.glb", place: (scale: 0.24, roll_deg: 180.0, offset: (0.0, 0.06, -0.03))), // 0.75 / 3.14
         ],
         // Slot tints, sRGB multipliers: orange, blue, green, magenta.
         slot_tints: [(1.0, 0.55, 0.15), (0.25, 0.55, 1.0), (0.35, 0.85, 0.3), (0.9, 0.3, 0.85)],

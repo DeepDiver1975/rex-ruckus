@@ -56,6 +56,7 @@ action and press the new key or mouse button to rebind it (each action keeps up 
 Esc always opens the menu and cannot be rebound, Esc while capturing cancels).
 
 `--difficulty easy|normal|hard` sets the difficulty for runs that skip the menu.
+`--partners 1|2|3` (a dev aid) spawns that many stand-in co-op partners beside the start; they stand still.
 
 Settings (volumes, sensitivity, low-res, bindings) are saved to `settings.ron` in the OS config
 directory:

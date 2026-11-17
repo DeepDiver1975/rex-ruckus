@@ -8,7 +8,7 @@ use rr_core::actors::Target;
 use rr_core::audio::QuipTrigger;
 use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
-use rr_core::defs::Defs;
+use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
@@ -17,8 +17,8 @@ use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
 use rr_game::audio::combat_quips;
 use rr_game::combat::{
-    CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerInventory, PlayerVitals, clear_fx,
-    insert_defs,
+    CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+    clear_fx, insert_defs,
 };
 use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::flow::{FlowPlugin, PlayState};
@@ -28,8 +28,8 @@ use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_
 use rr_game::models::{ModelSlot, ModelsPlugin, Rig};
 use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
-    Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player, PlayerBody,
-    PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
+    DevPartners, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player,
+    PlayerBody, PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
 };
 use rr_game::viewmodel::{ViewState, read_fx};
 
@@ -558,4 +558,51 @@ fn partner_visual_holds_the_rex_model() {
         .map(|(_, s)| s.rig)
         .collect();
     assert_eq!(rigs, [Some(Rig::Player)]);
+}
+
+/// Every player id, sorted, and how many are the local player.
+fn player_ids(app: &mut App) -> (Vec<u8>, usize) {
+    let mut q = app.world_mut().query::<(&Player, Has<LocalPlayer>)>();
+    let mut ids: Vec<u8> = q.iter(app.world()).map(|(p, _)| p.id.0).collect();
+    ids.sort();
+    let local = q.iter(app.world()).filter(|(_, l)| *l).count();
+    (ids, local)
+}
+
+#[test]
+fn partners_flag_spawns_standing_players() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.insert_resource(DevPartners(2));
+    app.add_plugins((
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    assert_eq!(player_ids(&mut app), (vec![0, 1, 2], 1));
+    // They stand on the floor with a full loadout, apart from each other.
+    for id in [1, 2] {
+        let b = body(&mut app, PlayerId(id));
+        assert!(b.on_ground || b.pos.z.abs() < 0.01, "player {id}: {b:?}");
+        assert!(body(&mut app, PlayerId(0)).pos.distance(b.pos) > 2.0 * PLAYER_RADIUS);
+        assert_eq!(health(&mut app, PlayerId(id)), 100);
+    }
+    // Dev partners show off different guns: 1 the chaingun, 2 the shotgun.
+    ticks(&mut app, 60);
+    for (id, gun) in [(1, WeaponId::Chaingun), (2, WeaponId::Shotgun)] {
+        let e = player(&mut app, PlayerId(id));
+        assert_eq!(app.world().get::<PlayerArsenal>(e).unwrap().0.current, gun);
+    }
+
+    kill(&mut app, PlayerId(0));
+    ticks(&mut app, 70);
+    input(&mut app, PlayerId(0)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    assert_eq!(player_ids(&mut app), (vec![0, 1, 2], 1), "after a restart");
 }

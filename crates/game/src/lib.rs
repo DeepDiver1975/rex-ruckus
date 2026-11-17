@@ -47,6 +47,8 @@ pub struct GamePlugin {
     pub difficulty: rr_core::difficulty::Difficulty,
     /// Settings file to read and save; `None` uses defaults and never touches disk.
     pub settings: Option<std::path::PathBuf>,
+    /// Dev aid: stand-in co-op partners (1-3, see `player::DevPartners`); 0 for none.
+    pub partners: u8,
 }
 
 impl Plugin for GamePlugin {
@@ -61,6 +63,9 @@ impl Plugin for GamePlugin {
             None => load_map(&self.level),
         };
         mechanics::insert_level(app, first, self.difficulty);
+        if self.partners > 0 {
+            app.insert_resource(player::DevPartners(self.partners));
+        }
         combat::insert_defs(app, combat::load_defs());
         // Models load before the plugins whose spawns use them.
         app.add_plugins(models::ModelsPlugin);

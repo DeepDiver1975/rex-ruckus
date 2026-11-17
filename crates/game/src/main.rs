@@ -10,9 +10,10 @@ use rr_game::demo::{DemoPlugin, load_script};
 use rr_game::episode::load_episodes;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]]";
+const USAGE: &str = "usage: rex-ruckus [LEVEL] [--mute] [--difficulty easy|normal|hard]\n       [--demo SCRIPT [--record DIR]] [--partners 1|2|3]";
 
-/// Command line: `[LEVEL] [--mute] [--difficulty D] [--demo SCRIPT [--record DIR]]`.
+/// Command line: `[LEVEL] [--mute] [--difficulty D] [--demo SCRIPT [--record DIR]]
+/// [--partners N]`.
 #[derive(Debug, PartialEq)]
 struct Args {
     /// `None` plays the episode (or the depot, for a demo).
@@ -22,6 +23,8 @@ struct Args {
     /// Start muted; implied by `--record`.
     mute: bool,
     difficulty: Difficulty,
+    /// Dev aid: stand-in co-op partners to spawn (1-3), 0 for none.
+    partners: u8,
 }
 
 impl Args {
@@ -41,6 +44,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         record: None,
         mute: false,
         difficulty: Difficulty::default(),
+        partners: 0,
     };
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -57,6 +61,13 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--difficulty" => {
                 let value = args.next().ok_or("--difficulty needs a value")?;
                 out.difficulty = value.parse::<Difficulty>()?;
+            }
+            "--partners" => {
+                out.partners = args
+                    .next()
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .filter(|n| (1..=3).contains(n))
+                    .ok_or("--partners needs 1, 2 or 3")?;
             }
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => out.level = Some(arg),
@@ -116,6 +127,7 @@ fn main() {
             audio,
             difficulty: args.difficulty,
             settings,
+            partners: args.partners,
         })
         .run();
 }
@@ -184,6 +196,22 @@ mod tests {
         );
         assert!(parse(&["--difficulty", "x"]).is_err());
         assert!(parse(&["--difficulty"]).is_err());
+    }
+
+    #[test]
+    fn partners_flag() {
+        assert_eq!(parse(&[]).unwrap().partners, 0);
+        assert_eq!(parse(&["--partners", "2"]).unwrap().partners, 2);
+        for bad in ["0", "4", "x"] {
+            assert_eq!(
+                parse(&["--partners", bad]),
+                Err("--partners needs 1, 2 or 3".into())
+            );
+        }
+        assert_eq!(
+            parse(&["--partners"]),
+            Err("--partners needs 1, 2 or 3".into())
+        );
     }
 
     #[test]
