@@ -106,6 +106,7 @@ impl Plugin for GamePlugin {
             lowres::LowResPlugin,
             automap::AutomapSimPlugin,
             automap::AutomapRenderPlugin,
+            net::host::NetHostPlugin,
         ));
         // The episode starts at the title screen; direct-level and demo runs go straight to play.
         if self.episode.is_some() && self.demo.is_none() {

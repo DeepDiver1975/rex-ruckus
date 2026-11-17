@@ -3,6 +3,8 @@
 
 use bevy::prelude::*;
 
+pub mod host;
+
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NetMode {
     #[default]

@@ -279,7 +279,7 @@ fn tick_movers(
 }
 
 /// Moves the events core `Mechanics` collected this tick into [`FxQueue`] for the frame loop.
-fn forward_mech_events(mut mech: ResMut<LevelMechanics>, mut fx: ResMut<FxQueue>) {
+pub(crate) fn forward_mech_events(mut mech: ResMut<LevelMechanics>, mut fx: ResMut<FxQueue>) {
     fx.mech.extend(mech.0.drain_events());
 }
 
