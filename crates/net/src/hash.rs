@@ -14,8 +14,23 @@ fn fnv(mut h: u64, bytes: &[u8]) -> u64 {
     h
 }
 
+/// [`fnv`] over `bytes` with every `\r\n` taken as `\n`.
+fn fnv_lf(mut h: u64, bytes: &[u8]) -> u64 {
+    let mut i = 0;
+    while i < bytes.len() {
+        let crlf = bytes[i] == b'\r' && bytes.get(i + 1) == Some(&b'\n');
+        if !crlf {
+            h = fnv(h, &bytes[i..=i]);
+        }
+        i += 1;
+    }
+    h
+}
+
 /// FNV-1a 64 over `defs/*.ron` and `levels/*.ron` under `assets`, in sorted relative-path
-/// order: each path's bytes, a 0 byte, the file's bytes, a 0 byte. A missing directory
+/// order: each path's bytes, a 0 byte, the file's bytes, a 0 byte. Every `\r\n` in a file is
+/// hashed as `\n` (a lone `\r` stays), so a Windows checkout with CRLF line endings hashes
+/// like a Linux one. A missing directory
 /// contributes nothing. Only top-level `*.ron` files (extension matched case-sensitively) in
 /// `defs/` and `levels/` count; subdirectories and other files are ignored.
 pub fn assets_hash(assets: &Path) -> io::Result<u64> {
@@ -39,7 +54,7 @@ pub fn assets_hash(assets: &Path) -> io::Result<u64> {
     for (rel, path) in files {
         h = fnv(h, rel.as_bytes());
         h = fnv(h, &[0]);
-        h = fnv(h, &std::fs::read(path)?);
+        h = fnv_lf(h, &std::fs::read(path)?);
         h = fnv(h, &[0]);
     }
     Ok(h)
@@ -88,6 +103,22 @@ mod tests {
         assert_ne!(assets_hash(&b).unwrap(), h);
         let _ = fs::remove_dir_all(&a);
         let _ = fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn assets_hash_ignores_crlf() {
+        let lf = temp("lf");
+        put(&lf, "defs/enemies.ron", "(\n  a: 1,\n)\n");
+        put(&lf, "levels/x.ron", "level\nline\r");
+        let crlf = temp("crlf");
+        put(&crlf, "defs/enemies.ron", "(\r\n  a: 1,\r\n)\r\n");
+        put(&crlf, "levels/x.ron", "level\r\nline\r");
+        assert_eq!(assets_hash(&crlf).unwrap(), assets_hash(&lf).unwrap());
+        // A lone `\r` is content, not a line ending.
+        put(&crlf, "levels/x.ron", "level\nline\n");
+        assert_ne!(assets_hash(&crlf).unwrap(), assets_hash(&lf).unwrap());
+        let _ = fs::remove_dir_all(&lf);
+        let _ = fs::remove_dir_all(&crlf);
     }
 
     #[test]
