@@ -19,8 +19,8 @@ pub use blasts::{BLAST_NOISE, BLAST_NUDGE, PendingBlast, Via};
 
 use crate::actors::special::{self, Special};
 use crate::actors::{
-    Actor, AiState, Perception, Target, choose_player, effective_muzzle, flyer_hover, hurt,
-    retargets, swipe_reaches, think, tuning, turns_on_attacker, volley, wake,
+    Actor, AiState, GRUDGE_SECS, Perception, Target, choose_player, effective_muzzle, flyer_hover,
+    hurt, retargets, swipe_reaches, think, tuning, turns_on_attacker, volley, wake,
 };
 use crate::collide::{Body, clip_move, z_range};
 use crate::defs::{Defs, EnemyAttack, Locomotion, ProjectileDef};
@@ -320,13 +320,16 @@ impl Combat {
         {
             self.actors[i].target = Target::Actor(k);
         }
-        // Shot by another player than the one it hunts: it turns on the shooter.
+        // Shot by another player than the one it hunts: it turns on the shooter. Either way, a
+        // player it now hunts and who hurt it keeps it for `GRUDGE_SECS` (see `tick`).
         if outcome != DamageOutcome::Ignored
             && let Shooter::Player(p) = by
-            && matches!(self.actors[i].target, Target::Player(q) if q != p)
+            && matches!(self.actors[i].target, Target::Player(_))
             && turns_on_attacker(&self.actors[i])
         {
-            self.actors[i].target = Target::Player(p);
+            let a = &mut self.actors[i];
+            a.target = Target::Player(p);
+            a.grudge = GRUDGE_SECS;
         }
         if outcome == DamageOutcome::Killed
             && let Some(splash) = def.death_splash
@@ -462,12 +465,18 @@ impl Combat {
             {
                 a.target = Target::default();
             }
+            a.grudge = (a.grudge - dt).max(0.0);
             if let Target::Player(current) = a.target {
-                // Alone, player 0 is the only choice (and nothing is traced).
-                let id = if n > 1 {
-                    choose_player(map, a, current, &views)
-                } else {
+                let held = a.grudge > 0.0 && views.get(current.0 as usize).is_some_and(|v| v.alive);
+                // Alone, player 0 is the only choice (and nothing is traced). A grudge holds a
+                // living attacker without a new choice.
+                let id = if n <= 1 {
                     PlayerId(0)
+                } else if held {
+                    current
+                } else {
+                    let def = defs.enemy(a.kind).phased(a.phase);
+                    choose_player(map, a, &def, current, &views)
                 };
                 a.target = Target::Player(id);
             }

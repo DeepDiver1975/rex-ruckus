@@ -3,7 +3,7 @@
 
 use super::tests::{DT, Player, count, spawn_at};
 use super::*;
-use crate::actors::{SWITCH_RATIO, choose_player};
+use crate::actors::{GRUDGE_SECS, SWITCH_RATIO, choose_player};
 use crate::defs::WeaponId;
 use crate::fixtures::{defs, engine_room, pillar_room, two_rooms};
 use crate::hazard::HazardKind;
@@ -146,6 +146,70 @@ fn hurt_by_other_player_turns_on_them() {
     }));
     assert!(c.actors[0].alive());
     assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)));
+}
+
+/// The shooter stays the target for `GRUDGE_SECS` even with a nearer visible player, then the
+/// usual choice comes back.
+#[test]
+fn grudge_keeps_attacker_then_expires() {
+    let d = defs();
+    let mut map = pillar_room();
+    spawn_at(&mut map, 2.0, 8.0, 0.0, false);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let mut ps = [Player::at(&map, 4.0, 8.0), Player::at(&map, 9.5, 8.0)];
+    let ev = WeaponEvent::Fire {
+        weapon: WeaponId::Pistol,
+        dirs: vec![ps[1].aim_at(&c, 0)],
+    };
+    let (eye, sector) = (ps[1].eye(), ps[1].body.sector);
+    c.player_attack(&mut map, &d, PlayerId(1), eye, sector, &ev);
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)));
+    let spot = c.actors[0].body;
+    let mut tick = |c: &mut Combat, ps: &mut [Player; 2]| {
+        tick_all(c, &mut map, &d, ps);
+        // Nobody dies or moves, so only the grudge decides.
+        c.actors[0].body = spot;
+        for p in ps.iter_mut() {
+            p.vitals = Player::at(&map, 0.0, 0.0).vitals;
+        }
+    };
+    let a = spot.pos + Vec3::Z * 0.9 * spot.height;
+    let (d0, d1) = (ps[0].eye().distance(a), ps[1].eye().distance(a));
+    assert!(d0 < SWITCH_RATIO * d1, "{d0} {d1}");
+    let held = (GRUDGE_SECS / DT) as usize - 5;
+    for k in 0..held {
+        tick(&mut c, &mut ps);
+        assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)), "tick {k}");
+    }
+    for _ in 0..10 {
+        tick(&mut c, &mut ps);
+    }
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(0)));
+}
+
+/// A sleeper only wakes to what it sees ahead: the player behind it does not hold its target.
+#[test]
+fn sleeper_turns_to_player_in_front() {
+    let d = defs();
+    let mut map = pillar_room();
+    spawn_at(&mut map, 5.0, 8.0, 0.0, true);
+    let mut c = Combat::spawn(&map, &d, 1);
+    // Player 0 is nearer and in plain line of sight, but behind (west of) the sleeper.
+    let mut ps = [Player::at(&map, 3.5, 8.0), Player::at(&map, 9.5, 8.0)];
+    let a = &c.actors[0];
+    assert!(crate::trace::can_see(
+        &map,
+        a.eye(),
+        a.body.sector,
+        ps[0].eye()
+    ));
+    tick_all(&mut c, &mut map, &d, &mut ps);
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)));
+    assert!(
+        matches!(c.actors[0].state, AiState::Alert { .. }),
+        "{:?}",
+        c.actors[0].state
+    );
 }
 
 #[test]
@@ -318,6 +382,7 @@ fn choose_player_rules() {
     spawn_at(&mut m, 0.5, 8.0, 0.0, false);
     let c = Combat::spawn(&m, &d, 1);
     let a = &c.actors[0];
+    let g = d.enemy(a.kind);
     let view = |x: f32, y: f32, alive: bool| {
         let b = Body::spawn(&map, Vec2::new(x, y), 0.35, 1.8).unwrap();
         Perception {
@@ -329,24 +394,34 @@ fn choose_player_rules() {
     };
     // One view: always player 0.
     assert_eq!(
-        choose_player(&map, a, PlayerId(2), &[view(9.0, 8.0, false)]),
+        choose_player(&map, a, g, PlayerId(2), &[view(9.0, 8.0, false)]),
         PlayerId(0)
     );
     // Current visible: kept unless another is nearer than SWITCH_RATIO of it.
     let near = 8.5 * SWITCH_RATIO + 0.5 + 0.2; // just outside the ratio
     let views = [view(9.0, 8.0, true), view(near, 8.0, true)];
-    assert_eq!(choose_player(&map, a, PlayerId(0), &views), PlayerId(0));
+    assert_eq!(choose_player(&map, a, g, PlayerId(0), &views), PlayerId(0));
     let views = [view(9.0, 8.0, true), view(3.0, 8.0, true)];
-    assert_eq!(choose_player(&map, a, PlayerId(0), &views), PlayerId(1));
+    assert_eq!(choose_player(&map, a, g, PlayerId(0), &views), PlayerId(1));
+    // Beyond sight range counts as unseen: the current one at 8.5 m is kept against one at
+    // 6.5 m (not within the ratio) until the range shrinks below 8.5 m.
+    let views = [view(7.0, 8.0, true), view(9.0, 8.0, true)];
+    assert_eq!(choose_player(&map, a, g, PlayerId(1), &views), PlayerId(1));
+    let mut short = g.clone();
+    short.sight_range = 7.0;
+    assert_eq!(
+        choose_player(&map, a, &short, PlayerId(1), &views),
+        PlayerId(0)
+    );
     // Current dead: nearest visible living one.
     let views = [view(2.0, 8.0, false), view(9.0, 8.0, true)];
-    assert_eq!(choose_player(&map, a, PlayerId(0), &views), PlayerId(1));
+    assert_eq!(choose_player(&map, a, g, PlayerId(0), &views), PlayerId(1));
     // None visible (both behind the pillar from (0.5, 8)): keep current while alive...
     let views = [view(9.5, 1.0, true), view(7.0, 3.0, true)];
-    assert_eq!(choose_player(&map, a, PlayerId(0), &views), PlayerId(0));
+    assert_eq!(choose_player(&map, a, g, PlayerId(0), &views), PlayerId(0));
     // ...else the nearest living one; none living: player 0.
     let views = [view(9.5, 1.0, false), view(7.0, 3.0, true)];
-    assert_eq!(choose_player(&map, a, PlayerId(0), &views), PlayerId(1));
+    assert_eq!(choose_player(&map, a, g, PlayerId(0), &views), PlayerId(1));
     let views = [view(9.5, 1.0, false), view(7.0, 3.0, false)];
-    assert_eq!(choose_player(&map, a, PlayerId(1), &views), PlayerId(0));
+    assert_eq!(choose_player(&map, a, g, PlayerId(1), &views), PlayerId(0));
 }

@@ -331,9 +331,10 @@ impl Mechanics {
     }
 
     /// Player `player` is in `sector` this tick. On entering it (a different sector from that
-    /// player's last call, or its first call; any player's entry counts) each of its triggers that may still run applies its action and
-    /// then reports `TriggerFired(i)`. Being carried by a lift never changes the sector, so it
-    /// never re-fires. Returns true when an exit trigger ran.
+    /// player's last call, or its first call; any player's entry counts), each of its triggers
+    /// that may still run applies its action and then reports `TriggerFired(i)`. Being carried
+    /// by a lift never changes the sector, so it never re-fires. Returns true when an exit
+    /// trigger ran.
     pub fn enter(&mut self, map: &Map, player: PlayerId, sector: SectorId) -> bool {
         let p = player.0 as usize;
         if self.inside.len() <= p {

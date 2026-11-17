@@ -104,6 +104,9 @@ pub struct Actor {
     pub burrow_at: Option<usize>,
     /// The actor whose burrow brought this one up, for minions.
     pub summoner: Option<usize>,
+    /// Seconds it keeps hunting the player who last hurt it (`GRUDGE_SECS`) before
+    /// `choose_player` may pick another; counts down in `Combat::tick`.
+    pub grudge: f32,
 }
 
 /// Whom an actor hunts. Infighting points it at another actor (by index; actors are never
@@ -163,9 +166,14 @@ pub fn turns_on_attacker(victim: &Actor) -> bool {
 /// over as an actor's target, so the target does not flip between players at similar range.
 pub const SWITCH_RATIO: f32 = 0.75;
 
+/// Seconds an actor keeps hunting the player who last hurt it before `choose_player` may pick
+/// another (`Actor::grudge`).
+pub const GRUDGE_SECS: f32 = 4.0;
+
 /// Which player actor `a`, now hunting `current`, hunts this tick; `views[k]` is `PlayerId(k)`.
 /// With one view it is always `PlayerId(0)` (nothing is traced). Otherwise, among the living
-/// players, the visible ones are those `can_see` reaches from the actor's eye:
+/// players, the visible ones are those `think` would see (`sees`: within `def.sight_range` and
+/// in line of sight; for a sleeper also within its field of view, `in_fov`):
 /// - `current`, if it exists, lives and is visible, is kept unless a visible one is nearer than
 ///   `SWITCH_RATIO` times its distance (then the nearest visible one);
 /// - else the nearest visible one;
@@ -173,7 +181,13 @@ pub const SWITCH_RATIO: f32 = 0.75;
 /// - with none living, `PlayerId(0)`.
 ///
 /// Ties go to the lower id.
-pub fn choose_player(map: &Map, a: &Actor, current: PlayerId, views: &[Perception]) -> PlayerId {
+pub fn choose_player(
+    map: &Map,
+    a: &Actor,
+    def: &EnemyDef,
+    current: PlayerId,
+    views: &[Perception],
+) -> PlayerId {
     if views.len() <= 1 {
         return PlayerId(0);
     }
@@ -189,7 +203,10 @@ pub fn choose_player(map: &Map, a: &Actor, current: PlayerId, views: &[Perceptio
     let visible: Vec<usize> = living
         .iter()
         .copied()
-        .filter(|&k| crate::trace::can_see(map, eye, a.body.sector, views[k].eye))
+        .filter(|&k| {
+            let to = views[k].eye;
+            sees(a, def, map, to) && (a.state != AiState::Sleep || in_fov(a, def, to))
+        })
         .collect();
     let cur = current.0 as usize;
     let cur_lives = living.contains(&cur);
@@ -267,6 +284,7 @@ impl Actor {
             pound_in: def.pound.map_or(0.0, |p| p.first),
             burrow_at: None,
             summoner: None,
+            grudge: 0.0,
         })
     }
 
@@ -316,6 +334,20 @@ pub fn wake(a: &mut Actor) {
 /// Heading of a horizontal direction (0 = +x, counter-clockwise).
 fn heading(d: Vec2) -> f32 {
     d.y.atan2(d.x)
+}
+
+/// Whether actor `a` sees the point `to` (a player's eye): within `def.sight_range` of its eye
+/// and in line of sight. A sleeper also needs `in_fov` to wake.
+fn sees(a: &Actor, def: &EnemyDef, map: &Map, to: Vec3) -> bool {
+    let eye = a.eye();
+    (to - eye).length() <= def.sight_range && crate::trace::can_see(map, eye, a.body.sector, to)
+}
+
+/// Whether the point `to` lies within actor `a`'s field of view (`def.fov_deg`, centred on its
+/// heading).
+fn in_fov(a: &Actor, def: &EnemyDef, to: Vec3) -> bool {
+    let flat = (to - a.eye()).truncate();
+    angle_diff(a.angle, heading(flat)) <= (def.fov_deg / 2.0).to_radians()
 }
 
 /// Absolute difference between two headings, in [0, π].
@@ -404,12 +436,11 @@ pub fn think(
     let to_player = p.eye - eye;
     let flat = to_player.truncate();
     let dist = to_player.length();
-    let sees = dist <= def.sight_range && crate::trace::can_see(map, eye, a.body.sector, p.eye);
+    let sees = sees(a, def, map, p.eye);
 
     match a.state {
         AiState::Sleep => {
-            let in_fov = angle_diff(a.angle, heading(flat)) <= (def.fov_deg / 2.0).to_radians();
-            if in_fov && sees {
+            if in_fov(a, def, p.eye) && sees {
                 a.state = AiState::Alert { t: 0.0 };
             }
             idle
