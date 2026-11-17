@@ -93,6 +93,10 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - A `models.ron` weapon may set `spin: Some((node: "Barrels", axis: (x, y, z)))`: that glTF node turns
   about its local `axis` (default +z) while the weapon fires (the chaingun's `Barrels`). `rr-tools validate` checks the node
   exists in the model and the axis is a finite, non-zero vector.
+- Every gun has a magazine (`clip`) and `reload` time; the boot and pipe bombs do not. A new gun's
+  pickup ammo loads its magazine first. Reload animations are keyframe tracks in
+  `crates/game/src/reload_anim.rs` (gun pose, a glove and a code-built prop per gun), checked by a test
+  that the hand and prop come into view at the default 75° FOV; a new gun needs a track there.
 - The `weapons.ron` HUD label (`hud_name`, else `name`) must be 1-10 characters (checked when the
   defs load), so it never wraps the status bar.
 - Low-res mode keeps 360 rows; its width follows the window aspect (`lowres.rs`) instead of a fixed 640.

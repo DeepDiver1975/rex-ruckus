@@ -216,7 +216,9 @@ mod tests {
             Some("Picked up the chaingun")
         );
         assert!(r.arsenal.owned[WeaponId::Chaingun.index()]);
-        assert_eq!(r.arsenal.reserve[AmmoKind::Bullets.index()], before + 50);
+        // A new gun's pickup ammo loads its magazine first (100 rounds: all 50 fit).
+        assert_eq!(r.arsenal.clip[WeaponId::Chaingun.index()], 50);
+        assert_eq!(r.arsenal.reserve[AmmoKind::Bullets.index()], before);
     }
 
     #[test]
@@ -224,7 +226,9 @@ mod tests {
         let mut r = Rig::new();
         assert!(r.pick(ItemKind::RocketLauncher).is_some());
         assert!(r.arsenal.owned[WeaponId::Rockets.index()]);
-        assert_eq!(r.arsenal.reserve[AmmoKind::Rockets.index()], 5);
+        // Three load the launcher, two go to the reserve.
+        assert_eq!(r.arsenal.clip[WeaponId::Rockets.index()], 3);
+        assert_eq!(r.arsenal.reserve[AmmoKind::Rockets.index()], 2);
     }
 
     #[test]

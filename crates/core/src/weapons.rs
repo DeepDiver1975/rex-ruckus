@@ -528,6 +528,42 @@ mod tests {
     }
 
     #[test]
+    fn every_gun_but_the_bombs_reloads_its_magazine() {
+        for w in [
+            WeaponId::Pistol,
+            WeaponId::Shotgun,
+            WeaponId::Chaingun,
+            WeaponId::Rockets,
+        ] {
+            let (d, mut a, mut rng) = armed(WeaponId::Pistol, 0, 0, 0);
+            let def = d.weapon(w);
+            let (size, kind) = (def.clip.expect("a magazine"), def.ammo.unwrap());
+            assert!(def.reload > 0.0, "{w:?} reload time");
+            a.owned[w.index()] = true;
+            a.current = w;
+            a.clip[w.index()] = 1;
+            a.reserve[kind.index()] = size;
+            // The last round goes out, then the gun reloads by itself...
+            let ev = run(&mut a, &d, &held(), &mut rng, def.refire + 0.05);
+            assert!(ev.contains(&WeaponEvent::ReloadStart), "{w:?}: {ev:?}");
+            assert_eq!(a.clip[w.index()], 0);
+            // ...and after the reload time the magazine is full again.
+            run(
+                &mut a,
+                &d,
+                &WeaponInput::default(),
+                &mut rng,
+                def.reload + 0.05,
+            );
+            assert_eq!(a.clip[w.index()], size, "{w:?}");
+            assert_eq!(a.reserve[kind.index()], 0, "{w:?}");
+        }
+        let fixtures = fixtures::defs();
+        assert_eq!(fixtures.weapon(WeaponId::PipeBombs).clip, None);
+        assert_eq!(fixtures.weapon(WeaponId::Boot).clip, None);
+    }
+
+    #[test]
     fn reload_moves_rounds_only_on_completion() {
         let (d, mut a, mut rng) = setup();
         a.clip[WeaponId::Pistol.index()] = 5;
@@ -685,12 +721,13 @@ mod tests {
     }
 
     #[test]
-    fn shotgun_uses_reserve_and_seven_pellets() {
+    fn shotgun_fires_seven_pellets_from_its_magazine() {
         let (d, mut a, mut rng) = setup();
         assert!(a.give_weapon(&d, WeaponId::Shotgun));
         run(&mut a, &d, &WeaponInput::default(), &mut rng, 0.4);
         assert_eq!(a.current, WeaponId::Shotgun);
-        assert_eq!(a.readout(&d), (None, Some(10)));
+        // The pickup's 10 shells: 6 in the magazine, 4 in reserve.
+        assert_eq!(a.readout(&d), (Some(6), Some(4)));
         let ev = a.tick(&d, &held(), Vec3::X, &mut rng, DT);
         match &ev[..] {
             [WeaponEvent::Fire { weapon, dirs }] => {
@@ -699,8 +736,12 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
-        assert_eq!(a.reserve[AmmoKind::Shells.index()], 9);
-        assert_eq!(a.clip[WeaponId::Shotgun.index()], 0);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 4);
+        assert_eq!(
+            a.clip[WeaponId::Shotgun.index()],
+            5,
+            "a shot comes out of the magazine"
+        );
         assert!(matches!(a.phase, WeaponPhase::Cooldown(_)));
     }
 
@@ -780,7 +821,8 @@ mod tests {
         let (d, mut a, mut rng) = setup();
         assert!(a.give_weapon(&d, WeaponId::Shotgun));
         assert!(a.owned[2]);
-        assert_eq!(a.reserve[AmmoKind::Shells.index()], 10);
+        assert_eq!(a.clip[WeaponId::Shotgun.index()], 6);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 4);
         let ph = a.phase;
         assert!(matches!(
             ph,
@@ -791,7 +833,7 @@ mod tests {
         ));
         // Picking up another shotgun mid-switch adds ammo but does not restart the switch.
         assert!(a.give_weapon(&d, WeaponId::Shotgun));
-        assert_eq!(a.reserve[AmmoKind::Shells.index()], 20);
+        assert_eq!(a.reserve[AmmoKind::Shells.index()], 14);
         assert_eq!(a.phase, ph);
         run(&mut a, &d, &WeaponInput::default(), &mut rng, 0.4);
         assert_eq!(a.current, WeaponId::Shotgun);
@@ -895,7 +937,19 @@ mod tests {
         a.reserve[AmmoKind::Bullets.index()] = bullets;
         a.reserve[AmmoKind::Rockets.index()] = rockets;
         a.reserve[AmmoKind::Bombs.index()] = bombs;
+        // Load the magazine from the reserve, as a start weapon is.
+        if let (Some(size), Some(kind)) = (d.weapon(w).clip, d.weapon(w).ammo) {
+            let n = size.min(a.reserve[kind.index()]);
+            a.clip[w.index()] = n;
+            a.reserve[kind.index()] -= n;
+        }
         (d, a, Rng::new(1))
+    }
+
+    /// Rounds `w` has left in all: its magazine plus the reserve.
+    fn rounds(d: &Defs, a: &Arsenal, w: WeaponId) -> u32 {
+        let kind = d.weapon(w).ammo.expect("a gun");
+        a.clip[w.index()] + a.reserve[kind.index()]
     }
 
     fn launches(ev: &[WeaponEvent]) -> usize {
@@ -911,7 +965,7 @@ mod tests {
         let expected = (1.0 / d.weapon(WeaponId::Chaingun).refire).ceil() as usize;
         assert_eq!(expected, 15, "shipped chaingun: 0.07 s refire");
         assert_eq!(fires(&ev), expected);
-        assert_eq!(a.reserve[AmmoKind::Bullets.index()], 100 - expected as u32);
+        assert_eq!(rounds(&d, &a, WeaponId::Chaingun), 100 - expected as u32);
     }
 
     #[test]
@@ -925,7 +979,7 @@ mod tests {
                 dir: Vec3::X
             }]
         );
-        assert_eq!(a.reserve[AmmoKind::Rockets.index()], 4);
+        assert_eq!(rounds(&d, &a, WeaponId::Rockets), 4);
         assert!(matches!(a.phase, WeaponPhase::Cooldown(_)));
         // Refire 0.8 s: held for 1 s launches twice in total.
         let ev = run(&mut a, &d, &held(), &mut rng, 1.0);

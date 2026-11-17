@@ -22,6 +22,7 @@ use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal};
 use crate::flow::PlayState;
 use crate::models::{ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
 use crate::player::{Look, Player, PlayerBody, PlayerCamera, PlayerTuning};
+use crate::reload_anim::{self, ReloadHand, ReloadProp};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use rr_core::defs::{AmmoKind, WeaponId};
@@ -50,7 +51,6 @@ const SWAY_GAIN: f32 = 0.05;
 const SWAY_MAX: f32 = 0.04;
 const BOB_RATE: f32 = 10.0;
 const LOWER_DEPTH: f32 = 0.25;
-const RELOAD_TILT: f32 = 0.6;
 /// Chaingun barrel spin: top speed (rad/s), spin-up rate (1/s of the gap) and spin-down decay
 /// (1/s). The cluster keeps spinning this long after the last shot.
 pub const SPIN_MAX: f32 = 30.0;
@@ -194,12 +194,17 @@ pub fn switch_dip(left: f32, total: f32) -> f32 {
     1.0 - (2.0 * f - 1.0).abs()
 }
 
-/// Reload tilt, 0..1: eases down and back up over the reload.
-pub fn reload_tilt(left: f32, total: f32) -> f32 {
-    if total <= 0.0 {
-        return 0.0;
+/// The reload animation's pose for the arsenal's current phase ([`reload_anim::Pose::REST`]
+/// unless it is reloading).
+pub fn reload_pose(a: &rr_core::weapons::Arsenal, defs: &rr_core::defs::Defs) -> reload_anim::Pose {
+    match a.phase {
+        WeaponPhase::Reloading(left) => {
+            let total = defs.weapon(a.current).reload;
+            let t = if total > 0.0 { 1.0 - left / total } else { 1.0 };
+            reload_anim::pose(a.current, t)
+        }
+        _ => reload_anim::Pose::REST,
     }
-    ((1.0 - (left / total).clamp(0.0, 1.0)) * PI).sin()
 }
 
 /// The weapon whose model is visible for the arsenal's current phase.
@@ -397,7 +402,7 @@ impl Plugin for ViewModelPlugin {
                 tag_spin_nodes,
                 read_fx.in_set(FxReaders),
                 advance_state.after(read_fx),
-                (pose_rig, pose_weapons, pose_extras, pose_leg).after(advance_state),
+                (pose_rig, pose_weapons, pose_extras, pose_leg, pose_reload).after(advance_state),
             ),
         );
     }
@@ -527,6 +532,7 @@ fn spawn_viewmodel(
             ))
             .id();
         spawn_parts(&mut commands, leg, leg_parts());
+        reload_anim::spawn(&mut commands, rig, &mut meshes, &mut materials);
     }
 }
 
@@ -625,24 +631,20 @@ fn pose_rig(
     let speed = (body.0.vel.truncate().length() / tuning.0.max_speed).clamp(0.0, 1.0);
     let speed = if body.0.on_ground { speed } else { 0.0 };
     let bob = bob_offset(state.bob_phase, speed);
-    let (dip, tilt) = match arsenal.0.phase {
-        WeaponPhase::Switching { to, left } => {
-            (switch_dip(left, defs.0.weapon(to).switch_time), 0.0)
-        }
-        WeaponPhase::Reloading(left) => (
-            0.0,
-            reload_tilt(left, defs.0.weapon(arsenal.0.current).reload),
-        ),
-        _ => (0.0, 0.0),
+    let dip = match arsenal.0.phase {
+        WeaponPhase::Switching { to, left } => switch_dip(left, defs.0.weapon(to).switch_time),
+        _ => 0.0,
     };
+    let reload = reload_pose(&arsenal.0, &defs.0);
     let (tf, vis) = &mut *rig;
     tf.translation = RIG_BASE
+        + reload.gun
         + Vec3::new(
             bob.x + state.sway.x,
-            bob.y + state.sway.y - dip * LOWER_DEPTH - tilt * 0.03,
+            bob.y + state.sway.y - dip * LOWER_DEPTH,
             state.recoil.z,
         );
-    tf.rotation = Quat::from_rotation_x(state.recoil.pitch - tilt * RELOAD_TILT);
+    tf.rotation = Quat::from_rotation_x(state.recoil.pitch) * reload.rot;
     **vis = if matches!(*play, PlayState::Playing | PlayState::Paused) {
         Visibility::Visible
     } else {
@@ -716,6 +718,35 @@ fn pose_extras(
             tf.translation = Vec3::Z * press_dip(state.press);
             *vis = shown(a.live_bombs > 0);
         }
+    }
+}
+
+/// Moves the reload hand and the reloading gun's prop along its track; both are hidden
+/// otherwise.
+#[allow(clippy::type_complexity)]
+fn pose_reload(
+    defs: Res<GameDefs>,
+    player: Single<&PlayerArsenal, With<Player>>,
+    mut hand: Single<(&mut Transform, &mut Visibility), (With<ReloadHand>, Without<ReloadProp>)>,
+    mut props: Query<(&ReloadProp, &mut Transform, &mut Visibility), Without<ReloadHand>>,
+) {
+    let a = &player.0;
+    let reloading = matches!(a.phase, WeaponPhase::Reloading(_));
+    let pose = reload_pose(a, &defs.0);
+    let (tf, vis) = &mut *hand;
+    tf.translation = pose.hand;
+    **vis = if reloading {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for (prop, mut tf, mut vis) in &mut props {
+        tf.translation = pose.prop;
+        *vis = if reloading && prop.0 == a.current {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 
@@ -854,8 +885,17 @@ mod tests {
         assert!((switch_dip(0.2, 0.4) - 1.0).abs() < 1e-6);
         assert!(switch_dip(0.0, 0.4).abs() < 1e-6);
         assert_eq!(switch_dip(0.1, 0.0), 0.0);
-        assert!(reload_tilt(1.0, 1.0).abs() < 1e-6);
-        assert!((reload_tilt(0.5, 1.0) - 1.0).abs() < 1e-6);
+        // The reload pose follows the reload's progress and is at rest otherwise.
+        let defs = rr_core::defs::Defs::builtin();
+        let mut a = rr_core::weapons::Arsenal::new(&defs);
+        a.current = WeaponId::Pistol;
+        assert_eq!(reload_pose(&a, &defs), reload_anim::Pose::REST);
+        let total = defs.weapon(WeaponId::Pistol).reload;
+        a.phase = WeaponPhase::Reloading(total * 0.4);
+        assert_eq!(
+            reload_pose(&a, &defs),
+            reload_anim::pose(WeaponId::Pistol, 0.6)
+        );
         let sw = |left| WeaponPhase::Switching {
             to: WeaponId::Shotgun,
             left,

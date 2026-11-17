@@ -58,8 +58,13 @@ fn route_completes(level: &str, max_secs: u32) {
                     )
                 })
                 .min_by(|a, b| a.0.total_cmp(&b.0));
+            let gun = world
+                .query::<&rr_game::combat::PlayerArsenal>()
+                .single(world)
+                .map(|a| (a.0.current, a.0.clip[a.0.current.index()], a.0.phase))
+                .ok();
             eprintln!(
-                "near={near:?} hp={hp:?} {:?} t={:6.1} ({:6.2},{:6.2},{:5.2}) s{:?}",
+                "gun={gun:?} near={near:?} hp={hp:?} {:?} t={:6.1} ({:6.2},{:6.2},{:5.2}) s{:?}",
                 world.resource::<PlayState>(),
                 frame as f32 / 30.0,
                 p.x,
