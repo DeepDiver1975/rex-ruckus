@@ -6,6 +6,7 @@ use bevy::world_serialization::WorldAsset;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::combat_room;
+use rr_core::players::PlayerId;
 use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{CombatSimPlugin, FxQueue, insert_defs};
 use rr_game::flow::{FlowPlugin, LevelEntity, PlayState, restart_level};
@@ -93,13 +94,13 @@ fn flash_follows_fire_and_view_hides_when_dead() {
     app.update();
     assert_eq!(visible_flashes(&mut app), 0);
     assert_eq!(rig_visibility(&mut app), Visibility::Visible);
-    app.world_mut()
-        .resource_mut::<FxQueue>()
-        .weapon
-        .push(WeaponEvent::Fire {
+    app.world_mut().resource_mut::<FxQueue>().weapon.push((
+        PlayerId(0),
+        WeaponEvent::Fire {
             weapon: WeaponId::Pistol,
             dirs: vec![Vec3::X],
-        });
+        },
+    ));
     app.update();
     assert!(visible_flashes(&mut app) > 0, "flash after Fire");
     *app.world_mut().resource_mut::<PlayState>() = PlayState::Dead;
@@ -154,13 +155,13 @@ fn new_weapon_models_react_to_events_and_bombs() {
     use rr_game::combat::PlayerArsenal;
     let mut app = app();
     app.update();
-    app.world_mut()
-        .resource_mut::<FxQueue>()
-        .weapon
-        .push(WeaponEvent::Launch {
+    app.world_mut().resource_mut::<FxQueue>().weapon.push((
+        PlayerId(0),
+        WeaponEvent::Launch {
             weapon: WeaponId::Rockets,
             dir: Vec3::X,
-        });
+        },
+    ));
     app.update();
     assert!(visible_flashes(&mut app) > 0, "flash after Launch");
     assert!(app.world().resource::<ViewState>().recoil.z > 0.0);
@@ -200,13 +201,13 @@ fn new_weapon_models_react_to_events_and_bombs() {
         })
     );
 
-    app.world_mut()
-        .resource_mut::<FxQueue>()
-        .weapon
-        .push(WeaponEvent::Fire {
+    app.world_mut().resource_mut::<FxQueue>().weapon.push((
+        PlayerId(0),
+        WeaponEvent::Fire {
             weapon: WeaponId::Chaingun,
             dirs: vec![Vec3::X],
-        });
+        },
+    ));
     app.update();
     let spin = |app: &mut App| {
         let mut q = app
@@ -236,7 +237,7 @@ fn new_weapon_models_react_to_events_and_bombs() {
     app.world_mut()
         .resource_mut::<FxQueue>()
         .weapon
-        .push(WeaponEvent::Detonate);
+        .push((PlayerId(0), WeaponEvent::Detonate));
     app.update();
     assert_eq!(vis_of::<Detonator>(&mut app), Visibility::Inherited);
     assert_eq!(vis_of::<HeldBomb>(&mut app), Visibility::Hidden);

@@ -9,6 +9,7 @@ use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, use_key};
 use crate::menu::MenuScreen;
+use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
@@ -84,6 +85,25 @@ pub struct Player {
 /// The player this machine controls and shows (input, camera, HUD, viewmodel, audio).
 #[derive(Component)]
 pub struct LocalPlayer;
+
+/// The [`LocalPlayer`]'s id, for presentation systems that sort events by player: hurt flashes,
+/// weapon kicks and sounds, quips and HUD messages follow the local player only. `None` while
+/// no local player is spawned.
+#[derive(SystemParam)]
+pub struct LocalId<'w, 's> {
+    q: Query<'w, 's, &'static Player, With<LocalPlayer>>,
+}
+
+impl LocalId<'_, '_> {
+    pub fn get(&self) -> Option<PlayerId> {
+        self.q.single().ok().map(|p| p.id)
+    }
+
+    /// Whether `id` is the local player.
+    pub fn is(&self, id: PlayerId) -> bool {
+        self.get() == Some(id)
+    }
+}
 
 #[derive(Component)]
 pub struct PlayerBody(pub Body);
@@ -313,8 +333,8 @@ fn simulate_player(
         let forward = forward_2d(look.angle);
         let right = Vec2::new(forward.y, -forward.x);
         let wish = forward * input.forward + right * input.strafe;
-        // Jump climbs and crouch descends, but only with the jetpack on.
-        let jetpack = carried.is_some_and(|i| i.0.jetpack_on);
+        // Jump climbs and crouch descends, but only with the jetpack on; the dead drop.
+        let jetpack = alive && carried.is_some_and(|i| i.0.jetpack_on);
         let move_input = MoveInput {
             wish,
             jump: input.jump,

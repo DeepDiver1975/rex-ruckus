@@ -5,21 +5,30 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::actors::Target;
+use rr_core::audio::QuipTrigger;
 use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, engine_room};
-use rr_core::map::{ActorKind, ActorSpawn, Map};
+use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
 use rr_core::players::PlayerId;
-use rr_game::combat::{CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerVitals, insert_defs};
-use rr_game::flow::{FlowPlugin, PlayState};
-use rr_game::level::CurrentMap;
-use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::player::{
-    LocalPlayer, LookSettings, PLAYER_RADIUS, PendingInput, Player, PlayerBody, PlayerSimPlugin,
-    PlayerTuning, PrevFeet, read_input, spawn_coop_player,
+use rr_core::projectile::Shooter;
+use rr_core::weapons::WeaponEvent;
+use rr_game::audio::combat_quips;
+use rr_game::combat::{
+    CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerInventory, PlayerVitals, clear_fx,
+    insert_defs,
 };
+use rr_game::flow::{FlowPlugin, PlayState};
+use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
+use rr_game::level::CurrentMap;
+use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::player::{
+    Inventory, LocalPlayer, LookSettings, PLAYER_RADIUS, PendingInput, Player, PlayerBody,
+    PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
+};
+use rr_game::viewmodel::{ViewState, read_fx};
 
 fn app(map: Map) -> App {
     let mut app = App::new();
@@ -247,4 +256,199 @@ fn level_continues_while_a_partner_lives() {
     kill(&mut app, PlayerId(1));
     ticks(&mut app, 1);
     assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+}
+
+fn input(app: &mut App, id: PlayerId) -> Mut<'_, PendingInput> {
+    let e = player(app, id);
+    app.world_mut().get_mut::<PendingInput>(e).unwrap()
+}
+
+fn carried(app: &mut App, id: PlayerId) -> Mut<'_, PlayerInventory> {
+    let e = player(app, id);
+    app.world_mut().get_mut::<PlayerInventory>(e).unwrap()
+}
+
+fn message(app: &App) -> String {
+    app.world().resource::<HudMessage>().text.clone()
+}
+
+fn hurt(player: PlayerId) -> CombatEvent {
+    CombatEvent::PlayerHurt {
+        player,
+        amount: 20,
+        from: Vec3::ZERO,
+    }
+}
+
+/// The HUD's damage flash after this frame's events `events`.
+fn flash_after(app: &mut App, events: Vec<CombatEvent>) -> f32 {
+    app.world_mut().resource_mut::<DamageFlash>().0 = 0.0;
+    app.world_mut().resource_mut::<FxQueue>().combat = events;
+    app.world_mut().run_system_once(read_hurt).unwrap();
+    app.world_mut().run_system_once(clear_fx).unwrap();
+    app.world().resource::<DamageFlash>().0
+}
+
+#[test]
+fn remote_hurt_does_not_flash_hud() {
+    let mut app = app(combat_room());
+    app.init_resource::<DamageFlash>()
+        .insert_resource(FlashColor(Color::WHITE));
+    spawn_coop(&mut app, PlayerId(1));
+    assert_eq!(flash_after(&mut app, vec![hurt(PlayerId(1))]), 0.0);
+    assert!(flash_after(&mut app, vec![hurt(PlayerId(0))]) > 0.0);
+}
+
+/// Fires player `id`'s gun for one tick and returns the viewmodel state the frame then shows.
+fn view_after_fire(app: &mut App, id: PlayerId) -> ViewState {
+    *app.world_mut().resource_mut::<ViewState>() = ViewState::default();
+    input(app, id).fire_pressed = true;
+    ticks(app, 1);
+    let fired = app.world().resource::<FxQueue>().weapon.clone();
+    assert!(
+        fired
+            .iter()
+            .any(|(p, e)| *p == id && matches!(e, WeaponEvent::Fire { .. })),
+        "player {id:?} fired: {fired:?}"
+    );
+    app.world_mut().run_system_once(read_fx).unwrap();
+    app.world_mut().run_system_once(clear_fx).unwrap();
+    std::mem::take(&mut *app.world_mut().resource_mut::<ViewState>())
+}
+
+#[test]
+fn remote_fire_does_not_kick_viewmodel() {
+    let mut app = app(combat_room());
+    app.init_resource::<ViewState>();
+    spawn_coop(&mut app, PlayerId(1));
+    // Let the starting weapon come up.
+    ticks(&mut app, 60);
+    app.world_mut().run_system_once(clear_fx).unwrap();
+    assert_eq!(view_after_fire(&mut app, PlayerId(1)), ViewState::default());
+    assert!(view_after_fire(&mut app, PlayerId(0)).recoil.z > 0.0);
+}
+
+#[test]
+fn remote_pickup_shows_no_message() {
+    let mut map = combat_room();
+    map.items.push(Item {
+        kind: ItemKind::Key(Key::Red),
+        pos: Vec2::new(6.0, 6.5),
+        skill: Difficulty::Easy,
+    });
+    let mut app = app(map);
+    spawn_coop(&mut app, PlayerId(1));
+    place(&mut app, PlayerId(1), 6.0, 6.5);
+    ticks(&mut app, 1);
+    assert!(app.world().resource::<LevelMechanics>().0.taken[0]);
+    let e = player(&mut app, PlayerId(1));
+    assert!(
+        app.world()
+            .get::<Inventory>(e)
+            .unwrap()
+            .keys
+            .contains(Key::Red)
+    );
+    assert_eq!(message(&app), "");
+}
+
+#[test]
+fn remote_kill_gives_no_quip() {
+    let mut map = combat_room();
+    map.actors.push(ActorSpawn {
+        kind: ActorKind::Grunt,
+        pos: Vec2::new(7.0, 7.0),
+        angle: 0.0,
+        asleep: true,
+        skill: Difficulty::Easy,
+        on_death: None,
+    });
+    let app = app(map);
+    let combat = &app.world().resource::<LevelCombat>().0;
+    let kill = |id| CombatEvent::ActorKilled {
+        actor: 0,
+        by: Shooter::Player(id),
+    };
+    assert_eq!(
+        combat_quips(&[kill(PlayerId(1))], Some(combat), Some(PlayerId(0))),
+        []
+    );
+    assert_eq!(
+        combat_quips(&[kill(PlayerId(0))], Some(combat), Some(PlayerId(0))),
+        [QuipTrigger::Kill(ActorKind::Grunt)]
+    );
+}
+
+#[test]
+fn partner_inventory_messages_stay_off_the_hud() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    carried(&mut app, PlayerId(1)).0.fuel = 0.01;
+    input(&mut app, PlayerId(1)).toggle_jetpack = true;
+    ticks(&mut app, 3);
+    assert!(!carried(&mut app, PlayerId(1)).0.jetpack_on, "ran dry");
+    assert_eq!(message(&app), "");
+    // The local player's own run-dry still says so.
+    carried(&mut app, PlayerId(0)).0.fuel = 0.01;
+    input(&mut app, PlayerId(0)).toggle_jetpack = true;
+    ticks(&mut app, 3);
+    assert!(message(&app).contains("fuel"), "{}", message(&app));
+}
+
+#[test]
+fn partner_use_messages_stay_off_the_hud() {
+    // Both face east, at the locked door of door_rooms.
+    let map = rr_core::fixtures::door_rooms("(kind: Door, lock: Some(Red))", "");
+    let mut app = app(map);
+    spawn_coop(&mut app, PlayerId(1));
+    place(&mut app, PlayerId(1), 3.5, 1.0);
+    input(&mut app, PlayerId(1)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(message(&app), "");
+    place(&mut app, PlayerId(0), 3.5, 3.0);
+    input(&mut app, PlayerId(0)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert!(message(&app).contains("red"), "{}", message(&app));
+}
+
+#[test]
+fn only_the_local_player_restarts() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    kill(&mut app, PlayerId(0));
+    kill(&mut app, PlayerId(1));
+    ticks(&mut app, 70);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    input(&mut app, PlayerId(1)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    input(&mut app, PlayerId(0)).use_pressed = true;
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+}
+
+#[test]
+fn the_dead_drop_out_of_the_sky_and_toggle_nothing() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    carried(&mut app, PlayerId(1)).0.fuel = 100.0;
+    input(&mut app, PlayerId(1)).toggle_jetpack = true;
+    input(&mut app, PlayerId(1)).jump = true;
+    ticks(&mut app, 30);
+    let up = body(&mut app, PlayerId(1)).pos.z;
+    assert!(up > 1.0, "player 1 flies: {up}");
+    kill(&mut app, PlayerId(1));
+    ticks(&mut app, 60);
+    let down = body(&mut app, PlayerId(1));
+    assert!(down.on_ground && down.pos.z < up, "the dead fall: {down:?}");
+
+    // A dead player's toggles do nothing.
+    let mut c = carried(&mut app, PlayerId(1));
+    c.0.jetpack_on = false;
+    c.0.battery = 100.0;
+    input(&mut app, PlayerId(1)).toggle_jetpack = true;
+    input(&mut app, PlayerId(1)).toggle_nv = true;
+    ticks(&mut app, 1);
+    let c = carried(&mut app, PlayerId(1)).0;
+    assert!(!c.jetpack_on && !c.nv_on, "{c:?}");
 }

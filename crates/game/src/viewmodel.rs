@@ -21,7 +21,7 @@
 use crate::combat::{FxQueue, FxReaders, GameDefs, PlayerArsenal};
 use crate::flow::PlayState;
 use crate::models::{ModelLibrary, ModelReady, ModelSlot, spawn_model_with};
-use crate::player::{LocalPlayer, Look, PlayerBody, PlayerCamera, PlayerTuning};
+use crate::player::{LocalId, LocalPlayer, Look, PlayerBody, PlayerCamera, PlayerTuning};
 use crate::reload_anim::{self, ReloadHand, ReloadProp};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
@@ -556,10 +556,11 @@ pub fn tag_spin_nodes(
     }
 }
 
-/// Turns this frame's weapon events into recoil, flash and kick timers. An [`FxReaders`]
-/// system: it only reads the queue.
-fn read_fx(fx: Res<FxQueue>, mut state: ResMut<ViewState>) {
-    for ev in &fx.weapon {
+/// Turns this frame's weapon events of the local player into recoil, flash and kick timers (a
+/// partner's gun does not kick this viewmodel). An [`FxReaders`] system: it only reads the queue.
+pub fn read_fx(fx: Res<FxQueue>, local: LocalId, mut state: ResMut<ViewState>) {
+    let local = local.get();
+    for (_, ev) in fx.weapon.iter().filter(|(p, _)| Some(*p) == local) {
         match ev {
             // Launch (rockets, bombs) kicks like a shot; the chaingun also keeps spinning.
             // The boot swings out instead of kicking back like a gun.

@@ -8,14 +8,15 @@ use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
 use crate::mechanics::HudSubtitle;
 use crate::paths::assets_dir;
-use crate::player::LocalPlayer;
+use crate::player::{LocalId, LocalPlayer};
 use bevy::audio::Volume;
 use bevy::prelude::*;
 use rr_core::audio::{LowHealthWatch, QuipDirector, QuipTable, QuipTrigger};
-use rr_core::combat::{CombatEvent, level_seed};
+use rr_core::combat::{Combat, CombatEvent, level_seed};
 use rr_core::defs::WeaponId;
 use rr_core::map::ActorKind;
 use rr_core::mechanics::MechEvent;
+use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
 
 /// Mixed into the level seed so the quip picks have a stream of their own.
@@ -82,6 +83,41 @@ pub fn reset_quips(
     });
 }
 
+/// The quip triggers in a frame's combat `events`: the `local` player's own kills (each a big
+/// one when a blast went off this frame, barrels aside) and found secrets.
+pub fn combat_quips(
+    events: &[CombatEvent],
+    combat: Option<&Combat>,
+    local: Option<PlayerId>,
+) -> Vec<QuipTrigger> {
+    // A blast this frame makes every kill of it (barrels aside) a big one.
+    let blast = events
+        .iter()
+        .any(|e| matches!(e, CombatEvent::Explosion { .. }));
+    let mut triggers = Vec::new();
+    for ev in events {
+        match *ev {
+            // Only the local player's own kills earn a line; a partner's kills and infighting
+            // are someone else's business.
+            CombatEvent::ActorKilled {
+                actor,
+                by: Shooter::Player(by),
+            } if Some(by) == local => {
+                let Some(kind) = combat.and_then(|c| c.actors.get(actor)).map(|a| a.kind) else {
+                    continue;
+                };
+                triggers.push(QuipTrigger::Kill(kind));
+                if blast && kind != ActorKind::Barrel {
+                    triggers.push(QuipTrigger::BigKill);
+                }
+            }
+            CombatEvent::SecretFound => triggers.push(QuipTrigger::Secret),
+            _ => {}
+        }
+    }
+    triggers
+}
+
 /// Feeds this frame's triggers to the director and plays its pick. A new weapon is one whose
 /// `owned` flag turned on since last frame (a weapon pickup for one already owned only gives
 /// ammo, so `ItemTaken` alone would over-report). An [`FxReaders`](crate::combat::FxReaders)
@@ -97,39 +133,17 @@ pub fn play_quips(
     mut state: ResMut<QuipState>,
     mut subtitle: ResMut<HudSubtitle>,
     player: Query<(&PlayerVitals, &PlayerArsenal), With<LocalPlayer>>,
+    local: LocalId,
 ) {
     let state = &mut *state;
     state.clock += time.delta_secs();
     let mut triggers: Vec<QuipTrigger> = state.pending.take().into_iter().collect();
 
-    // A blast this frame makes every kill of it (barrels aside) a big one.
-    let blast = fx
-        .combat
-        .iter()
-        .any(|e| matches!(e, CombatEvent::Explosion { .. }));
-    for ev in &fx.combat {
-        match *ev {
-            // Only the player's own kills earn a line; infighting is the enemies' business.
-            CombatEvent::ActorKilled {
-                actor,
-                by: Shooter::Player(_),
-            } => {
-                let Some(kind) = combat
-                    .as_ref()
-                    .and_then(|c| c.0.actors.get(actor))
-                    .map(|a| a.kind)
-                else {
-                    continue;
-                };
-                triggers.push(QuipTrigger::Kill(kind));
-                if blast && kind != ActorKind::Barrel {
-                    triggers.push(QuipTrigger::BigKill);
-                }
-            }
-            CombatEvent::SecretFound => triggers.push(QuipTrigger::Secret),
-            _ => {}
-        }
-    }
+    triggers.extend(combat_quips(
+        &fx.combat,
+        combat.as_ref().map(|c| &c.0),
+        local.get(),
+    ));
     for ev in &fx.mech {
         match ev {
             MechEvent::NeedKey(_) => triggers.push(QuipTrigger::NeedKey),

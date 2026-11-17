@@ -220,8 +220,10 @@ pub fn use_key(
         if let UseTarget::Prop(i) = t {
             // What a payphone tip reports.
             let secrets_left = combat.as_ref().map_or(0, |c| c.0.destruct.secrets_left());
+            // A partner's prop and key messages show on their HUD, not this one.
             if let Some(v) = vitals.as_deref_mut()
                 && let Some(text) = prop_message(mech.0.use_prop(i, &mut v.0, secrets_left))
+                && local
             {
                 msg.show(text);
             }
@@ -229,7 +231,10 @@ pub fn use_key(
         }
         match mech.0.activate(&map.0, t, inv.keys) {
             UseOutcome::Activated => {}
-            UseOutcome::NeedKey(k) => msg.show(format!("You need the {} keycard", k.name())),
+            UseOutcome::NeedKey(k) if local => {
+                msg.show(format!("You need the {} keycard", k.name()))
+            }
+            UseOutcome::NeedKey(_) => {}
             UseOutcome::Exit => finish_level(&mut state, &mut msg),
         }
     }
@@ -277,7 +282,8 @@ fn forward_mech_events(mut mech: ResMut<LevelMechanics>, mut fx: ResMut<FxQueue>
 }
 
 /// Walking over items: `apply_pickup` decides, and a refused item stays in the world.
-/// The dead pick nothing up.
+/// The dead pick nothing up; only the local player's pickups show a HUD message.
+#[allow(clippy::type_complexity)]
 pub fn pickup_items(
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
@@ -285,6 +291,7 @@ pub fn pickup_items(
     mut msg: ResMut<HudMessage>,
     mut q: Query<(
         &Player,
+        Has<LocalPlayer>,
         &PlayerBody,
         &mut Inventory,
         &mut PlayerVitals,
@@ -295,7 +302,7 @@ pub fn pickup_items(
     // In id order, so two players on one item settle it the same way on every machine.
     let mut players: Vec<_> = q.iter_mut().collect();
     players.sort_by_key(|(p, ..)| p.id);
-    for (_, body, mut inv, mut health, mut arsenal, mut carried) in players {
+    for (_, local, body, mut inv, mut health, mut arsenal, mut carried) in players {
         if !health.0.health.alive() {
             continue;
         }
@@ -307,7 +314,11 @@ pub fn pickup_items(
         };
         mech.0.pickup(&map.0, &body.0, |kind| {
             apply_pickup(&defs.0, kind, &mut loadout)
-                .map(|text| msg.show(text))
+                .map(|text| {
+                    if local {
+                        msg.show(text);
+                    }
+                })
                 .is_some()
         });
     }

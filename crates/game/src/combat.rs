@@ -40,7 +40,8 @@ pub struct LevelCombat(pub Combat);
 #[derive(Resource, Default)]
 pub struct FxQueue {
     pub combat: Vec<CombatEvent>,
-    pub weapon: Vec<WeaponEvent>,
+    /// Weapon events, each tagged with the player whose arsenal raised it.
+    pub weapon: Vec<(PlayerId, WeaponEvent)>,
     pub mech: Vec<MechEvent>,
     /// How many `combat` events the level stats already counted (reset with the queue).
     pub stats_seen: usize,
@@ -60,6 +61,22 @@ pub struct PlayerArsenal(pub Arsenal);
 /// The player's carried medkit charge, jetpack fuel and night-vision battery (empty at spawn).
 #[derive(Component, Default)]
 pub struct PlayerInventory(pub CoreInventory);
+
+/// The player a personal combat event (hurt, killed, burned) is about; `None` for world events.
+pub fn event_player(ev: &CombatEvent) -> Option<PlayerId> {
+    match *ev {
+        CombatEvent::PlayerHurt { player, .. }
+        | CombatEvent::HazardBurn { player, .. }
+        | CombatEvent::PlayerKilled(player) => Some(player),
+        _ => None,
+    }
+}
+
+/// Whether this machine presents `ev`: world events always, a personal one only when it is
+/// about the `local` player (a partner's hurt flash and pain grunt stay on their machine).
+pub fn shown_locally(ev: &CombatEvent, local: Option<PlayerId>) -> bool {
+    event_player(ev).is_none_or(|p| Some(p) == local)
+}
 
 /// Every `Update` system that reads [`FxQueue`]. Readers only read; [`clear_fx`] runs after
 /// the set and is the only system that empties the queue.
@@ -240,7 +257,7 @@ fn player_weapons(
                 fx.combat.extend(out);
             }
         }
-        fx.weapon.extend(events);
+        fx.weapon.extend(events.into_iter().map(|e| (player.id, e)));
     }
 }
 

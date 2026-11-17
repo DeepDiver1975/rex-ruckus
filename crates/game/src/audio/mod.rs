@@ -33,7 +33,7 @@ use rr_core::rng::Rng;
 use std::collections::HashMap;
 
 pub use music::{MUSIC_DUCK, MusicDuck, MusicTrack};
-pub use quips::{QuipLines, QuipState, QuipVoice};
+pub use quips::{QuipLines, QuipState, QuipVoice, combat_quips};
 pub use sfx::play_cues;
 
 /// At most this many sounds play at once, over all cues.
