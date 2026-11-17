@@ -12,8 +12,8 @@ use crate::combat::{FxQueue, FxReaders, PlayerArsenal, PlayerVitals};
 use crate::coords::{core_angle_to_yaw, to_bevy};
 use crate::flow::LevelEntity;
 use crate::models::{
-    AttachModels, KeepWorldScale, Look as Skin, ModelLibrary, ModelReady, ModelSlot, Rig,
-    TintCache, spawn_model_with,
+    AttachModels, KeepWorldScale, Look as Skin, ModelLibrary, ModelReady, ModelSlot, PlayerClip,
+    Rig, TintCache, spawn_model_with,
 };
 use crate::player::{LocalPlayer, Look, Player, PlayerBody, PlayerTuning, PrevFeet};
 use bevy::animation::RepeatAnimation;
@@ -21,7 +21,7 @@ use bevy::gltf::GltfMaterialName;
 use bevy::prelude::*;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::WeaponId;
-use rr_core::models::{HeldModel, PlayerClips, PlayerModel};
+use rr_core::models::{HeldModel, PlayerModel};
 use rr_core::players::PlayerId;
 use rr_core::weapons::WeaponEvent;
 use std::time::Duration;
@@ -30,51 +30,6 @@ use std::time::Duration;
 #[derive(Component)]
 pub struct PartnerVisual {
     pub player: Entity,
-}
-
-/// What a partner's model plays; [`PlayerClips`] names the glTF clip of each.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PlayerClip {
-    Idle,
-    Walk,
-    Run,
-    Crouch,
-    Attack,
-    Pain,
-    Death,
-}
-
-impl PlayerClip {
-    pub const ALL: [PlayerClip; 7] = [
-        PlayerClip::Idle,
-        PlayerClip::Walk,
-        PlayerClip::Run,
-        PlayerClip::Crouch,
-        PlayerClip::Attack,
-        PlayerClip::Pain,
-        PlayerClip::Death,
-    ];
-
-    /// The glTF clip name for this clip.
-    pub fn name(self, clips: &PlayerClips) -> &str {
-        match self {
-            PlayerClip::Idle => &clips.idle,
-            PlayerClip::Walk => &clips.walk,
-            PlayerClip::Run => &clips.run,
-            PlayerClip::Crouch => &clips.crouch,
-            PlayerClip::Attack => &clips.attack,
-            PlayerClip::Pain => &clips.pain,
-            PlayerClip::Death => &clips.death,
-        }
-    }
-
-    /// Whether the clip plays once (and is restarted by a fresh hurt or shot) instead of looping.
-    fn once(self) -> bool {
-        matches!(
-            self,
-            PlayerClip::Attack | PlayerClip::Pain | PlayerClip::Death
-        )
-    }
 }
 
 /// Horizontal speed (m/s) below which a partner stands idle.
@@ -89,24 +44,26 @@ pub const FIRE_SECS: f32 = 0.25;
 /// Cross-fade between two clips.
 const FADE: Duration = Duration::from_millis(150);
 
-/// Clip for a partner: dead → Death; else pain timer > 0 → Pain; else fire timer > 0 → Attack;
-/// else crouched (body.height < stand_height) → Crouch; else horizontal speed < [`IDLE_SPEED`] →
-/// Idle, < [`RUN_SPEED`] → Walk, otherwise Run.
+/// Clip for a partner: dead -> Death; else crouched (body.height < stand_height) -> Crouch (Rex's
+/// Attack and Pain clips are standing poses, which would put a crouched head through the ceiling,
+/// so a crouched partner ignores both); else horizontal speed >= [`IDLE_SPEED`] -> Walk, or Run from
+/// [`RUN_SPEED`] (moving keeps its legs when it shoots or is hurt); else pain timer > 0 -> Pain;
+/// else fire timer > 0 -> Attack; else Idle.
 pub fn partner_clip(alive: bool, crouched: bool, speed: f32, pain: f32, fire: f32) -> PlayerClip {
     if !alive {
         PlayerClip::Death
+    } else if crouched {
+        PlayerClip::Crouch
+    } else if speed >= RUN_SPEED {
+        PlayerClip::Run
+    } else if speed >= IDLE_SPEED {
+        PlayerClip::Walk
     } else if pain > 0.0 {
         PlayerClip::Pain
     } else if fire > 0.0 {
         PlayerClip::Attack
-    } else if crouched {
-        PlayerClip::Crouch
-    } else if speed < IDLE_SPEED {
-        PlayerClip::Idle
-    } else if speed < RUN_SPEED {
-        PlayerClip::Walk
     } else {
-        PlayerClip::Run
+        PlayerClip::Idle
     }
 }
 
@@ -321,10 +278,12 @@ fn animate_partners(
             continue;
         };
         let alive = vitals.is_none_or(|v| v.0.health.alive());
+        let speed = body.0.vel.truncate().length();
+        let still = speed < IDLE_SPEED;
         let clip = partner_clip(
             alive,
             body.0.height < tuning.0.stand_height,
-            body.0.vel.truncate().length(),
+            speed,
             timers.pain,
             timers.fire,
         );
@@ -356,6 +315,12 @@ fn animate_partners(
             && let Some(active) = player.animation_mut(node)
         {
             active.replay();
+        }
+        // A crouched partner that stands still holds its pose instead of walking in place.
+        if clip == PlayerClip::Crouch
+            && let Some(active) = player.animation_mut(node)
+        {
+            active.set_speed(if still { 0.0 } else { 1.0 });
         }
         anim.seen_alive |= alive;
     }
@@ -458,15 +423,25 @@ mod tests {
     }
 
     #[test]
-    fn pain_beats_fire_and_moving() {
-        assert_eq!(partner_clip(true, false, 6.0, 0.1, 0.1), Pain);
-        assert_eq!(partner_clip(true, true, 0.0, 0.1, 0.0), Pain);
+    fn moving_beats_fire_and_pain() {
+        assert_eq!(partner_clip(true, false, 6.0, 0.1, 0.1), Run);
+        assert_eq!(partner_clip(true, false, 2.0, 0.0, 0.1), Walk);
+        assert_eq!(partner_clip(true, false, 2.0, 0.1, 0.0), Walk);
     }
 
     #[test]
-    fn fire_beats_moving() {
-        assert_eq!(partner_clip(true, false, 6.0, 0.0, 0.1), Attack);
-        assert_eq!(partner_clip(true, true, 2.0, 0.0, 0.1), Attack);
+    fn pain_beats_fire_when_still() {
+        assert_eq!(partner_clip(true, false, 0.0, 0.1, 0.1), Pain);
+        assert_eq!(partner_clip(true, false, 0.0, 0.0, 0.1), Attack);
+    }
+
+    #[test]
+    fn crouched_partner_never_stands() {
+        for speed in [0.0, 2.0] {
+            assert_eq!(partner_clip(true, true, speed, 0.1, 0.1), Crouch);
+            assert_eq!(partner_clip(true, true, speed, 0.1, 0.0), Crouch);
+            assert_eq!(partner_clip(true, true, speed, 0.0, 0.1), Crouch);
+        }
     }
 
     #[test]

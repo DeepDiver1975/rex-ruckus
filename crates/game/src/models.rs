@@ -9,7 +9,6 @@
 //! [`bind_late_graphs`]). [`TintCache`] hands out per-[`Look`] variants of the glTF materials.
 
 use crate::flow::run_spawn_level;
-use crate::partners::PlayerClip;
 use crate::paths::assets_dir;
 use bevy::gltf::{Gltf, GltfAssetLabel};
 use bevy::light::NotShadowCaster;
@@ -18,7 +17,7 @@ use bevy::prelude::*;
 use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use rr_core::defs::WeaponId;
 use rr_core::map::{ActorKind, ItemKind};
-use rr_core::models::{Clips, ItemKindModel, ModelDefs, Placement};
+use rr_core::models::{Clips, ItemKindModel, ModelDefs, Placement, PlayerClips};
 use rr_core::props::PropKind;
 use std::hash::Hash;
 
@@ -83,6 +82,51 @@ impl ClipRole {
             ClipRole::Emerge => &clips.emerge,
         }
         .as_deref()
+    }
+}
+
+/// What a partner's model plays; [`PlayerClips`] names the glTF clip of each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PlayerClip {
+    Idle,
+    Walk,
+    Run,
+    Crouch,
+    Attack,
+    Pain,
+    Death,
+}
+
+impl PlayerClip {
+    pub const ALL: [PlayerClip; 7] = [
+        PlayerClip::Idle,
+        PlayerClip::Walk,
+        PlayerClip::Run,
+        PlayerClip::Crouch,
+        PlayerClip::Attack,
+        PlayerClip::Pain,
+        PlayerClip::Death,
+    ];
+
+    /// The glTF clip name for this clip.
+    pub fn name(self, clips: &PlayerClips) -> &str {
+        match self {
+            PlayerClip::Idle => &clips.idle,
+            PlayerClip::Walk => &clips.walk,
+            PlayerClip::Run => &clips.run,
+            PlayerClip::Crouch => &clips.crouch,
+            PlayerClip::Attack => &clips.attack,
+            PlayerClip::Pain => &clips.pain,
+            PlayerClip::Death => &clips.death,
+        }
+    }
+
+    /// Whether the clip plays once (and is restarted by a fresh hurt or shot) instead of looping.
+    pub fn once(self) -> bool {
+        matches!(
+            self,
+            PlayerClip::Attack | PlayerClip::Pain | PlayerClip::Death
+        )
     }
 }
 

@@ -25,7 +25,7 @@ use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
-use rr_game::models::{ModelSlot, ModelsPlugin, Rig};
+use rr_game::models::{ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig};
 use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
     DevPartners, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player,
@@ -558,6 +558,77 @@ fn partner_visual_holds_the_rex_model() {
         .map(|(_, s)| s.rig)
         .collect();
     assert_eq!(rigs, [Some(Rig::Player)]);
+}
+
+#[test]
+fn partner_holds_its_current_gun_in_the_hand() {
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<bevy::world_serialization::WorldAsset>()
+        .init_asset::<bevy::gltf::Gltf>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<AnimationGraph>();
+    insert_level(&mut app, combat_room(), Difficulty::Normal);
+    insert_defs(&mut app, Defs::builtin());
+    app.add_plugins((
+        ModelsPlugin,
+        FlowPlugin,
+        PlayerSimPlugin,
+        MechanicsSimPlugin,
+        CombatSimPlugin,
+        PartnersPlugin,
+    ));
+    app.update();
+    let e = spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    // No glTF loader: stand in for a ready model with a hand bone.
+    let hand_name = app
+        .world()
+        .resource::<ModelLibrary>()
+        .defs
+        .player
+        .hand
+        .clone();
+    let (root, _) = partner_visuals(&mut app)[0];
+    let model = {
+        let mut q = app.world_mut().query::<(Entity, &ChildOf, &ModelSlot)>();
+        q.iter(app.world())
+            .find(|(_, c, _)| c.parent() == root)
+            .unwrap()
+            .0
+    };
+    let hand = app
+        .world_mut()
+        .spawn((Name::new(hand_name.clone()), ChildOf(model)))
+        .id();
+    app.world_mut().entity_mut(model).insert(ModelReady {
+        player: None,
+        meshes: Vec::new(),
+        nodes: [(hand_name, hand)].into_iter().collect(),
+    });
+    let held = |app: &mut App| {
+        let mut q = app.world_mut().query::<(&ChildOf, &ModelSlot)>();
+        q.iter(app.world())
+            .filter(|(c, _)| c.parent() == hand)
+            .count()
+    };
+    app.world_mut()
+        .get_mut::<PlayerArsenal>(e)
+        .unwrap()
+        .0
+        .current = WeaponId::Chaingun;
+    app.update();
+    assert_eq!(held(&mut app), 1, "a chaingun in the hand");
+    app.world_mut()
+        .get_mut::<PlayerArsenal>(e)
+        .unwrap()
+        .0
+        .current = WeaponId::Boot;
+    app.update();
+    app.update();
+    assert_eq!(held(&mut app), 0, "the boot leaves the hand empty");
 }
 
 /// Every player id, sorted, and how many are the local player.
