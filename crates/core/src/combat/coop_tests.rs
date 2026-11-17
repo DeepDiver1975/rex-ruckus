@@ -1,12 +1,13 @@
 //! Several players in one combat tick: whom actors hunt, who gets hurt, separation and the
 //! per-player clocks.
 
-use super::tests::{DT, Player, count, spawn_at};
+use super::tests::{DT, Player, count, spawn_at, spawn_kind};
 use super::*;
 use crate::actors::{GRUDGE_SECS, SWITCH_RATIO, choose_player};
 use crate::defs::WeaponId;
 use crate::fixtures::{defs, engine_room, pillar_room, two_rooms};
 use crate::hazard::HazardKind;
+use crate::map::ActorKind;
 use crate::players::PlayerId;
 use crate::weapons::WeaponEvent;
 
@@ -424,4 +425,102 @@ fn choose_player_rules() {
     assert_eq!(choose_player(&map, a, g, PlayerId(0), &views), PlayerId(1));
     let views = [view(9.5, 1.0, false), view(7.0, 3.0, false)];
     assert_eq!(choose_player(&map, a, g, PlayerId(1), &views), PlayerId(0));
+}
+
+/// An enemy bolt flies through a dead player to the living one behind.
+#[test]
+fn dead_partner_does_not_block_bolts() {
+    let d = defs();
+    let mut map = two_rooms(0.0, 3.0);
+    spawn_at(&mut map, 0.5, 0.5, 0.0, true);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let mut ps = [Player::at(&map, 4.5, 2.0), Player::at(&map, 7.0, 2.0)];
+    ps[0].vitals.damage(10_000);
+    let from = Vec3::new(1.0, 2.0, 1.0);
+    c.projectiles.push(Projectile {
+        id: 99,
+        pos: from,
+        prev: from,
+        // Through player 0's chest at player 1's.
+        vel: Vec3::X * 20.0,
+        sector: 0,
+        radius: 0.1,
+        damage: 10,
+        owner: Shooter::Actor(0),
+        targets: Targets::All,
+        life: 5.0,
+        gravity: 0.0,
+        bounce: None,
+        remote: false,
+        splash: None,
+        resting: false,
+    });
+    let mut log = Vec::new();
+    for _ in 0..30 {
+        log.extend(tick_all(&mut c, &mut map, &d, &mut ps));
+    }
+    assert_eq!(hurt_ids(&log), vec![PlayerId(1)], "{log:?}");
+}
+
+/// A hitscan volley passes a dead player and hits the living one behind.
+#[test]
+fn dead_partner_does_not_block_pellets() {
+    let mut d = defs();
+    for e in &mut d.enemies {
+        e.aim_time = 0.0;
+        e.strafe = false;
+    }
+    let mut map = two_rooms(0.0, 3.0);
+    spawn_kind(&mut map, ActorKind::Enforcer, 1.0, 2.0, 0.0, false);
+    let mut c = Combat::spawn(&map, &d, 1);
+    // Player 0 stands dead right in front of the muzzle.
+    let mut ps = [Player::at(&map, 2.0, 2.0), Player::at(&map, 6.0, 2.0)];
+    ps[0].vitals.damage(10_000);
+    let mut log = Vec::new();
+    for _ in 0..120 {
+        log.extend(tick_all(&mut c, &mut map, &d, &mut ps));
+        if count(&log, |e| matches!(e, CombatEvent::ActorFired { .. })) > 0 {
+            break;
+        }
+    }
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)));
+    assert!(
+        count(&log, |e| matches!(e, CombatEvent::ActorFired { .. })) > 0,
+        "{log:?}"
+    );
+    assert!(hurt_ids(&log).contains(&PlayerId(1)), "{log:?}");
+}
+
+/// A dead player is neither pushed by an actor nor by its partner; those two still separate.
+#[test]
+fn dead_partner_is_not_pushed() {
+    let d = defs();
+    let mut map = two_rooms(0.0, 3.0);
+    // Asleep and facing away (west) from both players.
+    spawn_at(&mut map, 2.5, 2.0, std::f32::consts::PI, true);
+    let mut c = Combat::spawn(&map, &d, 1);
+    let mut ps = [Player::at(&map, 2.0, 2.0), Player::at(&map, 2.25, 2.1)];
+    ps[1].vitals.damage(10_000);
+    let dead = ps[1].body.pos;
+    tick_all(&mut c, &mut map, &d, &mut ps);
+    assert_eq!(ps[1].body.pos, dead);
+    let (p, a) = (ps[0].body, c.actors[0].body);
+    let dist = p.pos.truncate().distance(a.pos.truncate());
+    assert!(dist >= p.radius + a.radius - 1e-3, "{dist}");
+}
+
+/// A static actor (a barrel) keeps the player it has, even a dead one: it never hunts, so it
+/// never re-picks.
+#[test]
+fn static_actor_keeps_target_without_tracing() {
+    let d = defs();
+    let mut map = pillar_room();
+    spawn_kind(&mut map, ActorKind::Barrel, 1.0, 8.0, 0.0, false);
+    let mut c = Combat::spawn(&map, &d, 1);
+    c.actors[0].target = Target::Player(PlayerId(1));
+    // Player 0 is far nearer, in plain sight and alive; player 1 is dead.
+    let mut ps = [Player::at(&map, 2.0, 8.0), Player::at(&map, 9.5, 8.0)];
+    ps[1].vitals.damage(10_000);
+    tick_all(&mut c, &mut map, &d, &mut ps);
+    assert_eq!(c.actors[0].target, Target::Player(PlayerId(1)));
 }

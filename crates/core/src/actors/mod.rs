@@ -608,7 +608,8 @@ pub struct Volley {
 /// Traces `pellets` pellets from the muzzle of actor `shooter` around `dir` (the aimed
 /// direction, already jittered by the aim error) with `spread_deg` extra spread, up to
 /// `def.attack_range`. `bodies` is the combat layout `[players.., actors..]` with `players`
-/// player bodies (see `players`), and `alive(i)` says whether actor `i` is a living target.
+/// player bodies (see `players`), and `alive(r)` says whether body `r` is a living target (the
+/// shooter itself is always skipped).
 /// Pellets that stop at another actor hurt it (`actor_damage`).
 #[allow(clippy::too_many_arguments)]
 pub fn volley(
@@ -619,7 +620,7 @@ pub fn volley(
     dir: Vec3,
     bodies: &[Body],
     players: usize,
-    alive: impl Fn(usize) -> bool,
+    alive: impl Fn(BodyRef) -> bool,
     rng: &mut Rng,
 ) -> Volley {
     let EnemyAttack::Hitscan {
@@ -631,9 +632,9 @@ pub fn volley(
         return Volley::default();
     };
     let (origin, sector) = effective_muzzle(map, a);
-    let skip = |i: usize| match body_ref(players, i) {
-        BodyRef::Player(_) => false,
-        BodyRef::Actor(a) => a == shooter || !alive(a),
+    let skip = |i: usize| {
+        let r = body_ref(players, i);
+        r == BodyRef::Actor(shooter) || !alive(r)
     };
     let mut out = Volley::default();
     let mut dealt = vec![0; bodies.len()];

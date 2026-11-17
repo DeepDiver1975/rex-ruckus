@@ -391,8 +391,9 @@ impl Combat {
     ///    ones move with the enemy tuning and spawn their bolts. Minions join at the end of
     ///    `actors` and first act next tick;
     /// 4. living actors and the players are pushed apart where they overlap, then the living
-    ///    players from each other;
-    /// 5. projectiles fly; a hit on a player damages it; splash projectiles queue blasts;
+    ///    players from each other (with partners, a dead player takes no part);
+    /// 5. projectiles fly; a hit on a player damages it; splash projectiles queue blasts (with
+    ///    partners, enemy shots pass a dead player);
     /// 6. scripted blasts the level's channels set off join the queue (on their `delay`), and
     ///    queued blasts whose fuse ran out go off (see [`Combat::process_blasts`]);
     /// 7. corpses snap to their floor (dead flyers fall to it first).
@@ -469,10 +470,12 @@ impl Combat {
             if let Target::Player(current) = a.target {
                 let held = a.grudge > 0.0 && views.get(current.0 as usize).is_some_and(|v| v.alive);
                 // Alone, player 0 is the only choice (and nothing is traced). A grudge holds a
-                // living attacker without a new choice.
+                // living attacker without a new choice; a static actor never hunts, so it keeps
+                // whom it has.
+                let fixed = a.locomotion == Locomotion::Static && (current.0 as usize) < n;
                 let id = if n <= 1 {
                     PlayerId(0)
-                } else if held {
+                } else if held || fixed {
                     current
                 } else {
                     let def = defs.enemy(a.kind).phased(a.phase);
@@ -527,6 +530,9 @@ impl Combat {
                         let mut bodies: Vec<Body> = players.iter().map(|p| *p.body).collect();
                         bodies.extend(self.actors.iter().map(|a| a.body));
                         let alive: Vec<bool> = self.actors.iter().map(Actor::targetable).collect();
+                        // With partners, a dead player's body lets pellets pass.
+                        let living =
+                            |id: PlayerId| n <= 1 || players[id.0 as usize].vitals.health.alive();
                         let v = volley(
                             map,
                             &self.actors[i],
@@ -535,7 +541,10 @@ impl Combat {
                             dir,
                             &bodies,
                             n,
-                            |j| alive[j],
+                            |r| match r {
+                                BodyRef::Player(id) => living(id),
+                                BodyRef::Actor(j) => alive[j],
+                            },
                             &mut self.rng,
                         );
                         out.extend(v.impacts.iter().map(CombatEvent::impact));
@@ -622,11 +631,15 @@ impl Combat {
 
     /// Pushes every living actor and each player apart by half their XY overlap each, when
     /// their height ranges overlap too (players in id order; a static actor pushes the player
-    /// the whole way). Then each pair of living players, once, likewise. `clip_move` keeps them
-    /// all out of walls.
+    /// the whole way; with more than one player, dead ones take no part). Then each pair of
+    /// living players, once, likewise. `clip_move` keeps them all out of walls.
     fn separate(&mut self, map: &Map, players: &mut [PlayerTarget]) {
         let step = Tuning::default().step_height;
+        let n = players.len();
         for player in players.iter_mut() {
+            if n > 1 && !player.vitals.health.alive() {
+                continue;
+            }
             let player = &mut *player.body;
             for a in self.actors.iter_mut().filter(|a| a.targetable()) {
                 let b = &mut a.body;
@@ -680,13 +693,18 @@ impl Combat {
         let n = players.len();
         let mut bodies: Vec<Body> = players.iter().map(|p| *p.body).collect();
         bodies.extend(self.actors.iter().map(|a| a.body));
+        // With partners, projectiles pass a player who was dead when they set off this tick.
+        let dead: Vec<bool> = players
+            .iter()
+            .map(|p| n > 1 && !p.vitals.health.alive())
+            .collect();
         let mut projectiles = std::mem::take(&mut self.projectiles);
         projectiles.retain_mut(|p| {
             if p.resting {
                 follow_floor(map, p);
             }
             let skip = |i: usize| match body_ref(n, i) {
-                BodyRef::Player(_) => false,
+                BodyRef::Player(id) => dead[id.0 as usize],
                 BodyRef::Actor(a) => !self.actors[a].targetable(),
             };
             match step_projectile(map, p, &bodies, n, skip, dt) {
