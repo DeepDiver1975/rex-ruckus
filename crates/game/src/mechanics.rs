@@ -189,6 +189,7 @@ pub fn prop_message(o: PropOutcome) -> Option<String> {
 
 /// What `use_key` reads per player; vitals are optional so headless tests may omit them.
 type UseQuery = (
+    &'static Player,
     Has<LocalPlayer>,
     &'static PlayerBody,
     &'static Look,
@@ -206,7 +207,10 @@ pub fn use_key(
     mut state: ResMut<PlayState>,
     mut q: Query<UseQuery, With<Player>>,
 ) {
-    for (local, body, look, inv, mut input, mut vitals) in &mut q {
+    // In id order, so two players on one switch or door settle it the same way on every machine.
+    let mut players: Vec<_> = q.iter_mut().collect();
+    players.sort_by_key(|(p, ..)| p.id);
+    for (_, local, body, look, inv, mut input, mut vitals) in players {
         let target = use_target(&map.0, &mech.0, &body.0, look.angle);
         if local {
             prompt.0 = target;

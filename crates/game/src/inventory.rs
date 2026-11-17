@@ -36,6 +36,10 @@ pub fn use_inventory(
     let dt = time.timestep().as_secs_f32();
     for (local, mut input, mut vitals, mut inv) in &mut q {
         let alive = vitals.0.health.alive();
+        // A player who dies flying lands with the jetpack off (silently: no fuel message).
+        if !alive {
+            inv.0.jetpack_on = false;
+        }
         if std::mem::take(&mut input.use_medkit) {
             inv.0.use_medkit(&mut vitals.0);
         }

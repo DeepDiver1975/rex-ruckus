@@ -98,11 +98,6 @@ impl LocalId<'_, '_> {
     pub fn get(&self) -> Option<PlayerId> {
         self.q.single().ok().map(|p| p.id)
     }
-
-    /// Whether `id` is the local player.
-    pub fn is(&self, id: PlayerId) -> bool {
-        self.get() == Some(id)
-    }
 }
 
 #[derive(Component)]

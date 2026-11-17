@@ -442,9 +442,9 @@ fn the_dead_drop_out_of_the_sky_and_toggle_nothing() {
     let down = body(&mut app, PlayerId(1));
     assert!(down.on_ground && down.pos.z < up, "the dead fall: {down:?}");
 
-    // A dead player's toggles do nothing.
+    // Dying switched the jetpack off; a dead player's toggles do nothing.
+    assert!(!carried(&mut app, PlayerId(1)).0.jetpack_on, "jetpack off");
     let mut c = carried(&mut app, PlayerId(1));
-    c.0.jetpack_on = false;
     c.0.battery = 100.0;
     input(&mut app, PlayerId(1)).toggle_jetpack = true;
     input(&mut app, PlayerId(1)).toggle_nv = true;

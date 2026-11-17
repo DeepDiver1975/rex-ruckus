@@ -643,15 +643,15 @@ impl Combat {
             let player = &mut *player.body;
             for a in self.actors.iter_mut().filter(|a| a.targetable()) {
                 let b = &mut a.body;
-                let Some((n, gap)) = overlap(b, player) else {
+                let Some((dir, gap)) = overlap(b, player) else {
                     continue;
                 };
                 if a.locomotion == Locomotion::Static {
                     // Immovable: the player takes the whole push.
-                    clip_move(map, player, -n * gap, step);
+                    clip_move(map, player, -dir * gap, step);
                     continue;
                 }
-                let push = n * gap * 0.5;
+                let push = dir * gap * 0.5;
                 clip_move(map, b, push, step);
                 clip_move(map, player, -push, step);
             }

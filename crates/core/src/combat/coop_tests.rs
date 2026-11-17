@@ -512,7 +512,7 @@ fn dead_partner_is_not_pushed() {
 /// A static actor (a barrel) keeps the player it has, even a dead one: it never hunts, so it
 /// never re-picks.
 #[test]
-fn static_actor_keeps_target_without_tracing() {
+fn static_actor_keeps_its_target() {
     let d = defs();
     let mut map = pillar_room();
     spawn_kind(&mut map, ActorKind::Barrel, 1.0, 8.0, 0.0, false);
