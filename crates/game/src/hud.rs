@@ -151,13 +151,13 @@ fn use_key_label(bindings: Option<&Bindings>) -> String {
         .unwrap_or_else(|| "\u{2014}".to_string())
 }
 
-/// Ammo text for the status bar: `clip / reserve`, reserve only, or a dash for the boot.
+/// Ammo text for the status bar: `clip / reserve`, reserve only, or `MELEE` for the boot.
 pub fn ammo_label(weapon: WeaponId, readout: (Option<u32>, Option<u32>)) -> String {
     match (weapon, readout) {
         (_, (Some(clip), Some(reserve))) => format!("{clip} / {reserve}"),
         (_, (None, Some(reserve))) => reserve.to_string(),
         (_, (Some(clip), None)) => clip.to_string(),
-        (_, (None, None)) => "\u{2014}".to_string(),
+        (_, (None, None)) => "MELEE".to_string(),
     }
 }
 
@@ -774,7 +774,7 @@ mod tests {
             "12 / 36"
         );
         assert_eq!(ammo_label(WeaponId::Shotgun, (None, Some(8))), "8");
-        assert_eq!(ammo_label(WeaponId::Boot, (None, None)), "—");
+        assert_eq!(ammo_label(WeaponId::Boot, (None, None)), "MELEE");
     }
 
     #[test]
