@@ -13,7 +13,7 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals, clear_fx,
     insert_defs,
 };
-use rr_game::coop::EntryLoadout;
+use rr_game::coop::{CoopPlugin, EntryLoadout};
 use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin, Stats, start_episode};
 use rr_game::flow::{FlowPlugin, PlayState, StateAge};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
@@ -40,6 +40,7 @@ fn episode_app(maps: Vec<Map>) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        CoopPlugin,
     ));
     app.update();
     app
@@ -56,6 +57,7 @@ fn sim_app(map: Map) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        CoopPlugin,
     ));
     app.update();
     app
@@ -301,23 +303,26 @@ fn complete_level_two_players(app: &mut App) {
 #[test]
 fn every_player_carries_own_loadout() {
     let mut app = two_player_episode();
+    // Dev partner 1 starts with the chaingun, so it is player 0 that gets it and
+    // player 1 swaps it for the shotgun.
     give_to(&mut app, 0, |_, a, defs| {
-        a.0.give_weapon(defs, WeaponId::Shotgun);
+        a.0.give_weapon(defs, WeaponId::Chaingun);
     });
     give_to(&mut app, 1, |v, a, defs| {
         v.0.health.hp = 37;
-        a.0.give_weapon(defs, WeaponId::Chaingun);
+        a.0 = Arsenal::new(defs);
+        a.0.give_weapon(defs, WeaponId::Shotgun);
     });
     complete_level_two_players(&mut app);
     assert_eq!(app.world().resource::<Episode>().index, 1);
     let (v0, a0) = loadout_of(&mut app, 0);
     assert_eq!(v0.health.hp, 100);
-    assert!(a0.owned[WeaponId::Shotgun.index()]);
-    assert!(!a0.owned[WeaponId::Chaingun.index()]);
+    assert!(a0.owned[WeaponId::Chaingun.index()]);
+    assert!(!a0.owned[WeaponId::Shotgun.index()]);
     let (v1, a1) = loadout_of(&mut app, 1);
     assert_eq!(v1.health.hp, 37);
-    assert!(a1.owned[WeaponId::Chaingun.index()]);
-    assert!(!a1.owned[WeaponId::Shotgun.index()]);
+    assert!(a1.owned[WeaponId::Shotgun.index()]);
+    assert!(!a1.owned[WeaponId::Chaingun.index()]);
     for (id, v, a) in [(0, v0, a0), (1, v1, a1)] {
         let e = player_entity(&mut app, id);
         let inv = app

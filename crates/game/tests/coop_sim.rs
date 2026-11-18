@@ -20,7 +20,7 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, insert_defs,
 };
-use rr_game::coop::EntryLoadout;
+use rr_game::coop::{CoopPlugin, EntryLoadout};
 use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, PlayState};
@@ -53,6 +53,7 @@ fn app(map: Map) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         PartnersPlugin,
+        CoopPlugin,
     ));
     app.update();
     app

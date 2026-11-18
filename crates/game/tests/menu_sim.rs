@@ -9,6 +9,7 @@ use rr_core::fixtures::combat_room;
 use rr_core::map::Map;
 use rr_game::bindings::{Action, Binding};
 use rr_game::combat::{CombatSimPlugin, insert_defs};
+use rr_game::coop::CoopPlugin;
 use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin};
 use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState, RESTART_DELAY, StateAge};
 use rr_game::hud::{HudPlugin, HudRoot};
@@ -86,6 +87,7 @@ fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        CoopPlugin,
         HudPlugin,
         MenuPlugin { enabled: true },
         NetHostPlugin,

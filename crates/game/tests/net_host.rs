@@ -22,6 +22,7 @@ use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
+use rr_game::coop::CoopPlugin;
 use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, LevelFile, restart_level};
 use rr_game::level::CurrentMap;
@@ -57,6 +58,7 @@ fn host_app_with(edit: impl FnOnce(&mut Map)) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         NetHostPlugin,
+        CoopPlugin,
     ));
     app.update();
     start_hosting(

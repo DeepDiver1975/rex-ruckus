@@ -13,7 +13,7 @@ use rr_core::carry::CarryOver;
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct EntryLoadout(pub CarryOver);
 
-/// Co-op rules; added by [`crate::episode::EpisodePlugin`].
+/// Co-op rules; added with the other sim plugins (headless test apps add it themselves).
 pub struct CoopPlugin;
 
 impl Plugin for CoopPlugin {

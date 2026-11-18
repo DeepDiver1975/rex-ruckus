@@ -4,7 +4,7 @@
 use crate::combat::{
     CombatSet, FxQueue, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
 };
-use crate::coop::{CoopPlugin, EntryLoadout};
+use crate::coop::EntryLoadout;
 use crate::flow::{LevelDifficulty, LevelFile, PlayState, SpawnLevel, load_level, sim_ticks};
 use crate::level::load_map;
 use crate::paths::assets_dir;
@@ -213,8 +213,7 @@ pub struct EpisodePlugin;
 
 impl Plugin for EpisodePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(CoopPlugin)
-            .init_resource::<Stats>()
+        app.init_resource::<Stats>()
             .add_systems(SpawnLevel, reset_stats.after(crate::combat::spawn_combat))
             .add_systems(FixedUpdate, record_stats.after(CombatSet).run_if(sim_ticks));
     }

@@ -109,6 +109,7 @@ impl Plugin for GamePlugin {
         ));
         app.add_plugins((
             episode::EpisodePlugin,
+            coop::CoopPlugin,
             lowres::LowResPlugin,
             automap::AutomapSimPlugin,
             automap::AutomapRenderPlugin,
