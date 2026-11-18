@@ -44,11 +44,13 @@ pub const DEATH_EYE: f32 = 0.25;
 /// View roll once dead (radians).
 pub const DEATH_ROLL: f32 = 0.35;
 
-/// Where the eye height and view roll ease to: the live values, or the death camera's.
-pub fn view_targets(state: PlayState, live_eye: f32) -> (f32, f32) {
-    match state {
-        PlayState::Dead => (DEATH_EYE, DEATH_ROLL),
-        _ => (live_eye, 0.0),
+/// Where the eye height and view roll ease to: the live values, or the death camera's. `dead`
+/// is the death screen or, in co-op, a downed local player whose partner plays on.
+pub fn view_targets(dead: bool, live_eye: f32) -> (f32, f32) {
+    if dead {
+        (DEATH_EYE, DEATH_ROLL)
+    } else {
+        (live_eye, 0.0)
     }
 }
 
@@ -668,20 +670,33 @@ pub fn read_input(
     }
 }
 
+/// What the camera follows: the local player's body, look, eased eye and health.
+type CameraQuery = (
+    &'static PlayerBody,
+    &'static PrevFeet,
+    &'static Look,
+    &'static mut EyeHeight,
+    Option<&'static PlayerVitals>,
+);
+
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn update_camera(
+pub fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
     map: Res<CurrentMap>,
     state: Res<PlayState>,
-    player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<LocalPlayer>>,
+    player: Single<CameraQuery, With<LocalPlayer>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
     mut roll: ResMut<ViewRoll>,
     correction: Option<ResMut<CorrectionOffset>>,
 ) {
-    let (body, prev, look, mut eye_h) = player.into_inner();
+    let (body, prev, look, mut eye_h, vitals) = player.into_inner();
+    let local_alive = vitals.is_none_or(|v| v.0.health.alive());
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
-    let (eye_target, roll_target) = view_targets(*state, body.0.height - EYE_BELOW_TOP);
+    let (eye_target, roll_target) = view_targets(
+        *state == PlayState::Dead || !local_alive,
+        body.0.height - EYE_BELOW_TOP,
+    );
     let dt = frame_time.delta_secs();
     eye_h.0 = ease_toward(eye_h.0, eye_target, EYE_EASE_RATE, dt);
     roll.0 = ease_toward(roll.0, roll_target, EYE_EASE_RATE, dt);
@@ -730,9 +745,8 @@ mod tests {
 
     #[test]
     fn dead_view_drops_the_eye_and_rolls() {
-        assert_eq!(view_targets(PlayState::Playing, 1.65), (1.65, 0.0));
-        assert_eq!(view_targets(PlayState::Complete, 1.65), (1.65, 0.0));
-        assert_eq!(view_targets(PlayState::Dead, 1.65), (DEATH_EYE, DEATH_ROLL));
+        assert_eq!(view_targets(false, 1.65), (1.65, 0.0));
+        assert_eq!(view_targets(true, 1.65), (DEATH_EYE, DEATH_ROLL));
     }
 
     #[test]

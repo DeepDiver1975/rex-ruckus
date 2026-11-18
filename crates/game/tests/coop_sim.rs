@@ -25,17 +25,19 @@ use rr_game::coop::{CoopPlugin, DownTime, EntryLoadout, RESPAWN_SECS};
 use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, PlayState};
-use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
+use rr_game::hud::{DamageFlash, FlashColor, down_overlay, down_text, read_hurt};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
-    HudMessage, LevelMechanics, MESSAGE_SECS, MechanicsSimPlugin, PlayerLines, insert_level,
+    HudMessage, LevelMechanics, MESSAGE_SECS, MechanicsSimPlugin, PlayerLines, UsePrompt,
+    insert_level,
 };
 use rr_game::models::{ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig};
 use rr_game::net::host::stop_hosting;
 use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
-    DevPartners, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player,
-    PlayerBody, PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
+    DevPartners, EyeHeight, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS,
+    PendingInput, Player, PlayerBody, PlayerCamera, PlayerSimPlugin, PlayerTuning, PrevFeet,
+    ViewRoll, read_input, spawn_coop_player, update_camera,
 };
 use rr_game::viewmodel::{ViewState, read_fx};
 
@@ -991,4 +993,42 @@ fn keys_are_shared() {
     ticks(&mut app, 20);
     let m = &app.world().resource::<LevelMechanics>().0.movers[0];
     assert!(m.z > m.start, "door did not open: {} vs {}", m.z, m.start);
+}
+
+#[test]
+fn downed_local_player_sees_the_floor_and_no_prompt() {
+    let mut app = app(door_rooms(
+        "(kind: Door)",
+        "switches: [(wall: (7, 0), action: Exit)],",
+    ));
+    spawn_coop(&mut app, PlayerId(1));
+    let e = player(&mut app, PlayerId(0));
+    let y = body(&mut app, PlayerId(0)).pos.y;
+    place(&mut app, PlayerId(0), 1.0, y);
+    app.world_mut().get_mut::<Look>(e).unwrap().angle = std::f32::consts::PI;
+    app.world_mut().spawn((PlayerCamera, Transform::default()));
+    app.init_resource::<ViewRoll>();
+    // Alive and facing the switch: a prompt, and the live eye.
+    ticks(&mut app, 1);
+    assert!(app.world().resource::<UsePrompt>().0.is_some());
+    let live = app.world().get::<EyeHeight>(e).unwrap().0;
+    assert!(live > 1.0, "{live}");
+    kill(&mut app, PlayerId(0));
+    secs(&mut app, 0.5);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    assert!(app.world().resource::<UsePrompt>().0.is_none());
+    // The camera system eases the eye toward the floor (half a second at the real frame rate).
+    app.world_mut()
+        .resource_mut::<Time>()
+        .advance_by(std::time::Duration::from_millis(500));
+    app.world_mut().run_system_once(update_camera).unwrap();
+    let eye = app.world().get::<EyeHeight>(e).unwrap().0;
+    assert!(eye < 0.5, "{eye}");
+    // The overlay counts down.
+    let down = app.world().get::<DownTime>(e).unwrap().0;
+    assert!((down - 0.5).abs() < 0.05, "{down}");
+    assert_eq!(
+        down_overlay(PlayState::Playing, false, down),
+        Some(down_text(RESPAWN_SECS - down))
+    );
 }

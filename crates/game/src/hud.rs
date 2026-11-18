@@ -8,6 +8,7 @@ use crate::combat::{
     FxQueue, FxReaders, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     shown_locally,
 };
+use crate::coop::{DownTime, RESPAWN_SECS};
 use crate::flow::PlayState;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, HudSubtitle, LevelMechanics, UsePrompt};
@@ -197,6 +198,20 @@ pub fn overlay_text(state: PlayState, has_episode: bool) -> Option<&'static str>
         PlayState::Complete if has_episode => None,
         PlayState::Complete => Some("Level complete \u{2014} press Use or Fire to restart"),
     }
+}
+
+/// "You're down" with the whole seconds left before the respawn (at least 1).
+pub fn down_text(left: f32) -> String {
+    format!(
+        "You're down \u{2014} back in {}",
+        left.ceil().max(1.0) as u32
+    )
+}
+
+/// The overlay of a downed co-op player: only while the game plays on (a partner lives) and
+/// the local player is dead. `down_time` is how long they have been dead.
+pub fn down_overlay(state: PlayState, local_alive: bool, down_time: f32) -> Option<String> {
+    (state == PlayState::Playing && !local_alive).then(|| down_text(RESPAWN_SECS - down_time))
 }
 
 fn overlay_tint(state: PlayState) -> Color {
@@ -665,10 +680,21 @@ fn update_flash(
 fn update_overlay(
     state: Res<PlayState>,
     episode: Option<Res<crate::episode::Episode>>,
+    local: Query<(&PlayerVitals, &DownTime), With<LocalPlayer>>,
     mut node: Single<(&mut Visibility, &mut BackgroundColor), With<OverlayNode>>,
     mut text: Single<&mut Text, With<OverlayText>>,
 ) {
     let (vis, bg) = &mut *node;
+    let down = local
+        .single()
+        .ok()
+        .and_then(|(v, d)| down_overlay(*state, v.0.health.alive(), d.0));
+    if let Some(s) = down {
+        vis.set_if_neq(Visibility::Inherited);
+        set_bg(bg, overlay_tint(PlayState::Dead));
+        set(&mut text, &s);
+        return;
+    }
     match overlay_text(*state, episode.is_some()) {
         Some(s) => {
             vis.set_if_neq(Visibility::Inherited);
@@ -805,6 +831,22 @@ mod tests {
         assert_eq!(flash_add(0.8, 25), 1.0, "capped at 1");
         assert!((flash_decay(1.0, 0.2) - 0.5).abs() < 1e-6);
         assert_eq!(flash_decay(0.1, 1.0), 0.0, "never negative");
+    }
+
+    #[test]
+    fn down_text_counts_whole_seconds() {
+        assert_eq!(down_text(2.2), "You're down \u{2014} back in 3");
+        assert_eq!(down_text(0.01), "You're down \u{2014} back in 1");
+        assert_eq!(down_text(-1.0), "You're down \u{2014} back in 1");
+    }
+
+    #[test]
+    fn down_overlay_needs_playing_and_a_dead_local_player() {
+        let t = Some("You're down \u{2014} back in 3".to_string());
+        assert_eq!(down_overlay(PlayState::Playing, false, 0.5), t);
+        assert_eq!(down_overlay(PlayState::Playing, true, 0.5), None);
+        assert_eq!(down_overlay(PlayState::Dead, false, 0.5), None);
+        assert_eq!(down_overlay(PlayState::Complete, false, 0.5), None);
     }
 
     #[test]
