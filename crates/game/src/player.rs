@@ -7,7 +7,7 @@ use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, LocalSeat, PlayState, SpawnLevel, sim_ticks};
 use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
-use crate::mechanics::{HudMessage, use_key};
+use crate::mechanics::{HudMessage, PlayerLines, use_key};
 use crate::menu::MenuScreen;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
@@ -230,6 +230,7 @@ impl Plugin for PlayerSimPlugin {
             .init_resource::<PlayerTuning>()
             .init_resource::<PlayState>()
             .init_resource::<HudMessage>()
+            .init_resource::<PlayerLines>()
             .add_systems(SpawnLevel, spawn_player)
             .add_systems(
                 SpawnLevel,

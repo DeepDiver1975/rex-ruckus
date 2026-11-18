@@ -2,10 +2,13 @@
 
 use crate::combat::{
     CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+    clear_fx,
 };
 use crate::flow::{LevelDifficulty, LevelSource, PlayState, sim_ticks};
 use crate::level::CurrentMap;
-use crate::player::{Inventory, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet};
+use crate::player::{
+    Inventory, LocalId, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet,
+};
 use crate::textures;
 use bevy::prelude::*;
 use rr_core::difficulty::Difficulty;
@@ -43,6 +46,42 @@ impl HudMessage {
         self.text = text.into();
         self.remaining = MESSAGE_SECS;
     }
+}
+
+/// HUD lines the simulation raised this tick, each with the player it is for: pickups, props,
+/// a missing keycard, a jetpack or night vision running dry. [`show_local_lines`] puts the local
+/// player's on the [`HudMessage`]; a host relays its seats' lines to them; the frame drops the
+/// rest ([`drop_player_lines`]).
+#[derive(Resource, Default, Debug)]
+pub struct PlayerLines(pub Vec<(PlayerId, String)>);
+
+impl PlayerLines {
+    pub fn push(&mut self, player: PlayerId, text: impl Into<String>) {
+        self.0.push((player, text.into()));
+    }
+}
+
+/// Shows the local player's [`PlayerLines`] on the [`HudMessage`] (the last one wins) and takes
+/// them out, at the end of the tick that raised them, so a line shows exactly when it did
+/// before co-op.
+pub fn show_local_lines(
+    local: LocalId,
+    mut lines: ResMut<PlayerLines>,
+    mut msg: ResMut<HudMessage>,
+) {
+    let Some(id) = local.get() else { return };
+    lines.0.retain(|(p, text)| {
+        if *p != id {
+            return true;
+        }
+        msg.show(text.clone());
+        false
+    });
+}
+
+/// Drops the lines no one took this frame (a partner's, with no host to relay them).
+pub fn drop_player_lines(mut lines: ResMut<PlayerLines>) {
+    lines.0.clear();
 }
 
 /// The hero's spoken line, on a subtitle line of its own so it never hides a [`HudMessage`].
@@ -144,7 +183,9 @@ impl Plugin for MechanicsSimPlugin {
             .init_resource::<UsePrompt>()
             .init_resource::<HudMessage>()
             .init_resource::<HudSubtitle>()
+            .init_resource::<PlayerLines>()
             .init_resource::<PlayState>()
+            .add_systems(Update, drop_player_lines.before(clear_fx))
             .add_systems(
                 FixedUpdate,
                 (
@@ -157,6 +198,7 @@ impl Plugin for MechanicsSimPlugin {
                         // Ungated: drains events from every mechanics call this tick, including
                         // `use_key` (before the player) and combat (cracks, channel fire).
                         forward_mech_events,
+                        show_local_lines,
                     )
                         .chain()
                         .after(PlayerSimSet)
@@ -196,12 +238,14 @@ type UseQuery = (
     Option<&'static mut PlayerVitals>,
 );
 
+#[allow(clippy::too_many_arguments)]
 pub fn use_key(
     map: Res<CurrentMap>,
     mut mech: ResMut<LevelMechanics>,
     combat: Option<Res<LevelCombat>>,
     mut prompt: ResMut<UsePrompt>,
     mut msg: ResMut<HudMessage>,
+    mut lines: ResMut<PlayerLines>,
     mut state: ResMut<PlayState>,
     mut q: Query<UseQuery, With<Player>>,
 ) {
@@ -225,18 +269,16 @@ pub fn use_key(
             // A partner's prop and key messages show on their HUD, not this one.
             if let Some(v) = vitals.as_deref_mut()
                 && let Some(text) = prop_message(mech.0.use_prop(i, &mut v.0, secrets_left))
-                && local
             {
-                msg.show(text);
+                lines.push(player.id, text);
             }
             continue;
         }
         match mech.0.activate(&map.0, player.id, t, inv.keys) {
             UseOutcome::Activated => {}
-            UseOutcome::NeedKey(k) if local => {
-                msg.show(format!("You need the {} keycard", k.name()))
+            UseOutcome::NeedKey(k) => {
+                lines.push(player.id, format!("You need the {} keycard", k.name()))
             }
-            UseOutcome::NeedKey(_) => {}
             UseOutcome::Exit => finish_level(&mut state, &mut msg),
         }
     }
@@ -284,16 +326,15 @@ pub(crate) fn forward_mech_events(mut mech: ResMut<LevelMechanics>, mut fx: ResM
 }
 
 /// Walking over items: `apply_pickup` decides, and a refused item stays in the world.
-/// The dead pick nothing up; only the local player's pickups show a HUD message.
+/// The dead pick nothing up; each pickup's text is a [`PlayerLines`] line for its player.
 #[allow(clippy::type_complexity)]
 pub fn pickup_items(
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
     mut mech: ResMut<LevelMechanics>,
-    mut msg: ResMut<HudMessage>,
+    mut lines: ResMut<PlayerLines>,
     mut q: Query<(
         &Player,
-        Has<LocalPlayer>,
         &PlayerBody,
         &mut Inventory,
         &mut PlayerVitals,
@@ -304,7 +345,7 @@ pub fn pickup_items(
     // In id order, so two players on one item settle it the same way on every machine.
     let mut players: Vec<_> = q.iter_mut().collect();
     players.sort_by_key(|(p, ..)| p.id);
-    for (_, local, body, mut inv, mut health, mut arsenal, mut carried) in players {
+    for (player, body, mut inv, mut health, mut arsenal, mut carried) in players {
         if !health.0.health.alive() {
             continue;
         }
@@ -316,11 +357,7 @@ pub fn pickup_items(
         };
         mech.0.pickup(&map.0, &body.0, |kind| {
             apply_pickup(&defs.0, kind, &mut loadout)
-                .map(|text| {
-                    if local {
-                        msg.show(text);
-                    }
-                })
+                .map(|text| lines.push(player.id, text))
                 .is_some()
         });
     }

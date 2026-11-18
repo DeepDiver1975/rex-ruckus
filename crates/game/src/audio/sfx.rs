@@ -9,7 +9,7 @@ use crate::combat::{FxQueue, LevelCombat, eye_of, mech_shown_locally, shown_loca
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
-use crate::player::{LocalId, LocalPlayer, PlayerBody};
+use crate::player::{LocalId, LocalPlayer, Player, PlayerBody};
 use bevy::audio::Volume;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -26,6 +26,8 @@ pub struct CueSources<'w, 's> {
     game: ResMut<'w, GameCues>,
     combat: Option<Res<'w, LevelCombat>>,
     map: Res<'w, CurrentMap>,
+    /// Every player's body: a partner's gun sounds at its eye.
+    bodies: Query<'w, 's, (&'static Player, &'static PlayerBody)>,
 }
 
 /// The sounds already playing.
@@ -176,13 +178,30 @@ pub fn play_cues(
 
     let mut cues = Vec::new();
     if let Some(combat) = &src.combat {
-        // A partner's pain and death sound on their machine; their gun (for now) too.
+        // A partner's pain and death sound on their machine.
         for ev in src.fx.combat.iter().filter(|e| shown_locally(e, local)) {
             combat_cues(ev, &combat.0, map, &mut cues);
         }
     }
-    for (_, ev) in src.fx.weapon.iter().filter(|(p, _)| Some(*p) == local) {
+    // The local gun sounds at the ear, a partner's at the partner's eye.
+    for (p, ev) in &src.fx.weapon {
+        if Some(*p) == local {
+            weapon_cues(ev, &mut cues);
+            continue;
+        }
+        let Some(eye) = src
+            .bodies
+            .iter()
+            .find(|(q, _)| q.id == *p)
+            .map(|(_, b)| eye_of(&b.0))
+        else {
+            continue;
+        };
+        let from = cues.len();
         weapon_cues(ev, &mut cues);
+        for (_, pos) in &mut cues[from..] {
+            *pos = Some(eye);
+        }
     }
     for ev in src.fx.mech.iter().filter(|e| mech_shown_locally(e, local)) {
         mech_cues(ev, map, &mut cues);

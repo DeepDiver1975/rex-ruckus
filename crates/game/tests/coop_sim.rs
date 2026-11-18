@@ -24,7 +24,9 @@ use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
 use rr_game::level::CurrentMap;
-use rr_game::mechanics::{HudMessage, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::mechanics::{
+    HudMessage, LevelMechanics, MESSAGE_SECS, MechanicsSimPlugin, PlayerLines, insert_level,
+};
 use rr_game::models::{ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig};
 use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
@@ -354,6 +356,62 @@ fn remote_pickup_shows_no_message() {
             .contains(Key::Red)
     );
     assert_eq!(message(&app), "");
+}
+
+/// combat_room with a small health pack at (6, 6.5).
+fn health_pack_room() -> Map {
+    let mut map = combat_room();
+    map.items.push(Item {
+        kind: ItemKind::HealthSmall,
+        pos: Vec2::new(6.0, 6.5),
+        skill: Difficulty::Easy,
+    });
+    map
+}
+
+fn lines(app: &App) -> Vec<(PlayerId, String)> {
+    app.world().resource::<PlayerLines>().0.clone()
+}
+
+#[test]
+fn partner_pickup_text_is_not_shown_locally() {
+    let mut app = app(health_pack_room());
+    spawn_coop(&mut app, PlayerId(1));
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut()
+        .get_mut::<PlayerVitals>(e)
+        .unwrap()
+        .0
+        .damage(30);
+    place(&mut app, PlayerId(1), 6.0, 6.5);
+    ticks(&mut app, 1);
+    assert!(app.world().resource::<LevelMechanics>().0.taken[0]);
+    assert_eq!(message(&app), "");
+    let text = format!("+{} health", rr_core::pickups::HEALTH_SMALL);
+    assert_eq!(lines(&app), [(PlayerId(1), text)]);
+    // The frame drops the partner's line: no host relays it.
+    app.update();
+    assert_eq!(message(&app), "");
+    assert!(lines(&app).is_empty());
+}
+
+#[test]
+fn local_pickup_text_unchanged() {
+    let mut app = app(health_pack_room());
+    let e = player(&mut app, PlayerId(0));
+    app.world_mut()
+        .get_mut::<PlayerVitals>(e)
+        .unwrap()
+        .0
+        .damage(30);
+    place(&mut app, PlayerId(0), 6.0, 6.5);
+    ticks(&mut app, 1);
+    let text = format!("+{} health", rr_core::pickups::HEALTH_SMALL);
+    assert_eq!(message(&app), text);
+    assert_eq!(app.world().resource::<HudMessage>().remaining, MESSAGE_SECS);
+    app.update();
+    assert_eq!(message(&app), text);
+    assert!(lines(&app).is_empty());
 }
 
 #[test]

@@ -7,9 +7,12 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::actors::Target;
+use rr_core::combat::{CombatEvent, PendingBlast, Via};
+use rr_core::defs::SplashDef;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
-use rr_core::map::{ActorKind, ActorSpawn, Map};
+use rr_core::explosion::Blast;
+use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
 use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
@@ -17,10 +20,14 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
 use rr_game::flow::{FlowPlugin, LevelFile, restart_level};
+use rr_game::level::CurrentMap;
 use rr_game::level::load_map;
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::net::host::{HELLO_TIMEOUT, NetHost, NetHostPlugin, NetIdentity, start_hosting};
-use rr_game::player::{Look, PendingInput, Player, PlayerBody, PlayerSimPlugin};
+use rr_game::net::host::{
+    HELLO_TIMEOUT, MAX_INPUT_QUEUE, NetHost, NetHostPlugin, NetIdentity, SNAPSHOT_EVERY,
+    start_hosting,
+};
+use rr_game::player::{Look, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
 use rr_net::*;
 
 const STEP: Duration = Duration::from_millis(16);
@@ -581,4 +588,204 @@ fn silent_connection_is_dropped() {
         matches!(p[0].client.state(), ClientState::Lost(_))
     });
     assert_eq!(seats(&app), 0);
+}
+
+/// A frame whose angle tells which one it is.
+fn marked(seq: u32) -> InputFrame {
+    InputFrame {
+        angle: seq as f32 * 0.01,
+        ..frame(seq)
+    }
+}
+
+/// The seq the host last applied for seat 0.
+fn ack(app: &App) -> u32 {
+    app.world().resource::<NetHost>().seats[0].ack
+}
+
+/// Pumps `n` rounds and returns each new ack in turn (a frame per tick shows every seq).
+fn applied(app: &mut App, peer: &mut Peer, n: usize) -> Vec<u32> {
+    let mut acks: Vec<u32> = Vec::new();
+    for _ in 0..n {
+        pump(app, &mut [&mut *peer]);
+        let a = ack(app);
+        if a != 0 && acks.last() != Some(&a) {
+            assert!(
+                (angle(app, PlayerId(1)) - a as f32 * 0.01).abs() < 1e-5,
+                "frame {a} is the one applied"
+            );
+            acks.push(a);
+        }
+    }
+    acks
+}
+
+#[test]
+fn redundant_frames_apply_once_each() {
+    let mut app = host_app();
+    let mut peer = join(&mut app, "Tester");
+    peer.send(&ClientMsg::Input((1..=4).map(marked).collect()));
+    peer.send(&ClientMsg::Input((2..=5).map(marked).collect()));
+    std::thread::sleep(Duration::from_millis(10));
+    assert_eq!(applied(&mut app, &mut peer, 12), [1, 2, 3, 4, 5]);
+    pump_until(&mut app, &mut [&mut peer], "a snapshot acking 5", |_, p| {
+        p[0].snapshots()
+            .last()
+            .is_some_and(|(_, s)| s.players[1].ack == 5)
+    });
+}
+
+#[test]
+fn lost_datagram_tap_survives() {
+    let mut app = host_app();
+    let mut peer = join(&mut app, "Tester");
+    for _ in 0..60 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    let tap = InputFrame {
+        buttons: buttons::FIRE_PRESSED,
+        ..frame(7)
+    };
+    let mut fired = Vec::new();
+    peer.send(&ClientMsg::Input(vec![frame(5), frame(6)]));
+    fired.extend(pump(&mut app, &mut [&mut peer]));
+    // The datagram that carried 7 alone was lost; the next one repeats it.
+    peer.send(&ClientMsg::Input(vec![frame(6), tap, frame(8)]));
+    for _ in 0..30 {
+        fired.extend(pump(&mut app, &mut [&mut peer]));
+    }
+    assert_eq!(fires(&fired, PlayerId(1)), 1, "{fired:?}");
+    assert_eq!(ack(&app), 8);
+}
+
+#[test]
+fn queue_is_capped() {
+    let mut app = host_app();
+    let mut peer = join(&mut app, "Tester");
+    for start in (1..=20).step_by(4) {
+        peer.send(&ClientMsg::Input((start..start + 4).map(marked).collect()));
+    }
+    std::thread::sleep(Duration::from_millis(10));
+    let acks = applied(&mut app, &mut peer, 30);
+    assert!(acks.len() <= MAX_INPUT_QUEUE, "{acks:?}");
+    assert_eq!(acks.last(), Some(&20), "{acks:?}");
+    assert!(acks.windows(2).all(|w| w[1] == w[0] + 1), "{acks:?}");
+}
+
+#[test]
+fn events_are_relayed_with_the_tick() {
+    let mut app = host_app_with(|map| {
+        map.actors.push(ActorSpawn {
+            kind: ActorKind::Grunt,
+            pos: Vec2::new(12.0, 13.0),
+            angle: 0.0,
+            asleep: true,
+            skill: Difficulty::Easy,
+            on_death: None,
+        });
+    });
+    let mut peer = join(&mut app, "Tester");
+    for _ in 0..10 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    {
+        let combat = &mut app.world_mut().resource_mut::<LevelCombat>().0;
+        let body = combat.actors[0].body;
+        combat.pending_blasts.push(PendingBlast {
+            fuse: 0.0,
+            blast: Blast {
+                center: body.pos + Vec3::Z,
+                sector: body.sector,
+                splash: SplashDef {
+                    radius: 1.5,
+                    damage: 1000,
+                    self_scale: 1.0,
+                },
+                owner: Shooter::World,
+            },
+            via: Via::Direct,
+        });
+    }
+    let killed = |p: &Peer| {
+        p.got.iter().find_map(|m| match m {
+            ServerMsg::Events(ev)
+                if ev
+                    .combat
+                    .iter()
+                    .any(|e| matches!(e, CombatEvent::ActorKilled { actor: 0, .. })) =>
+            {
+                Some(ev.tick)
+            }
+            _ => None,
+        })
+    };
+    pump_until(&mut app, &mut [&mut peer], "the kill", |_, p| {
+        killed(p[0]).is_some()
+    });
+    let tick = killed(&peer).unwrap();
+    pump_until(&mut app, &mut [&mut peer], "a later snapshot", |_, p| {
+        p[0].snapshots().iter().any(|(_, s)| s.tick >= tick)
+    });
+    let ticks: Vec<u32> = peer.snapshots().iter().map(|(_, s)| s.tick).collect();
+    let before = ticks
+        .iter()
+        .copied()
+        .filter(|t| *t < tick)
+        .max()
+        .expect("a snapshot before the kill");
+    assert!(
+        tick > before && tick <= before + SNAPSHOT_EVERY,
+        "kill at {tick}, snapshots {ticks:?}"
+    );
+}
+
+/// Puts player `id`'s body at `(x, y)`.
+fn place(app: &mut App, id: PlayerId, x: f32, y: f32) {
+    let e = entity(app, id);
+    let map = app.world().resource::<CurrentMap>().0.clone();
+    let mut b = app.world().get::<PlayerBody>(e).unwrap().0;
+    let spawned = rr_core::collide::Body::spawn(&map, Vec2::new(x, y), b.radius, b.height).unwrap();
+    b.pos = spawned.pos;
+    b.sector = spawned.sector;
+    b.vel = Vec3::ZERO;
+    app.world_mut().get_mut::<PlayerBody>(e).unwrap().0 = b;
+    app.world_mut().get_mut::<PrevFeet>(e).unwrap().0 = b.pos;
+}
+
+fn huds(p: &Peer) -> Vec<String> {
+    p.got
+        .iter()
+        .filter_map(|m| match m {
+            ServerMsg::Hud(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn hud_line_goes_to_its_player() {
+    let mut app = host_app_with(|map| {
+        map.items.push(Item {
+            kind: ItemKind::Key(Key::Red),
+            pos: Vec2::new(10.0, 13.0),
+            skill: Difficulty::Easy,
+        });
+    });
+    let mut a = join(&mut app, "A");
+    let mut b = join(&mut app, "B");
+    place(&mut app, PlayerId(1), 10.0, 13.0);
+    pump_until(&mut app, &mut [&mut a, &mut b], "A's HUD line", |_, p| {
+        !huds(p[0]).is_empty()
+    });
+    for _ in 0..20 {
+        pump(&mut app, &mut [&mut a, &mut b]);
+    }
+    assert_eq!(huds(&a), ["Picked up the red keycard"]);
+    assert!(huds(&b).is_empty(), "{:?}", huds(&b));
+    assert_eq!(
+        app.world()
+            .resource::<rr_game::mechanics::HudMessage>()
+            .text,
+        ""
+    );
 }

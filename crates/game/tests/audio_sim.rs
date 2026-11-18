@@ -146,6 +146,53 @@ fn a_shot_plays_one_voice() {
 }
 
 #[test]
+fn partner_gunfire_plays_at_the_partner() {
+    use bevy::ecs::system::RunSystemOnce;
+    use rr_game::combat::{GameDefs, eye_of};
+    use rr_game::coords::to_bevy;
+    use rr_game::level::CurrentMap;
+    use rr_game::player::{Player, PlayerBody, PlayerTuning, spawn_coop_player};
+    let mut app = app();
+    let partner = app
+        .world_mut()
+        .run_system_once(
+            |mut commands: Commands,
+             map: Res<CurrentMap>,
+             tuning: Res<PlayerTuning>,
+             defs: Res<GameDefs>| {
+                spawn_coop_player(&mut commands, &map.0, &tuning.0, &defs.0, PlayerId(1))
+            },
+        )
+        .unwrap();
+    app.update();
+    fx(&mut app).weapon.push((
+        PlayerId(1),
+        WeaponEvent::Fire {
+            weapon: WeaponId::Pistol,
+            dirs: vec![Vec3::X],
+        },
+    ));
+    app.update();
+    let eye = eye_of(&app.world().get::<PlayerBody>(partner).unwrap().0);
+    let mut q = app.world_mut().query::<(&SfxVoice, &Transform)>();
+    let shots: Vec<Vec3> = q
+        .iter(app.world())
+        .filter(|(v, _)| v.0 == Cue::Fire(WeaponId::Pistol))
+        .map(|(_, t)| t.translation)
+        .collect();
+    assert_eq!(shots.len(), 1, "{shots:?}");
+    assert!(shots[0].distance(to_bevy(eye)) < 1e-4, "{shots:?} vs {eye}");
+    // Not at the listener: the local player stands elsewhere.
+    let mut q = app.world_mut().query::<(&Player, &PlayerBody)>();
+    let local = q
+        .iter(app.world())
+        .find(|(p, _)| p.id == PlayerId(0))
+        .map(|(_, b)| eye_of(&b.0))
+        .unwrap();
+    assert!(shots[0].distance(to_bevy(local)) > 0.5);
+}
+
+#[test]
 fn a_burst_is_capped_at_max_voices() {
     let mut app = app();
     for _ in 0..10 {

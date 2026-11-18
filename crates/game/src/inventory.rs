@@ -2,7 +2,7 @@
 //! night-vision look (brighter ambient light plus a green screen tint).
 
 use crate::combat::{PlayerInventory, PlayerVitals};
-use crate::mechanics::HudMessage;
+use crate::mechanics::PlayerLines;
 use crate::player::{LocalPlayer, PendingInput, Player};
 use bevy::light::GlobalAmbientLight;
 use bevy::prelude::*;
@@ -17,24 +17,21 @@ const NV_Z: i32 = -1;
 
 /// Applies the latched Q, J and N taps through the core inventory, then drains the items.
 /// Runs after `use_key` and before the player moves, so a jetpack toggled this tick flies
-/// this tick. The dead switch nothing on or off (the medkit refuses them by itself); only the
-/// local player's run-dry messages show on the HUD.
+/// this tick. The dead switch nothing on or off (the medkit refuses them by itself); a run-dry
+/// message is a [`PlayerLines`] line for its player.
 #[allow(clippy::type_complexity)]
 pub fn use_inventory(
     time: Res<Time<Fixed>>,
-    mut msg: ResMut<HudMessage>,
-    mut q: Query<
-        (
-            Has<LocalPlayer>,
-            &mut PendingInput,
-            &mut PlayerVitals,
-            &mut PlayerInventory,
-        ),
-        With<Player>,
-    >,
+    mut lines: ResMut<PlayerLines>,
+    mut q: Query<(
+        &Player,
+        &mut PendingInput,
+        &mut PlayerVitals,
+        &mut PlayerInventory,
+    )>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (local, mut input, mut vitals, mut inv) in &mut q {
+    for (player, mut input, mut vitals, mut inv) in &mut q {
         let alive = vitals.0.health.alive();
         // A player who dies flying lands with the jetpack off (silently: no fuel message).
         if !alive {
@@ -50,13 +47,13 @@ pub fn use_inventory(
             inv.0.toggle(InvItem::NightVision);
         }
         for ev in inv.0.tick(dt) {
-            if !local {
-                continue;
-            }
-            msg.show(match ev {
-                InvEvent::JetpackOff => "Jetpack out of fuel",
-                InvEvent::NightVisionOff => "Night vision battery dead",
-            });
+            lines.push(
+                player.id,
+                match ev {
+                    InvEvent::JetpackOff => "Jetpack out of fuel",
+                    InvEvent::NightVisionOff => "Night vision battery dead",
+                },
+            );
         }
     }
 }
