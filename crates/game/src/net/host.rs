@@ -560,7 +560,7 @@ pub fn hud_line(text: &str) -> String {
 /// Ends the host's tick: loads after a restart, this tick's events, the seats' HUD lines, a
 /// snapshot every [`SNAPSHOT_EVERY`] ticks, and sends it all.
 #[allow(clippy::too_many_arguments)]
-fn host_send(
+pub fn host_send(
     mut net: ResMut<NetHost>,
     fx: Res<FxQueue>,
     mut lines: ResMut<PlayerLines>,

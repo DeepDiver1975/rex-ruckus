@@ -170,6 +170,11 @@ impl KeySet {
     pub fn contains(self, k: Key) -> bool {
         self.0 & (1 << k as u8) != 0
     }
+
+    /// Every key either set holds.
+    pub fn union(self, other: KeySet) -> KeySet {
+        KeySet(self.0 | other.0)
+    }
 }
 
 /// Trigger channel (Build's lotag/hitag pairing): a switch fires it and every mover listening toggles.

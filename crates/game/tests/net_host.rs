@@ -24,6 +24,7 @@ use rr_game::combat::{
 };
 use rr_game::coop::CoopPlugin;
 use rr_game::episode::{Episode, EpisodeDef, Stats};
+use rr_game::flow::PlayState;
 use rr_game::flow::{FlowPlugin, LevelFile, restart_level};
 use rr_game::level::CurrentMap;
 use rr_game::level::load_map;
@@ -33,6 +34,7 @@ use rr_game::net::host::{
     HELLO_TIMEOUT, MAX_INPUT_QUEUE, NetHost, NetHostPlugin, NetIdentity, QUEUE_SLACK,
     SNAPSHOT_EVERY, apply_remote_input, start_hosting,
 };
+use rr_game::player::Inventory;
 use rr_game::player::{Look, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
 use rr_net::*;
 
@@ -938,4 +940,60 @@ fn leaving_shifts_entries_and_kills_down() {
     assert_eq!(ep.entries[1], Some(shotgun));
     assert!(ep.entries[2].is_none());
     assert_eq!(app.world().resource::<Stats>().0.kills_by, [0, 5, 0, 0]);
+}
+
+fn run_ticks(app: &mut App, n: usize) {
+    for _ in 0..n {
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+}
+
+#[test]
+fn key_stays_with_the_team_when_its_finder_leaves() {
+    let mut app = host_app_with(|map| {
+        map.items.push(Item {
+            kind: ItemKind::Key(Key::Red),
+            pos: Vec2::new(10.0, 13.0),
+            skill: Difficulty::Easy,
+        });
+    });
+    let mut a = join(&mut app, "A");
+    place(&mut app, PlayerId(1), 10.0, 13.0);
+    run_ticks(&mut app, 2);
+    let e0 = entity(&mut app, PlayerId(0));
+    assert!(
+        app.world()
+            .get::<Inventory>(e0)
+            .unwrap()
+            .keys
+            .contains(Key::Red)
+    );
+    a.client.disconnect();
+    pump_until(&mut app, &mut [], "A gone", |app, _| player_ids(app) == [0]);
+    run_ticks(&mut app, 2);
+    assert!(
+        app.world()
+            .get::<Inventory>(e0)
+            .unwrap()
+            .keys
+            .contains(Key::Red)
+    );
+}
+
+#[test]
+fn leaver_was_last_one_standing_ends_the_level() {
+    let mut app = host_app();
+    let mut a = join(&mut app, "A");
+    let e0 = entity(&mut app, PlayerId(0));
+    app.world_mut()
+        .get_mut::<PlayerVitals>(e0)
+        .unwrap()
+        .0
+        .damage(1000);
+    run_ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    a.client.disconnect();
+    pump_until(&mut app, &mut [], "A gone", |app, _| player_ids(app) == [0]);
+    run_ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
 }

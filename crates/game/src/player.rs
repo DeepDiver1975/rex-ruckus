@@ -3,7 +3,7 @@
 
 use crate::bindings::{Action, Bindings};
 use crate::combat::{GameDefs, PlayerInventory, PlayerVitals, player_loadout, spawn_combat};
-use crate::coop::EntryLoadout;
+use crate::coop::{DownTime, EntryLoadout};
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, LocalSeat, PlayState, SpawnLevel, sim_ticks};
 use crate::inventory::use_inventory;
@@ -358,6 +358,7 @@ fn player_bundle(map: &Map, tuning: &Tuning, id: PlayerId, xy: Vec2) -> impl Bun
         },
         PendingInput::default(),
         Inventory::default(),
+        DownTime::default(),
         EyeHeight(tuning.stand_height - EYE_BELOW_TOP),
     )
 }

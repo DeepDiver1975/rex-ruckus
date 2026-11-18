@@ -20,7 +20,7 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, insert_defs,
 };
-use rr_game::coop::{CoopPlugin, EntryLoadout};
+use rr_game::coop::{CoopPlugin, DownTime, EntryLoadout, RESPAWN_SECS};
 use rr_game::coords::{core_angle_to_yaw, to_bevy};
 use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, PlayState};
@@ -859,4 +859,113 @@ fn coop_players_get_an_entry_loadout() {
     let e = spawn_coop(&mut app, PlayerId(1));
     let l = app.world().get::<EntryLoadout>(e).unwrap();
     assert_eq!(l.0.vitals.health.hp, 100);
+}
+
+fn tick_secs(app: &App) -> f32 {
+    app.world()
+        .resource::<Time<Fixed>>()
+        .timestep()
+        .as_secs_f32()
+}
+
+fn secs(app: &mut App, s: f32) {
+    let n = (s / tick_secs(app)).round() as usize;
+    ticks(app, n);
+}
+
+fn has_shotgun(app: &mut App, id: PlayerId) -> bool {
+    let e = player(app, id);
+    app.world().get::<PlayerArsenal>(e).unwrap().0.owned[WeaponId::Shotgun.index()]
+}
+
+#[test]
+fn downed_player_respawns_with_entry_loadout() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    ticks(&mut app, 1);
+    let defs = app.world().resource::<GameDefs>().0.clone();
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut()
+        .get_mut::<PlayerArsenal>(e)
+        .unwrap()
+        .0
+        .give_weapon(&defs, WeaponId::Shotgun);
+    let spawn = body(&mut app, PlayerId(1)).pos;
+    place(&mut app, PlayerId(1), spawn.x + 5.0, spawn.y);
+    let away = body(&mut app, PlayerId(1)).pos;
+    app.world_mut().get_mut::<Look>(e).unwrap().angle = 2.0;
+    kill(&mut app, PlayerId(1));
+    secs(&mut app, RESPAWN_SECS - 0.1);
+    assert_eq!(health(&mut app, PlayerId(1)), 0);
+    assert_eq!(body(&mut app, PlayerId(1)).pos.truncate(), away.truncate());
+    assert!(has_shotgun(&mut app, PlayerId(1)));
+    let extra = 0.1 + tick_secs(&app);
+    secs(&mut app, extra);
+    assert_eq!(health(&mut app, PlayerId(1)), 100);
+    assert!(!has_shotgun(&mut app, PlayerId(1)));
+    let map = app.world().resource::<CurrentMap>().0.clone();
+    let tuning = app.world().resource::<PlayerTuning>().0;
+    let want = rr_game::player::spawn_spot(&map, &tuning, PlayerId(1));
+    let b = body(&mut app, PlayerId(1));
+    assert!(
+        (b.pos.truncate() - want).length() < 0.01,
+        "{:?} {want}",
+        b.pos
+    );
+    let look = app.world().get::<Look>(e).unwrap();
+    assert_eq!(look.angle, map.player_start.angle_deg.to_radians());
+    assert_eq!(look.pitch, 0.0);
+    assert_eq!(app.world().get::<DownTime>(e).unwrap().0, 0.0);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+}
+
+#[test]
+fn nobody_respawns_when_everyone_is_down() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    kill(&mut app, PlayerId(1));
+    secs(&mut app, 1.0);
+    kill(&mut app, PlayerId(0));
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    secs(&mut app, 5.0);
+    assert_eq!(health(&mut app, PlayerId(0)), 0);
+    assert_eq!(health(&mut app, PlayerId(1)), 0);
+}
+
+#[test]
+fn single_player_death_is_unchanged() {
+    let mut app = app(combat_room());
+    kill(&mut app, PlayerId(0));
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    secs(&mut app, 5.0);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    assert_eq!(health(&mut app, PlayerId(0)), 0);
+}
+
+#[test]
+fn keys_are_shared() {
+    let mut map = combat_room();
+    map.items.push(Item {
+        kind: ItemKind::Key(Key::Red),
+        pos: Vec2::new(6.0, 6.5),
+        skill: Difficulty::Easy,
+    });
+    let mut app = app(map);
+    spawn_coop(&mut app, PlayerId(1));
+    place(&mut app, PlayerId(1), 6.0, 6.5);
+    ticks(&mut app, 1);
+    for id in [PlayerId(0), PlayerId(1)] {
+        let e = player(&mut app, id);
+        assert!(
+            app.world()
+                .get::<Inventory>(e)
+                .unwrap()
+                .keys
+                .contains(Key::Red),
+            "{id:?}"
+        );
+    }
 }
