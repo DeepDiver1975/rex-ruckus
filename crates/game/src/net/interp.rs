@@ -7,13 +7,14 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
-use rr_core::combat::Combat;
+use rr_core::combat::{Combat, CombatEvent};
 use rr_core::events::{combat_event_fits, mech_event_fits, weapon_event_fits};
 use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::snapshot::Snapshot;
 use rr_net::TickEvents;
 
 use super::client::{NetClient, apply_players};
+use crate::breakables::put_out_lights;
 use crate::combat::{FxQueue, GameDefs, LevelCombat};
 use crate::flow::{LevelRuns, LocalSeat, settle_combat};
 use crate::level::CurrentMap;
@@ -26,6 +27,10 @@ pub const INTERP_DELAY: u32 = 6;
 
 /// How far (ticks) the render tick may drift from `newest - INTERP_DELAY` before it jumps back.
 pub const MAX_DRIFT: u32 = 6;
+
+/// How far (ticks) the render tick may drift from `newest - INTERP_DELAY` before it eases back:
+/// it holds a tick when this far ahead and steps two when this far behind.
+pub const EASE_DRIFT: u32 = 2;
 
 /// Most snapshots [`Timeline`] holds; beyond, the oldest go.
 pub const MAX_HELD_SNAPS: usize = 32;
@@ -46,6 +51,12 @@ pub struct Timeline {
     pub floor: u32,
     /// Whether this run already reported a full hold (one warning per run).
     overflowed: bool,
+    /// Whether no snapshot of this run was applied yet: the first one also brings in what
+    /// happened before the client joined (see [`apply_snapshot`]).
+    fresh: bool,
+    /// How often the render tick jumped back onto the target after drifting past
+    /// [`MAX_DRIFT`] (not counting the first placement).
+    pub resyncs: u32,
 }
 
 impl Timeline {
@@ -58,6 +69,7 @@ impl Timeline {
     pub fn reset(&mut self, floor: u32) {
         *self = Timeline {
             floor,
+            fresh: true,
             ..Timeline::default()
         };
     }
@@ -99,8 +111,10 @@ impl Timeline {
         }
     }
 
-    /// Moves the render tick on by one, back onto `newest - INTERP_DELAY` when it has none yet
-    /// or drifted more than [`MAX_DRIFT`] from it. `None` while nothing is held.
+    /// Moves the render tick on by one towards `target = newest - INTERP_DELAY`: by none when
+    /// that would put it [`EASE_DRIFT`] or more ahead, by two when [`EASE_DRIFT`] or more
+    /// behind, and straight onto the target when it has none yet or would drift more than
+    /// [`MAX_DRIFT`]. `None` while nothing is held.
     pub fn step_render(&mut self) -> Option<u32> {
         let stepped = self.render.map(|r| r + 1);
         let Some(newest) = self.newest() else {
@@ -108,10 +122,16 @@ impl Timeline {
             return stepped;
         };
         let target = newest.saturating_sub(INTERP_DELAY);
-        self.render = match stepped {
-            Some(r) if r.abs_diff(target) <= MAX_DRIFT => Some(r),
-            _ => Some(target),
-        };
+        self.render = Some(match stepped {
+            None => target,
+            Some(r) if r.abs_diff(target) > MAX_DRIFT => {
+                self.resyncs += 1;
+                target
+            }
+            Some(r) if r >= target + EASE_DRIFT => r - 1,
+            Some(r) if r + EASE_DRIFT <= target => r + 1,
+            Some(r) => r,
+        });
         self.render
     }
 
@@ -163,7 +183,10 @@ pub fn advance_timeline(world: &mut World) {
 }
 
 /// Applies `snap` to the level and the players; false if it does not fit (reported once per
-/// run).
+/// run). The first one of a run also shows what happened before the `Load` (a late joiner's
+/// level is the authored one): the actors it appends get their visuals (`ActorSpawned`) and
+/// the lights it breaks go dark without sparks, unless a held event of this run reports them.
+/// Later ones leave that to the relayed events.
 fn apply_snapshot(world: &mut World, you: PlayerId, snap: &Snapshot) -> bool {
     if !world.contains_resource::<LevelCombat>() || !world.contains_resource::<LevelMechanics>() {
         return false;
@@ -202,6 +225,31 @@ fn apply_snapshot(world: &mut World, you: PlayerId, snap: &Snapshot) -> bool {
         .resource_mut::<DirtySectors>()
         .0
         .extend(changes.sectors.iter().copied().chain(glass_sectors));
+    if std::mem::take(&mut world.resource_mut::<Timeline>().fresh) {
+        // What a held event of this run reports is the event's to show, with its effects.
+        let timeline = world.resource::<Timeline>();
+        let relayed = |want: &CombatEvent| {
+            timeline
+                .events
+                .iter()
+                .filter(|e| e.tick <= snap.tick)
+                .any(|e| e.combat.contains(want))
+        };
+        let spawned: Vec<CombatEvent> = changes
+            .actors_added
+            .clone()
+            .map(CombatEvent::ActorSpawned)
+            .filter(|e| !relayed(e))
+            .collect();
+        let lights: Vec<usize> = changes
+            .lights
+            .iter()
+            .copied()
+            .filter(|&i| !relayed(&CombatEvent::LightBroken(i)))
+            .collect();
+        world.resource_mut::<FxQueue>().combat.extend(spawned);
+        put_out_lights(world, &lights);
+    }
     apply_players(world, you, &snap.players);
     true
 }
@@ -347,6 +395,26 @@ mod tests {
         assert_eq!(t.step_render(), Some(21 - INTERP_DELAY));
         assert!(t.push_snapshot(PlayerId(1), snap(60), 0));
         assert_eq!(t.step_render(), Some(60 - INTERP_DELAY));
+    }
+
+    #[test]
+    fn render_eases_back_onto_the_target() {
+        let mut t = Timeline::default();
+        t.push_snapshot(PlayerId(1), snap(20), 0);
+        assert_eq!(t.step_render(), Some(14));
+        // No newer snapshot: one tick ahead is fine, two is held.
+        assert_eq!(t.step_render(), Some(15));
+        assert_eq!(t.step_render(), Some(15));
+        // Four ahead of it in one go: two at a time until within one.
+        t.push_snapshot(PlayerId(1), snap(25), 0);
+        assert_eq!(t.step_render(), Some(17));
+        assert_eq!(t.step_render(), Some(18));
+        assert_eq!(t.step_render(), Some(19));
+        assert_eq!(t.resyncs, 0);
+        // Past the drift limit it still jumps.
+        t.push_snapshot(PlayerId(1), snap(40), 0);
+        assert_eq!(t.step_render(), Some(34));
+        assert_eq!(t.resyncs, 1);
     }
 
     #[test]

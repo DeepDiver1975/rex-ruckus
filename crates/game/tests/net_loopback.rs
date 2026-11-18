@@ -4,8 +4,10 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
+use bevy::world_serialization::WorldAsset;
 use rr_core::actors::hurt;
 use rr_core::combat::{CombatEvent, PendingBlast, Via};
 use rr_core::defs::Defs;
@@ -18,11 +20,14 @@ use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_core::rng::Rng;
 use rr_core::snapshot::Snapshot;
 use rr_core::weapons::WeaponEvent;
+use rr_game::actors::{ActorVisual, ActorVisualsPlugin, Spark};
+use rr_game::breakables::BreakablesPlugin;
 use rr_game::combat::{CombatSimPlugin, FxQueue, GameDefs, LevelCombat, insert_defs};
 use rr_game::flow::{FlowPlugin, LevelFile, LevelRuns, LevelSource, LocalSeat, restart_level};
-use rr_game::level::{CurrentMap, load_map};
+use rr_game::level::{CurrentMap, LevelLight, LevelRenderPlugin, load_map};
 use rr_game::mechanics::HudMessage;
 use rr_game::mechanics::{DirtySectors, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::models::ModelsPlugin;
 use rr_game::net::NetMode;
 use rr_game::net::client::stop_joining;
 use rr_game::net::client::{
@@ -535,6 +540,140 @@ fn glass_broken_on_host_remeshes_on_client() {
     assert!(!client.world().resource::<CurrentMap>().0.walls[wall].glass);
 }
 
+/// A client that also draws the level, its lights and the actors (no GPU, no glTF loader).
+fn drawing_client() -> App {
+    client_with(|app| {
+        app.add_plugins(AssetPlugin::default())
+            .init_asset::<Mesh>()
+            .init_asset::<Image>()
+            .init_asset::<StandardMaterial>()
+            .init_asset::<WorldAsset>()
+            .init_asset::<Gltf>()
+            .init_asset::<AnimationClip>()
+            .init_asset::<AnimationGraph>()
+            .add_plugins((
+                ModelsPlugin,
+                LevelRenderPlugin,
+                BreakablesPlugin,
+                ActorVisualsPlugin,
+            ));
+    })
+}
+
+#[test]
+fn late_joiner_sees_minions_and_broken_lights() {
+    let mut host = host_app("arsenal_depot.ron");
+    let light = {
+        let map = &host.world().resource::<CurrentMap>().0;
+        (0..map.lights.len())
+            .find(|&i| map.lights[i].breakable)
+            .expect("arsenal_depot has a breakable light")
+    };
+    // Before anyone joins: a light is shot out and an actor joins play (as a boss's minion).
+    let minion = {
+        let world = host.world_mut();
+        world.resource_scope(|world, mut combat: Mut<LevelCombat>| {
+            let map = &world.resource::<CurrentMap>().0;
+            assert!(combat.0.destruct.break_light(map, light));
+            let a = combat.0.actors[0].clone();
+            combat.0.actors.push(a);
+            combat.0.actors.len() - 1
+        })
+    };
+    pump_host(&mut host, 5);
+    let mut client = drawing_client();
+    start_joining(client.world_mut(), host_addr(&host), "Tester".into()).expect("client");
+    wait_joined(&mut host, &mut client);
+    pump(&mut host, &mut client, 5);
+    let shown: Vec<usize> = {
+        let mut q = client.world_mut().query::<&ActorVisual>();
+        q.iter(client.world()).map(|v| v.0).collect()
+    };
+    assert!(
+        shown.contains(&minion),
+        "no visual for actor {minion}: {shown:?}"
+    );
+    assert_eq!(
+        shown.iter().filter(|&&i| i == minion).count(),
+        1,
+        "one visual each"
+    );
+    let lights: Vec<usize> = {
+        let mut q = client.world_mut().query::<&LevelLight>();
+        q.iter(client.world()).map(|l| l.0).collect()
+    };
+    assert!(
+        !lights.contains(&light),
+        "light {light} still lit: {lights:?}"
+    );
+    let all = host.world().resource::<CurrentMap>().0.lights.len();
+    assert_eq!(lights.len(), all - 1, "the others stay lit: {lights:?}");
+    assert!(
+        client
+            .world()
+            .resource::<LevelCombat>()
+            .0
+            .destruct
+            .light_broken(light),
+        "the snapshot broke it"
+    );
+    let sparks = {
+        let mut q = client.world_mut().query_filtered::<(), With<Spark>>();
+        q.iter(client.world()).count()
+    };
+    assert_eq!(sparks, 0, "an old break throws no sparks");
+}
+
+#[test]
+fn a_spawn_right_after_a_load_shows_once() {
+    let mut host = host_app("combat_arena.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 10);
+    restart_level(host.world_mut());
+    // A minion in the new run's first tick: its own event and the first snapshot both carry it.
+    // (After the frame, which empties `FxQueue`, before the tick that relays it.)
+    host.update();
+    let minion = {
+        let world = host.world_mut();
+        let mut combat = world.resource_mut::<LevelCombat>();
+        let a = combat.0.actors[0].clone();
+        combat.0.actors.push(a);
+        let i = combat.0.actors.len() - 1;
+        world
+            .resource_mut::<FxQueue>()
+            .combat
+            .push(CombatEvent::ActorSpawned(i));
+        i
+    };
+    host.world_mut().run_schedule(FixedUpdate);
+    client.update();
+    client.world_mut().run_schedule(FixedUpdate);
+    let mut seen = 0;
+    for _ in 0..60 {
+        round(&mut host, &mut client);
+        seen += client
+            .world()
+            .resource::<FxQueue>()
+            .combat
+            .iter()
+            .filter(|e| **e == CombatEvent::ActorSpawned(minion))
+            .count();
+    }
+    assert_eq!(seen, 1);
+    assert_eq!(
+        client.world().resource::<LevelCombat>().0.actors.len(),
+        minion + 1
+    );
+}
+
+/// `n` host ticks with no client.
+fn pump_host(host: &mut App, n: usize) {
+    for _ in 0..n {
+        host.update();
+        host.world_mut().run_schedule(FixedUpdate);
+    }
+}
+
 /// Queues a blast on the host's combat, going off on its next tick.
 fn blast(host: &mut App, center: Vec3, sector: usize, radius: f32, damage: i32) {
     let combat = &mut host.world_mut().resource_mut::<LevelCombat>().0;
@@ -888,6 +1027,61 @@ fn world_is_drawn_behind_by_the_delay() {
         (behind - i64::from(INTERP_DELAY)).abs() <= 2,
         "render {render} newest {newest}"
     );
+}
+
+/// How far the client's render tick is from `newest - INTERP_DELAY` (positive: ahead).
+fn drift(client: &App) -> i64 {
+    let t = client.world().resource::<Timeline>();
+    let render = i64::from(t.render.expect("a render tick"));
+    render - (i64::from(newest_held(client).unwrap()) - i64::from(INTERP_DELAY))
+}
+
+/// Runs 30 rounds after a stall and checks the render tick came back within a tick of its
+/// target without a jump.
+fn eases_back(host: &mut App, client: &mut App, resyncs: u32) {
+    let mut drifts = Vec::new();
+    for _ in 0..30 {
+        round(host, client);
+        drifts.push(drift(client));
+    }
+    assert!(
+        drifts[drifts.len() - 10..].iter().all(|d| d.abs() <= 1),
+        "{drifts:?}"
+    );
+    assert_eq!(
+        client.world().resource::<Timeline>().resyncs,
+        resyncs,
+        "eased, not jumped: {drifts:?}"
+    );
+}
+
+#[test]
+fn render_eases_back_after_a_host_stall() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 30);
+    let resyncs = client.world().resource::<Timeline>().resyncs;
+    // The host skips four ticks: no snapshots, the client's render tick runs on.
+    for _ in 0..4 {
+        client_tick(&mut client);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    eases_back(&mut host, &mut client, resyncs);
+}
+
+#[test]
+fn render_eases_back_after_a_client_stall() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 30);
+    let resyncs = client.world().resource::<Timeline>().resyncs;
+    // The client skips four ticks: the host's snapshots pile up meanwhile.
+    for _ in 0..4 {
+        host.update();
+        host.world_mut().run_schedule(FixedUpdate);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    eases_back(&mut host, &mut client, resyncs);
 }
 
 fn explosions(client: &App) -> usize {

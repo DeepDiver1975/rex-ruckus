@@ -151,6 +151,38 @@ fn age_shards(
     }
 }
 
+/// Puts out the point lights of `lights` (indices in `Map::lights`) and darkens their
+/// fixtures, with no sparks: for lights broken before a co-op client joined.
+pub fn put_out_lights(world: &mut World, lights: &[usize]) {
+    if lights.is_empty() {
+        return;
+    }
+    let out: Vec<Entity> = world
+        .query::<(Entity, &LevelLight)>()
+        .iter(world)
+        .filter(|(_, l)| lights.contains(&l.0))
+        .map(|(e, _)| e)
+        .collect();
+    for e in out {
+        world.despawn(e);
+    }
+    let Some(dark) = world
+        .get_resource::<FixtureMaterials>()
+        .map(|f| f.dark.clone())
+    else {
+        return;
+    };
+    let fixtures: Vec<Entity> = world
+        .query::<(Entity, &LightFixture)>()
+        .iter(world)
+        .filter(|(_, f)| lights.contains(&f.0))
+        .map(|(e, _)| e)
+        .collect();
+    for e in fixtures {
+        world.entity_mut(e).insert(MeshMaterial3d(dark.clone()));
+    }
+}
+
 /// Puts out the point light of a broken fixture, darkens the fixture and throws sparks.
 #[allow(clippy::too_many_arguments)]
 fn break_lights(
