@@ -69,6 +69,7 @@ mod tests {
             secrets: 1,
             secrets_total: 1,
             ticks: 7524,
+            ..Default::default()
         };
         assert_eq!(
             stats_lines(&s),
