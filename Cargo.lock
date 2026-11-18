@@ -4956,6 +4956,7 @@ version = "0.2.0"
 dependencies = [
  "earcutr",
  "glam",
+ "postcard",
  "proptest",
  "ron",
  "serde",

@@ -78,6 +78,15 @@ pub fn shown_locally(ev: &CombatEvent, local: Option<PlayerId>) -> bool {
     event_player(ev).is_none_or(|p| Some(p) == local)
 }
 
+/// Whether this machine presents mechanics event `ev`: a denied-key buzz and quip belong to the
+/// player who pressed use (`local`), everything else is the world's.
+pub fn mech_shown_locally(ev: &MechEvent, local: Option<PlayerId>) -> bool {
+    match ev {
+        MechEvent::NeedKey { player, .. } => Some(*player) == local,
+        _ => true,
+    }
+}
+
 /// Every `Update` system that reads [`FxQueue`]. Readers only read; [`clear_fx`] runs after
 /// the set and is the only system that empties the queue.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -197,6 +206,20 @@ pub fn spawn_combat(
     }
 }
 
+/// This tick's weapon controls, taking the weapon latches of `input`. The inventory taps
+/// (Q, J, N) belong to `use_inventory` and stay.
+pub fn weapon_input(input: &mut PendingInput) -> WeaponInput {
+    WeaponInput {
+        // A tap between ticks fires at least once even though the button is up again.
+        fire: input.fire | input.fire_pressed,
+        fire_pressed: std::mem::take(&mut input.fire_pressed),
+        reload: std::mem::take(&mut input.reload),
+        kick: std::mem::take(&mut input.kick),
+        select: input.select.take(),
+        cycle: std::mem::take(&mut input.cycle),
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn player_weapons(
     time: Res<Time<Fixed>>,
@@ -221,16 +244,7 @@ fn player_weapons(
     players.sort_by_key(|(p, ..)| p.id);
     for (player, body, look, vitals, mut arsenal, mut input) in players {
         // Consume the latches every tick so presses never pile up.
-        // The inventory taps (Q, J, N) belong to `use_inventory`.
-        let input = WeaponInput {
-            // A tap between ticks fires at least once even though the button is up again.
-            fire: input.fire | input.fire_pressed,
-            fire_pressed: std::mem::take(&mut input.fire_pressed),
-            reload: std::mem::take(&mut input.reload),
-            kick: std::mem::take(&mut input.kick),
-            select: input.select.take(),
-            cycle: std::mem::take(&mut input.cycle),
-        };
+        let input = weapon_input(&mut input);
         if !vitals.0.health.alive() {
             continue;
         }
@@ -325,6 +339,19 @@ fn mark_dirty(events: &[CombatEvent], dirty: &mut DirtySectors) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rr_core::map::Key;
+
+    #[test]
+    fn need_key_shows_for_its_player_only() {
+        let ev = MechEvent::NeedKey {
+            player: PlayerId(1),
+            key: Key::Red,
+        };
+        assert!(mech_shown_locally(&ev, Some(PlayerId(1))));
+        assert!(!mech_shown_locally(&ev, Some(PlayerId(0))));
+        assert!(!mech_shown_locally(&ev, None));
+        assert!(mech_shown_locally(&MechEvent::Exit, Some(PlayerId(0))));
+    }
 
     #[test]
     fn aim_follows_heading_and_pitch_up_positive() {

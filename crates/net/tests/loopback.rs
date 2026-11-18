@@ -1,4 +1,4 @@
-//! Real UDP on 127.0.0.1: host and client sessions, garbage, and LAN beacons.
+//! Real UDP on 127.0.0.1: host and client sessions, garbage, LAN beacons and the lossy link.
 
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Duration;
@@ -16,6 +16,7 @@ use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_core::snapshot::{PlayerSnap, Snapshot};
 use rr_core::vitals::Vitals;
 use rr_core::weapons::Arsenal;
+use rr_net::testing::LossyLink;
 use rr_net::*;
 
 const STEP: Duration = Duration::from_millis(16);
@@ -317,4 +318,137 @@ fn beacons_round_trip() {
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].0, "127.0.0.1:4242".parse().unwrap());
     assert_eq!(found[0].1, good);
+}
+
+const DELAY: Duration = Duration::from_millis(100);
+
+#[test]
+fn lossy_link_delays_and_drops() {
+    let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+    server.set_nonblocking(true).unwrap();
+    let mut link = LossyLink::new(server.local_addr().unwrap(), DELAY, 0.05, 7).unwrap();
+    let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+    // Datagram `i` leaves at `i` ms; one link pump per millisecond of link time.
+    let mut sent_at = Vec::new();
+    let mut arrived = Vec::new();
+    let mut buf = [0u8; 64];
+    let via = link.addr();
+    let mut drain = |now: Duration, arrived: &mut Vec<(u32, Duration)>| {
+        while let Ok((n, from)) = server.recv_from(&mut buf) {
+            assert_eq!(from, via, "the server sees the link as the client");
+            let i = u32::from_le_bytes(buf[..n].try_into().unwrap());
+            arrived.push((i, now));
+        }
+    };
+    let total = 1000u32;
+    for ms in 0..total + 200 {
+        let now = Duration::from_millis(u64::from(ms));
+        if ms < total {
+            client.send_to(&ms.to_le_bytes(), via).unwrap();
+            sent_at.push(now);
+        }
+        link.pump(now);
+        drain(now, &mut arrived);
+    }
+    std::thread::sleep(Duration::from_millis(20));
+    drain(Duration::from_millis(u64::from(total + 200)), &mut arrived);
+    let n = arrived.len();
+    assert!((930..=970).contains(&n), "{n} of {total} arrived");
+    for (i, at) in &arrived {
+        assert!(
+            *at >= sent_at[*i as usize] + DELAY,
+            "datagram {i} early at {at:?}"
+        );
+    }
+    let mut ids: Vec<u32> = arrived.iter().map(|(i, _)| *i).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), n, "no datagram arrives twice");
+}
+
+#[test]
+fn lossy_link_jitter_keeps_order() {
+    const JITTER: Duration = Duration::from_millis(30);
+    let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+    server.set_nonblocking(true).unwrap();
+    let mut link = LossyLink::new(server.local_addr().unwrap(), DELAY, 0.0, 7)
+        .unwrap()
+        .with_jitter(JITTER);
+    let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let via = link.addr();
+    let mut arrived: Vec<(u32, Duration)> = Vec::new();
+    let mut buf = [0u8; 64];
+    let mut drain = |now: Duration, arrived: &mut Vec<(u32, Duration)>| {
+        while let Ok((n, _)) = server.recv_from(&mut buf) {
+            arrived.push((u32::from_le_bytes(buf[..n].try_into().unwrap()), now));
+        }
+    };
+    let total = 500u32;
+    for ms in 0..total + 200 {
+        let now = Duration::from_millis(u64::from(ms));
+        if ms < total {
+            client.send_to(&ms.to_le_bytes(), via).unwrap();
+        }
+        link.pump(now);
+        // Loopback delivery before the next millisecond's drain.
+        std::thread::sleep(Duration::from_micros(200));
+        drain(now, &mut arrived);
+    }
+    std::thread::sleep(Duration::from_millis(20));
+    drain(Duration::from_millis(u64::from(total + 200)), &mut arrived);
+    assert_eq!(arrived.len(), total as usize, "nothing is lost");
+    let ids: Vec<u32> = arrived.iter().map(|(i, _)| *i).collect();
+    assert!(ids.windows(2).all(|w| w[0] < w[1]), "reordered: {ids:?}");
+    let late: Vec<Duration> = arrived
+        .iter()
+        .map(|(i, at)| *at - Duration::from_millis(u64::from(*i)))
+        .collect();
+    // The drain sees a datagram up to a pump (1 ms) after it went out.
+    let slack = Duration::from_millis(2);
+    assert!(
+        late.iter()
+            .all(|&d| d >= DELAY && d <= DELAY + JITTER + slack),
+        "{late:?}"
+    );
+    let spread = late
+        .iter()
+        .max()
+        .unwrap()
+        .saturating_sub(*late.iter().min().unwrap());
+    assert!(spread >= JITTER / 2, "jitter shows: spread {spread:?}");
+}
+
+#[test]
+fn session_survives_loss() {
+    let mut host = host();
+    let mut link = LossyLink::new(host.local_addr(), DELAY, 0.05, 7).unwrap();
+    let mut client = Client::connect(link.addr()).unwrap();
+    client.send(&hello());
+    let mut now = Duration::ZERO;
+    let mut events = Vec::new();
+    let mut got = Vec::new();
+    let mut welcomed = false;
+    let welcome = ServerMsg::Roster(vec!["Rex".into()]);
+    for _ in 0..600 {
+        for e in host.update(STEP) {
+            if let HostEvent::Message(key, ClientMsg::Hello(_)) = e {
+                host.send(key, &welcome);
+                welcomed = true;
+            }
+            events.push(e);
+        }
+        host.flush();
+        link.pump(now);
+        got.extend(client.update(STEP));
+        client.flush();
+        link.pump(now);
+        now += STEP;
+        if !got.is_empty() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(welcomed, "hello never arrived: {events:?}");
+    assert_eq!(got, [welcome]);
+    assert_eq!(client.state(), ClientState::Connected);
 }

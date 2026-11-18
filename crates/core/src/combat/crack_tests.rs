@@ -50,7 +50,7 @@ fn crack_ignores_use_and_shots() {
     // The use key never offers it, and pressing use on it does nothing.
     assert_eq!(use_target(&map, &mech, &p.body, 0.0), None);
     assert_eq!(
-        mech.activate(&map, UseTarget::Mover(0), Default::default()),
+        mech.activate(&map, PlayerId(0), UseTarget::Mover(0), Default::default()),
         UseOutcome::Activated
     );
     assert_eq!(mech.movers[0].motion, Motion::AtStart);
@@ -115,7 +115,7 @@ fn crack_stays_open() {
     }
     assert!(matches!(mech.movers[0].motion, Motion::AtEnd { .. }));
     // It never closes: no auto-return, no use, no channel.
-    mech.activate(&map, UseTarget::Mover(0), Default::default());
+    mech.activate(&map, PlayerId(0), UseTarget::Mover(0), Default::default());
     mech.fire(1);
     for _ in 0..600 {
         mech.tick(&mut map, &mut [], 1.0 / 60.0);

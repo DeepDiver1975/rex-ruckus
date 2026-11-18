@@ -1,31 +1,37 @@
 //! Hosting a co-op game: the host runs the only simulation, seats the clients that say a good
-//! `Hello`, drives their players from their input frames and sends everyone snapshots.
+//! `Hello`, drives their players from their input frames (queued, one per tick) and sends
+//! everyone snapshots, each tick's events and their own HUD lines.
 //!
 //! Seat `k` plays `PlayerId(k + 1)`; the host's own player is `PlayerId(0)`. When a seat leaves,
 //! the seats (and players) above it move down one, so ids stay dense.
 
+use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;
 
 use bevy::prelude::*;
+use rr_core::events::{
+    combat_event_finite, combat_event_players_ok, mech_event_finite, weapon_event_fits,
+};
 use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::snapshot::{PlayerSnap, Snapshot};
 use rr_net::{
     BEACON_MAGIC, Beacon, BeaconSender, ClientKey, ClientMsg, Hello, Host, HostEvent, InputFrame,
-    Load, PROTOCOL_VERSION, ServerMsg, Welcome, assets_hash, buttons, check_hello,
-    valid_level_name,
+    Load, MAX_EVENTS, MAX_HUD, PROTOCOL_VERSION, ServerMsg, TickEvents, Welcome, assets_hash,
+    buttons, check_hello, valid_level_name,
 };
 
-use super::NetMode;
+use super::{NetMode, apply_frame};
 use crate::combat::{
-    CombatSet, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals, spawn_combat,
+    CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
+    clear_fx, spawn_combat,
 };
 use crate::flow::{
     LevelDifficulty, LevelFile, LevelRuns, LevelSource, PlayState, SpawnLevel, advance_level,
     check_player_death,
 };
 use crate::level::CurrentMap;
-use crate::mechanics::{LevelMechanics, forward_mech_events, use_key};
+use crate::mechanics::{LevelMechanics, PlayerLines, forward_mech_events, pickup_items, use_key};
 use crate::paths::assets_dir;
 use crate::player::{
     Inventory, LocalPlayer, Look, PITCH_LIMIT, PendingInput, Player, PlayerBody, PlayerTuning,
@@ -38,6 +44,15 @@ pub const SNAPSHOT_EVERY: u32 = 2;
 pub const HELLO_TIMEOUT: f32 = 5.0;
 /// Seconds between LAN beacons.
 pub const BEACON_EVERY: f32 = 1.0;
+/// Most input frames a seat holds waiting for their tick; above it the oldest are dropped (their
+/// taps carried into the next one), so a burst after a stall cannot keep the player seconds
+/// behind.
+pub const MAX_INPUT_QUEUE: usize = 8;
+/// Frames a seat may keep waiting for good: deeper for [`DRAIN_AFTER`] ticks in a row and the
+/// seat takes two frames a tick until it is back.
+pub const QUEUE_SLACK: usize = 2;
+/// Ticks in a row a seat's queue may stay deeper than [`QUEUE_SLACK`] before it drains.
+pub const DRAIN_AFTER: u32 = 3;
 
 /// Tap bits of [`InputFrame::buttons`]: each press acts once, not for as long as the frame holds.
 const TAPS: u16 = buttons::USE
@@ -72,10 +87,17 @@ impl NetIdentity {
 pub struct Seat {
     pub client: ClientKey,
     pub name: String,
-    /// The newest input sequence taken from this client.
+    /// The newest input sequence taken from this client (queued or applied).
     pub last_seq: u32,
-    /// The latest frame: held controls stay, taps are cleared once applied.
+    /// The sequence of the frame last applied; snapshots carry it as the player's `ack`.
+    pub ack: u32,
+    /// Frames waiting for their tick, oldest first: one is applied per tick.
+    pub queue: VecDeque<InputFrame>,
+    /// The frame last applied: held controls stay while the queue is empty, its taps are
+    /// cleared once applied.
     pub frame: Option<InputFrame>,
+    /// Ticks in a row the queue was deeper than [`QUEUE_SLACK`].
+    pub deep: u32,
 }
 
 /// The hosted game.
@@ -92,6 +114,9 @@ pub struct NetHost {
     waiting: Vec<(ClientKey, f32)>,
     /// The [`LevelRuns`] the seats last got a `Load` for.
     runs: u32,
+    /// How many `combat`, `weapon` and `mech` events of [`FxQueue`] were already relayed;
+    /// back to zero when the queue is cleared.
+    relayed: [usize; 3],
 }
 
 impl NetHost {
@@ -149,6 +174,7 @@ pub fn start_hosting(world: &mut World, addr: SocketAddr, name: String) -> io::R
         garbage: 0,
         waiting: Vec::new(),
         runs,
+        relayed: [0; 3],
     });
     world.insert_resource(identity);
     world.insert_resource(NetMode::Host);
@@ -196,13 +222,20 @@ impl Plugin for NetHostPlugin {
                     .run_if(hosting),
                 host_send
                     .after(CombatSet)
+                    .after(pickup_items)
                     .after(forward_mech_events)
                     .after(check_player_death)
                     .after(advance_level)
                     .run_if(hosting),
             ),
         )
-        .add_systems(Update, host_beacon.run_if(resource_exists::<HostBeacon>))
+        .add_systems(
+            Update,
+            (
+                host_beacon.run_if(resource_exists::<HostBeacon>),
+                reset_relayed.before(clear_fx).run_if(hosting),
+            ),
+        )
         .add_systems(
             SpawnLevel,
             spawn_seated_players.after(spawn_combat).run_if(hosting),
@@ -245,10 +278,13 @@ fn host_receive(world: &mut World) {
         match event {
             HostEvent::Connected(key) => world.resource_mut::<NetHost>().waiting.push((key, 0.0)),
             HostEvent::Message(key, ClientMsg::Hello(hello)) => greet(world, key, &hello),
-            HostEvent::Message(key, ClientMsg::Input(frame)) => {
+            HostEvent::Message(key, ClientMsg::Input(frames)) => {
                 let mut net = world.resource_mut::<NetHost>();
                 if let Some(k) = net.seat_of(key) {
-                    take_frame(&mut net.seats[k], &frame);
+                    // Oldest first; `take_frame` skips those it already has.
+                    for frame in &frames {
+                        take_frame(&mut net.seats[k], frame);
+                    }
                 }
             }
             HostEvent::Disconnected(key) => leave(world, key),
@@ -272,22 +308,48 @@ fn host_receive(world: &mut World) {
     }
 }
 
-/// A newer frame replaces the seat's; taps it has not applied yet carry over, so two frames in
-/// one tick cannot swallow a press.
+/// Queues a frame newer than any the seat has; the redundant copies a datagram repeats are
+/// skipped, so each frame (and each tap in it) is applied exactly once. Past
+/// [`MAX_INPUT_QUEUE`] the oldest waiting frames go, their taps carried into the next.
 fn take_frame(seat: &mut Seat, frame: &InputFrame) {
     if frame.seq <= seat.last_seq {
         return;
     }
     seat.last_seq = frame.seq;
-    let mut next = frame.clamped(PITCH_LIMIT);
-    if let Some(old) = &seat.frame {
-        next.buttons |= old.buttons & TAPS;
-        next.select = next.select.or(old.select);
-        if next.cycle == 0 {
-            next.cycle = old.cycle;
-        }
+    seat.queue.push_back(frame.clamped(PITCH_LIMIT));
+    while seat.queue.len() > MAX_INPUT_QUEUE {
+        let old = seat.queue.pop_front().expect("over the cap");
+        carry_taps(&old, seat.queue.front_mut().expect("the cap is above zero"));
     }
-    seat.frame = Some(next);
+}
+
+/// Folds the one-shot parts of `older` (a frame skipped unapplied) into `newer`: its tap bits,
+/// its weapon choice unless `newer` makes its own, and its weapon cycling.
+fn carry_taps(older: &InputFrame, newer: &mut InputFrame) {
+    newer.buttons |= older.buttons & TAPS;
+    if newer.select.is_none() {
+        newer.select = older.select;
+    }
+    newer.cycle = newer.cycle.saturating_add(older.cycle);
+}
+
+/// The frame to apply this tick: the next queued one, or (when the queue stayed deeper than
+/// [`QUEUE_SLACK`] for [`DRAIN_AFTER`] ticks) the one after it with the skipped frame's taps
+/// carried in, so a burst drains instead of keeping the player behind. `None` when none waits.
+fn next_frame(seat: &mut Seat) -> Option<InputFrame> {
+    if seat.queue.len() > QUEUE_SLACK {
+        seat.deep += 1;
+    } else {
+        seat.deep = 0;
+    }
+    let mut next = seat.queue.pop_front()?;
+    if seat.deep >= DRAIN_AFTER
+        && let Some(mut newer) = seat.queue.pop_front()
+    {
+        carry_taps(&next, &mut newer);
+        next = newer;
+    }
+    Some(next)
 }
 
 /// Answers a `Hello`: a refusal, or a seat, its welcome, the roster and (in play) its player.
@@ -319,7 +381,10 @@ fn greet(world: &mut World, key: ClientKey, hello: &Hello) {
         client: key,
         name: hello.name.clone(),
         last_seq: 0,
+        ack: 0,
+        queue: VecDeque::new(),
         frame: None,
+        deep: 0,
     });
     let player = seat_player(net.seats.len() - 1);
     net.host
@@ -376,37 +441,23 @@ fn leave(world: &mut World, key: ClientKey) {
     }
 }
 
-/// Drives every seated player from its latest frame. Held controls repeat each tick; taps and
-/// weapon choices are applied once.
-fn apply_remote_input(
+/// Drives every seated player from the next queued frame ([`next_frame`]), one per tick. With
+/// none queued the last frame's held controls repeat; taps and weapon choices act once.
+pub fn apply_remote_input(
     mut net: ResMut<NetHost>,
     mut players: Query<(&Player, &mut PendingInput, &mut Look)>,
 ) {
     for (k, seat) in net.seats.iter_mut().enumerate() {
+        if let Some(next) = next_frame(seat) {
+            seat.ack = next.seq;
+            seat.frame = Some(next);
+        }
         let Some(frame) = seat.frame.as_mut() else {
             continue;
         };
         let id = seat_player(k);
         if let Some((_, mut input, mut look)) = players.iter_mut().find(|(p, ..)| p.id == id) {
-            let held = |bit: u16| frame.buttons & bit != 0;
-            look.angle = frame.angle;
-            look.pitch = frame.pitch;
-            input.forward = frame.forward;
-            input.strafe = frame.strafe;
-            input.jump = held(buttons::JUMP);
-            input.crouch = held(buttons::CROUCH);
-            input.fire = held(buttons::FIRE);
-            input.use_pressed |= held(buttons::USE);
-            input.fire_pressed |= held(buttons::FIRE_PRESSED);
-            input.reload |= held(buttons::RELOAD);
-            input.kick |= held(buttons::KICK);
-            input.use_medkit |= held(buttons::MEDKIT);
-            input.toggle_jetpack |= held(buttons::JETPACK);
-            input.toggle_nv |= held(buttons::NIGHT_VISION);
-            if frame.select.is_some() {
-                input.select = frame.select;
-            }
-            input.cycle += i32::from(frame.cycle);
+            apply_frame(frame, &mut input, &mut look);
         }
         // Applied, or dropped with no player to take it: a tap never acts twice.
         frame.buttons &= !TAPS;
@@ -426,11 +477,73 @@ type SnapQuery = (
     &'static Inventory,
 );
 
-/// Ends the host's tick: loads after a restart, a snapshot every [`SNAPSHOT_EVERY`] ticks, and
-/// sends it all.
+/// The [`FxQueue`] was cleared: nothing in it is relayed yet.
+fn reset_relayed(mut net: ResMut<NetHost>) {
+    net.relayed = [0; 3];
+}
+
+/// Slice `i` of [`MAX_EVENTS`] events of `events`.
+fn chunk<T: Clone>(events: &[T], i: usize) -> Vec<T> {
+    events
+        .iter()
+        .skip(i * MAX_EVENTS)
+        .take(MAX_EVENTS)
+        .cloned()
+        .collect()
+}
+
+/// The events `fx` gained since `relayed`, stamped `tick`, in as many messages as it takes to
+/// keep each stream within [`MAX_EVENTS`]; none when there are none. Moves `relayed` on.
+/// Events a client's `decode_server` would refuse (a non-finite float, a player id past
+/// `MAX_PLAYERS`) stay home: one would end every client's session.
+fn new_events(fx: &FxQueue, relayed: &mut [usize; 3], tick: u32) -> Vec<TickEvents> {
+    fn since<T: Clone>(events: &[T], from: &mut usize, ok: impl Fn(&T) -> bool) -> Vec<T> {
+        let new = &events[(*from).min(events.len())..];
+        *from = events.len();
+        new.iter().filter(|e| ok(e)).cloned().collect()
+    }
+    let combat = since(&fx.combat, &mut relayed[0], |e| {
+        combat_event_finite(e) && combat_event_players_ok(e)
+    });
+    let weapon = since(&fx.weapon, &mut relayed[1], |(p, e)| {
+        usize::from(p.0) < MAX_PLAYERS && weapon_event_fits(e)
+    });
+    let mech = since(&fx.mech, &mut relayed[2], mech_event_finite);
+    let parts = combat
+        .len()
+        .max(weapon.len())
+        .max(mech.len())
+        .div_ceil(MAX_EVENTS);
+    (0..parts)
+        .map(|i| TickEvents {
+            tick,
+            combat: chunk(&combat, i),
+            weapon: chunk(&weapon, i),
+            mech: chunk(&mech, i),
+        })
+        .collect()
+}
+
+/// `text` as a `Hud` line: control characters dropped, cut to [`MAX_HUD`] bytes on a character
+/// boundary.
+pub fn hud_line(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars().filter(|c| !c.is_control()) {
+        if out.len() + c.len_utf8() > MAX_HUD {
+            break;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Ends the host's tick: loads after a restart, this tick's events, the seats' HUD lines, a
+/// snapshot every [`SNAPSHOT_EVERY`] ticks, and sends it all.
 #[allow(clippy::too_many_arguments)]
 fn host_send(
     mut net: ResMut<NetHost>,
+    fx: Res<FxQueue>,
+    mut lines: ResMut<PlayerLines>,
     runs: Res<LevelRuns>,
     state: Res<PlayState>,
     file: Res<LevelFile>,
@@ -453,6 +566,18 @@ fn host_send(
         net.broadcast(&load);
     }
     net.tick += 1;
+    // Stamped like the snapshot of this tick would be.
+    for ev in new_events(&fx, &mut net.relayed, net.tick) {
+        net.broadcast(&ServerMsg::Events(ev));
+    }
+    // A seat's lines go to it alone; the local player's and unseated ones stay.
+    lines.0.retain(|(p, text)| {
+        let Some(seat) = (p.0 as usize).checked_sub(1).and_then(|k| net.seats.get(k)) else {
+            return true;
+        };
+        net.host.send(seat.client, &ServerMsg::Hud(hud_line(text)));
+        false
+    });
     if *state != PlayState::Menu
         && net.tick.is_multiple_of(SNAPSHOT_EVERY)
         && !net.seats.is_empty()
@@ -472,7 +597,7 @@ fn host_send(
                     keys: inv.keys,
                     ack: match p.id.0 {
                         0 => 0,
-                        j => net.seats.get(j as usize - 1).map_or(0, |s| s.last_seq),
+                        j => net.seats.get(j as usize - 1).map_or(0, |s| s.ack),
                     },
                 },
             )
@@ -519,5 +644,87 @@ fn host_beacon(
 fn stop_on_exit(mut exits: MessageReader<AppExit>, mut commands: Commands) {
     if exits.read().next().is_some() {
         commands.queue(stop_hosting);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rr_core::mechanics::MechEvent;
+
+    #[test]
+    fn hud_lines_are_cut_on_a_char_boundary() {
+        assert_eq!(hud_line("Pistol ammo"), "Pistol ammo");
+        assert_eq!(hud_line("a\nb\u{7}c"), "abc");
+        let long = "\u{e9}".repeat(MAX_HUD);
+        let cut = hud_line(&long);
+        assert_eq!(cut.len(), MAX_HUD);
+        assert!(cut.chars().all(|c| c == '\u{e9}'));
+        let odd = format!("x{long}");
+        assert_eq!(hud_line(&odd).len(), MAX_HUD - 1);
+    }
+
+    #[test]
+    fn events_split_at_the_cap_and_are_sent_once() {
+        let mut fx = FxQueue {
+            mech: vec![MechEvent::Exit; MAX_EVENTS + 1],
+            ..default()
+        };
+        let mut relayed = [0; 3];
+        let sent = new_events(&fx, &mut relayed, 7);
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[0].mech.len(), MAX_EVENTS);
+        assert_eq!(sent[1].mech.len(), 1);
+        assert!(sent.iter().all(|e| e.tick == 7 && e.combat.is_empty()));
+        assert!(new_events(&fx, &mut relayed, 8).is_empty(), "nothing new");
+        fx.mech.push(MechEvent::Exit);
+        assert_eq!(new_events(&fx, &mut relayed, 9)[0].mech.len(), 1);
+        // A cleared queue with a stale cursor sends nothing and does not panic.
+        fx.mech.clear();
+        assert!(new_events(&fx, &mut [5; 3], 10).is_empty());
+    }
+
+    #[test]
+    fn events_a_client_would_refuse_stay_home() {
+        use rr_core::combat::CombatEvent;
+        use rr_core::weapons::WeaponEvent;
+        let boom = |x: f32| CombatEvent::Explosion {
+            point: Vec3::new(x, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let fx = FxQueue {
+            combat: vec![
+                boom(f32::NAN),
+                boom(1.0),
+                CombatEvent::PlayerKilled(PlayerId(MAX_PLAYERS as u8)),
+            ],
+            weapon: vec![
+                (PlayerId(1), WeaponEvent::Kick { dir: Vec3::NAN }),
+                (PlayerId(1), WeaponEvent::Kick { dir: Vec3::X }),
+                (
+                    PlayerId(MAX_PLAYERS as u8),
+                    WeaponEvent::Kick { dir: Vec3::X },
+                ),
+            ],
+            mech: vec![
+                MechEvent::QuakeStarted {
+                    strength: f32::INFINITY,
+                    duration: 1.0,
+                },
+                MechEvent::Exit,
+            ],
+            ..default()
+        };
+        let sent = new_events(&fx, &mut [0; 3], 3);
+        assert_eq!(sent.len(), 1);
+        let ev = &sent[0];
+        assert_eq!(ev.combat, [boom(1.0)]);
+        assert_eq!(
+            ev.weapon,
+            [(PlayerId(1), WeaponEvent::Kick { dir: Vec3::X })]
+        );
+        assert_eq!(ev.mech, [MechEvent::Exit]);
+        let msg = ServerMsg::Events(ev.clone());
+        assert_eq!(rr_net::decode_server(&rr_net::encode(&msg)).unwrap(), msg);
     }
 }

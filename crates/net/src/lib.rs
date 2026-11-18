@@ -7,6 +7,8 @@ pub mod hash;
 pub mod lan;
 pub mod protocol;
 pub mod session;
+#[doc(hidden)]
+pub mod testing;
 
 pub use hash::assets_hash;
 pub use lan::{BeaconSender, LanListener};

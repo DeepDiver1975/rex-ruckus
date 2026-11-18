@@ -16,8 +16,8 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 |---|---|
 | `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting, boss phases and special moves (`actors/special.rs`), automap (`automap.rs`), world snapshots (`snapshot.rs`: capture and apply of world state; a co-op client applies them and never ticks AI). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
 | `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals); `src/menu/` holds the menu, pause, options, controls and stats screens, `menu/multiplayer.rs` the co-op screens (Multiplayer, Join, Lobby, NetNotice) and `menu/text_field.rs` their name and address fields. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
-| `crates/game/src/net/` | Co-op on the game side: `NetMode` (`mod.rs`), `host.rs` (seats, remote input, snapshots, LAN beacons), `client.rs` (applies snapshots, sends input, `NetNotice`) and `lobby.rs` (the Join screen's `LanGames`). |
-| `crates/net` (`rr-net`) | Co-op wire and socket layer: renet host and client (`session.rs`, `parse_addr`), LAN beacons (`lan.rs`: `BeaconSender`, `LanListener`), protocol constants and messages, postcard encode/decode (`decode_server` also rejects non-finite or out-of-bounds snapshots, a bad seat, an oversized roster and bad level names), `check_hello`, `ServerMsg` `Snapshot{you,snap}`/`Roster`/`Load`, `valid_level_name`, `InputFrame::clamped`, `NETCODE_PROTOCOL_ID`, the LAN `Beacon`, `InputFrame` and `assets_hash`. Depends on `rr-core` and renet (no Bevy). |
+| `crates/game/src/net/` | Co-op on the game side: `NetMode` and `apply_frame` (`mod.rs`), `host.rs` (seats, queued remote input, snapshots, relayed events and HUD lines, LAN beacons), `client.rs` (joining, receiving into the `Timeline`, `Load`, seating the players, `NetNotice`), `predict.rs` (the client's own player: sends its input, predicts it now, reconciles with the host's snapshot and eases the camera over a correction), `interp.rs` (`Timeline`: the rest of the world drawn `INTERP_DELAY` ticks behind the newest snapshot, blending between snapshots and releasing relayed events after their snapshot) and `lobby.rs` (the Join screen's `LanGames`). |
+| `crates/net` (`rr-net`) | Co-op wire and socket layer: renet host and client (`session.rs`, `parse_addr`), LAN beacons (`lan.rs`: `BeaconSender`, `LanListener`), protocol constants and messages, postcard encode/decode (`decode_server` also rejects non-finite or out-of-bounds snapshots, a bad seat, an oversized roster and bad level names), `check_hello`, `ServerMsg` `Snapshot{you,snap}`/`Roster`/`Load`/`Events(TickEvents)`/`Hud` (events and HUD lines are reliable and bounded by `MAX_EVENTS`/`MAX_HUD`), `ClientMsg::Input(Vec<InputFrame>)` (at most `INPUT_REDUNDANCY` frames, seqs strictly increasing), `valid_level_name`, `InputFrame::clamped`, `NETCODE_PROTOCOL_ID`, the LAN `Beacon`, `InputFrame` and `assets_hash`. Depends on `rr-core` and renet (no Bevy). |
 | `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
 | `assets/episode.ron` | The episodes in menu order, each with its name and levels in play order (no levels = "coming soon"). |
 | `assets/fonts/` | The UI/HUD font (CC0 TTF). |
@@ -128,9 +128,18 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - A co-op client applies the host's snapshots and never simulates: its sim systems run on
   `sim_ticks`, which is false for `NetMode::Client`. `world_running` keeps a net game running under
   the pause menu. The host's `LevelRuns` changing (any `restart_level`/`load_level`) is what sends
-  `Load` to the clients. Until PR 6 relays events, a client makes up `GlassBroken`, `LightBroken`
-  and `ActorSpawned` from what a snapshot changed (`net/client.rs`), so the visuals follow.
+  `Load` to the clients. A client's shards, sounds and lights come only from the host's relayed
+  events; from a snapshot's changes it only marks `DirtySectors` for re-meshing (`net/interp.rs`),
+  except for the first snapshot after a `Load`: it also brings in what happened before (visuals for
+  appended actors via `ActorSpawned`, lights broken earlier put out silently).
 - Bump `rr_net::PROTOCOL_VERSION` whenever a wire type or any snapshot type (`rr_core::snapshot` and what it embeds) changes shape; a host refuses a client with another version.
+- A co-op client runs two clocks: its own player is predicted now (`net/predict.rs`), everything
+  else is drawn `INTERP_DELAY` (6) ticks behind the newest snapshot (`net/interp.rs`'s `Timeline`).
+  Relayed events are released into `FxQueue` right after their tick's snapshot is applied, never
+  on arrival, and the local player's relayed weapon events are dropped (prediction played them).
+  Events and snapshots at or before the last `Load` tick are the old run's and are dropped.
+- Every relayed event passes `rr_core::events::*_event_fits` against the client's world before
+  any reader sees it; a new event that carries an index needs a check there.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 - The Hive Queen (`HiveQueen`) is the second boss. Her moves are data: a phase's `burrow` and
   `pound` and the def's `minions` (Slashers, live cap per skill via `Combat::skill`) in

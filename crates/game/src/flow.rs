@@ -194,8 +194,8 @@ pub(crate) fn check_player_death(
 /// previous position would make the frame loop redraw the last tick's step over and over
 /// (visible shake on the death camera, chasing Grunts and bolts). Runs at the start of the
 /// tick, so frames up to the first frozen tick still interpolate the final step normally.
-/// A co-op client runs it too on every tick that applied no snapshot (`net::client`): it never
-/// steps the sim, so the last snapshot's step would replay the same way.
+/// A co-op client settles the same way on a tick with nothing to draw towards
+/// (`net::interp`), all but its own predicted player.
 pub(crate) fn freeze_interpolation(
     combat: Option<ResMut<LevelCombat>>,
     mut players: Query<(&PlayerBody, &mut PrevFeet)>,
@@ -205,7 +205,14 @@ pub(crate) fn freeze_interpolation(
             prev.0 = body.0.pos;
         }
     }
-    let Some(mut combat) = combat else { return };
+    if let Some(mut combat) = combat {
+        settle_combat(&mut combat);
+    }
+}
+
+/// Rests every actor's and projectile's previous pose on its current one, touching the
+/// resource only when one differs.
+pub(crate) fn settle_combat(combat: &mut ResMut<LevelCombat>) {
     let c = &combat.0;
     let stale = c.actors.iter().any(|a| a.prev_pos != a.body.pos)
         || c.projectiles.iter().any(|p| p.prev != p.pos);

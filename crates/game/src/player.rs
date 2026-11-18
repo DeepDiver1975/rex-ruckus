@@ -7,8 +7,9 @@ use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, LocalSeat, PlayState, SpawnLevel, sim_ticks};
 use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
-use crate::mechanics::{HudMessage, use_key};
+use crate::mechanics::{HudMessage, PlayerLines, use_key};
 use crate::menu::MenuScreen;
+use crate::net::predict::CorrectionOffset;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -230,6 +231,7 @@ impl Plugin for PlayerSimPlugin {
             .init_resource::<PlayerTuning>()
             .init_resource::<PlayState>()
             .init_resource::<HudMessage>()
+            .init_resource::<PlayerLines>()
             .add_systems(SpawnLevel, spawn_player)
             .add_systems(
                 SpawnLevel,
@@ -363,29 +365,54 @@ fn simulate_player(
         prev.0 = body.0.pos;
         // The dead (a co-op partner still plays on) ignore their input but still fall.
         let alive = vitals.is_none_or(|v| v.0.health.alive());
-        let input = if alive {
-            input
-        } else {
-            &PendingInput::default()
-        };
-        let forward = forward_2d(look.angle);
-        let right = Vec2::new(forward.y, -forward.x);
-        let wish = forward * input.forward + right * input.strafe;
-        // Jump climbs and crouch descends, but only with the jetpack on; the dead drop.
-        let jetpack = alive && carried.is_some_and(|i| i.0.jetpack_on);
-        let move_input = MoveInput {
-            wish,
-            jump: input.jump,
-            crouch: input.crouch,
-            thrust: if jetpack {
-                f32::from(input.jump) - f32::from(input.crouch)
-            } else {
-                0.0
-            },
-            jetpack,
-        };
-        step_player(&map.0, &mut body.0, &move_input, &tuning.0, dt);
+        let jetpack_on = carried.is_some_and(|i| i.0.jetpack_on);
+        step_body(
+            &map.0,
+            &tuning.0,
+            dt,
+            &mut body.0,
+            input,
+            look,
+            jetpack_on,
+            alive,
+        );
     }
+}
+
+/// One player's movement step for `dt` from its controls. The dead ignore `input` but still
+/// fall; jump climbs and crouch descends only with the jetpack on (and alive).
+#[allow(clippy::too_many_arguments)]
+pub fn step_body(
+    map: &Map,
+    tuning: &Tuning,
+    dt: f32,
+    body: &mut Body,
+    input: &PendingInput,
+    look: &Look,
+    jetpack_on: bool,
+    alive: bool,
+) {
+    let input = if alive {
+        input
+    } else {
+        &PendingInput::default()
+    };
+    let forward = forward_2d(look.angle);
+    let right = Vec2::new(forward.y, -forward.x);
+    let wish = forward * input.forward + right * input.strafe;
+    let jetpack = alive && jetpack_on;
+    let move_input = MoveInput {
+        wish,
+        jump: input.jump,
+        crouch: input.crouch,
+        thrust: if jetpack {
+            f32::from(input.jump) - f32::from(input.crouch)
+        } else {
+            0.0
+        },
+        jetpack,
+    };
+    step_player(map, body, &move_input, tuning, dt);
 }
 
 /// Keyboard/mouse, cursor grab and the first-person camera. Needs a window.
@@ -621,6 +648,7 @@ pub fn read_input(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
@@ -629,6 +657,7 @@ pub(crate) fn update_camera(
     player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<LocalPlayer>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
     mut roll: ResMut<ViewRoll>,
+    correction: Option<ResMut<CorrectionOffset>>,
 ) {
     let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
@@ -638,7 +667,13 @@ pub(crate) fn update_camera(
     roll.0 = ease_toward(roll.0, roll_target, EYE_EASE_RATE, dt);
     let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
     eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
-    let eye = feet + Vec3::Z * eye_h.0;
+    let mut eye = feet + Vec3::Z * eye_h.0;
+    // A co-op client draws its corrected player where it was predicted, sliding onto the
+    // host's spot (the viewmodel is the camera's child and follows).
+    if let Some(mut correction) = correction {
+        eye += correction.offset;
+        correction.fade(dt);
+    }
     camera.translation = to_bevy(eye);
     camera.rotation = Quat::from_euler(
         EulerRot::YXZ,

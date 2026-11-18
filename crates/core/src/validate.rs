@@ -845,6 +845,7 @@ mod tests {
         combat_room, door_rooms, engine_room, lift_shaft, pillar_room, slide_yard, two_rooms,
     };
     use crate::map::ActorSpawn;
+    use crate::players::PlayerId;
 
     fn errors(map: &Map) -> Vec<String> {
         validate(map)
@@ -1200,7 +1201,8 @@ mod tests {
             }
             let mut m = map.clone();
             let mut mech = Mechanics::new(&mut m);
-            let runtime = mech.activate(&m, UseTarget::Switch(0), keys) == UseOutcome::Activated;
+            let runtime =
+                mech.activate(&m, PlayerId(0), UseTarget::Switch(0), keys) == UseOutcome::Activated;
             assert_eq!(
                 switch_usable(&map, &map.switches[0], keys),
                 runtime,

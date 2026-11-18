@@ -3,7 +3,7 @@
 //! (its own HUD line, so a quip never hides a message such as the key a door needs).
 
 use super::AudioVolumes;
-use crate::combat::{FxQueue, LevelCombat, PlayerArsenal, PlayerVitals};
+use crate::combat::{FxQueue, LevelCombat, PlayerArsenal, PlayerVitals, mech_shown_locally};
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
 use crate::mechanics::HudSubtitle;
@@ -144,9 +144,10 @@ pub fn play_quips(
         combat.as_ref().map(|c| &c.0),
         local.get(),
     ));
-    for ev in &fx.mech {
+    let me = local.get();
+    for ev in fx.mech.iter().filter(|e| mech_shown_locally(e, me)) {
         match ev {
-            MechEvent::NeedKey(_) => triggers.push(QuipTrigger::NeedKey),
+            MechEvent::NeedKey { .. } => triggers.push(QuipTrigger::NeedKey),
             MechEvent::Exit => triggers.push(QuipTrigger::LevelComplete),
             _ => {}
         }

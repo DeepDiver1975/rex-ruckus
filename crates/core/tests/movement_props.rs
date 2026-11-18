@@ -7,6 +7,7 @@ use rr_core::glam::Vec2;
 use rr_core::map::{KeySet, Map};
 use rr_core::mechanics::{Mechanics, UseTarget};
 use rr_core::movement::{MoveInput, Tuning, step_player};
+use rr_core::players::PlayerId;
 
 const DT: f32 = 1.0 / 60.0;
 
@@ -36,7 +37,7 @@ fn play(mut map: Map, start: Vec2, segs: &[Segment]) -> Result<(), TestCaseError
     let mut b = Body::spawn(&map, start, 0.35, t.stand_height).unwrap();
     for &(x, y, jump, crouch, ticks, toggle, jetpack, thrust) in segs {
         if toggle && !mech.movers.is_empty() {
-            mech.activate(&map, UseTarget::Mover(0), KeySet::default());
+            mech.activate(&map, PlayerId(0), UseTarget::Mover(0), KeySet::default());
         }
         for _ in 0..ticks {
             step_player(

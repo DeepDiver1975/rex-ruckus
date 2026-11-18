@@ -1,31 +1,30 @@
 //! Joining a co-op game: the client never ticks its own simulation. It loads the host's level,
-//! applies the host's snapshots to its copy of it and sends the local player's input.
+//! applies the host's snapshots and events to its copy of it a little behind (`interp`), and
+//! predicts and sends the local player's input (`predict`).
 
 use std::io;
 use std::net::SocketAddr;
 
 use bevy::prelude::*;
-use rr_core::combat::CombatEvent;
 use rr_core::players::PlayerId;
-use rr_core::snapshot::{PlayerSnap, Snapshot};
+use rr_core::snapshot::PlayerSnap;
 use rr_net::{
-    Client, ClientMsg, ClientState, Hello, InputFrame, LostReason, PROTOCOL_VERSION, Refusal,
-    ServerMsg, Welcome, buttons,
+    Client, ClientMsg, ClientState, Hello, LostReason, PROTOCOL_VERSION, Refusal, ServerMsg,
+    Welcome,
 };
 
 use super::NetMode;
-use super::host::NetIdentity;
-use crate::combat::{FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals};
+use super::host::{NetIdentity, hud_line};
+use super::interp::{Timeline, advance_timeline};
+use super::predict::{CorrectionOffset, InputHistory, predict_local, reconcile, reset_prediction};
+use crate::combat::{GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::episode::Episode;
-use crate::flow::{
-    LevelDifficulty, LevelFile, LevelRuns, LocalSeat, PlayState, freeze_interpolation, load_level,
-    world_running,
-};
+use crate::flow::{LevelDifficulty, LevelFile, LocalSeat, PlayState, load_level};
 use crate::level::{CurrentMap, try_load_map};
-use crate::mechanics::{DirtySectors, LevelMechanics, use_key};
+use crate::mechanics::{HudMessage, use_key};
 use crate::player::{
-    Inventory, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet, PlayerTuning,
-    PrevFeet, spawn_coop_player,
+    Inventory, LocalPlayer, Look, Player, PlayerBody, PlayerSimSet, PlayerTuning, PrevFeet,
+    spawn_coop_player,
 };
 
 /// The notice for a host's level this machine does not have.
@@ -41,17 +40,15 @@ pub struct NetClient {
     pub client: Client,
     /// The sequence number of the last input frame sent.
     pub seq: u32,
-    /// The tick of the last load or applied snapshot; older snapshots are dropped. `None` until
-    /// the host's level is loaded.
+    /// The tick of the last load or applied snapshot (`interp`); older snapshots are dropped.
+    /// `None` until the host's level is loaded.
     pub last_tick: Option<u32>,
     /// Every player's name, index = `PlayerId`.
     pub roster: Vec<String>,
     pub welcomed: Option<Welcome>,
-    /// The newest snapshot received this tick and the seat it names, for [`client_apply`].
-    pub pending: Option<(PlayerId, Snapshot)>,
     hello_sent: bool,
-    /// The [`LevelRuns`] a misfitting snapshot was last reported in (one warning per run).
-    warned_run: Option<u32>,
+    /// The `LevelRuns` a misfitting snapshot was last reported in (one warning per run).
+    pub(super) warned_run: Option<u32>,
 }
 
 /// Why the last co-op session ended, for the menu to show; `None` when it ended by choice.
@@ -80,12 +77,13 @@ pub fn start_joining(world: &mut World, addr: SocketAddr, name: String) -> io::R
         last_tick: None,
         roster: Vec::new(),
         welcomed: None,
-        pending: None,
         hello_sent: false,
         warned_run: None,
     });
     world.insert_resource(identity);
     world.insert_resource(NetMode::Client);
+    world.insert_resource(Timeline::default());
+    reset_prediction(world);
     Ok(())
 }
 
@@ -96,6 +94,8 @@ pub fn stop_joining(world: &mut World) {
         net.client.flush();
     }
     world.remove_resource::<NetIdentity>();
+    world.insert_resource(Timeline::default());
+    reset_prediction(world);
     let players: Vec<(Entity, bool)> = world
         .query::<(Entity, Has<LocalPlayer>)>()
         .iter(world)
@@ -133,12 +133,15 @@ impl Plugin for NetClientPlugin {
     fn build(&self, app: &mut App) {
         let joined = resource_exists::<NetClient>;
         app.init_resource::<NetNotice>()
+            .init_resource::<InputHistory>()
+            .init_resource::<CorrectionOffset>()
+            .init_resource::<Timeline>()
             .add_systems(
                 FixedUpdate,
                 (
                     client_receive.run_if(joined),
-                    client_apply.run_if(joined),
-                    client_send_input.run_if(joined),
+                    advance_timeline.run_if(joined),
+                    predict_local.run_if(joined),
                 )
                     .chain()
                     .before(use_key)
@@ -152,11 +155,20 @@ impl Plugin for NetClientPlugin {
 pub fn client_receive(world: &mut World) {
     let dt = world.resource::<Time<Fixed>>().timestep();
     let msgs = world.resource_mut::<NetClient>().client.update(dt);
+    let newest = |world: &World| world.resource::<Timeline>().newest();
+    let before = newest(world);
     for msg in msgs {
         client_handle(world, msg);
         if !world.contains_resource::<NetClient>() {
             return;
         }
+    }
+    // The newest snapshot corrects the local player as soon as it arrives.
+    if newest(world) != before
+        && let Some((you, snap)) = world.resource::<Timeline>().snaps.back()
+        && let Some(me) = snap.players.iter().find(|p| p.id == *you).cloned()
+    {
+        reconcile(world, &me);
     }
     if world.resource::<NetClient>().client.control_garbage() > 0 {
         end_session(world, Some(NOT_UNDERSTOOD.into()));
@@ -203,112 +215,34 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
                 world.insert_resource(LevelDifficulty(load.skill));
                 world.insert_resource(LevelFile(load.level));
                 load_level(world, map);
-                let mut net = world.resource_mut::<NetClient>();
-                net.last_tick = Some(load.tick);
-                net.pending = None;
+                world.resource_mut::<NetClient>().last_tick = Some(load.tick);
+                world.resource_mut::<Timeline>().reset(load.tick);
             }
         },
+        // Nothing fits before the host's level is loaded.
         ServerMsg::Snapshot { you, snap } => {
-            let mut net = world.resource_mut::<NetClient>();
-            // Nothing fits before the host's level is loaded; UDP may reorder the rest.
-            let newer = |t: u32| net.last_tick.is_some_and(|last| t > last);
-            let newest = net.pending.as_ref().is_none_or(|(_, p)| snap.tick > p.tick);
-            if newer(snap.tick) && newest {
-                net.pending = Some((you, snap));
+            if let Some(applied) = world.resource::<NetClient>().last_tick {
+                world
+                    .resource_mut::<Timeline>()
+                    .push_snapshot(you, snap, applied);
+            }
+        }
+        ServerMsg::Events(ev) => {
+            if world.resource::<NetClient>().last_tick.is_some() {
+                world.resource_mut::<Timeline>().push_events(ev);
+            }
+        }
+        ServerMsg::Hud(text) => {
+            if let Some(mut msg) = world.get_resource_mut::<HudMessage>() {
+                msg.show(hud_line(&text));
             }
         }
     }
 }
 
-/// Applies the newest snapshot received to the level and the players. On a tick without one,
-/// every render-interpolation endpoint rests on the current pose, so the frames between
-/// snapshots hold still instead of replaying the last snapshot's step.
-pub fn client_apply(world: &mut World) {
-    if !apply_pending(world)
-        && let Err(e) = world.run_system_cached(freeze_interpolation)
-    {
-        warn!("cannot settle interpolation: {e}");
-    }
-}
-
-/// Applies the pending snapshot; false if there was none to apply.
-fn apply_pending(world: &mut World) -> bool {
-    let Some((you, snap)) = world.resource_mut::<NetClient>().pending.take() else {
-        return false;
-    };
-    let last = world.resource::<NetClient>().last_tick;
-    if last.is_none_or(|t| snap.tick <= t) {
-        return false;
-    }
-    if !world.contains_resource::<LevelCombat>() || !world.contains_resource::<LevelMechanics>() {
-        return false;
-    }
-    let result = world.resource_scope(|world, mut combat: Mut<LevelCombat>| {
-        world.resource_scope(|world, mut mech: Mut<LevelMechanics>| {
-            world.resource_scope(|world, mut map: Mut<CurrentMap>| {
-                let defs = &world.resource::<GameDefs>().0;
-                snap.apply(&mut combat.0, &mut mech.0, &mut map.0, defs)
-            })
-        })
-    });
-    let changes = match result {
-        Ok(changes) => changes,
-        Err(e) => {
-            let run = world.resource::<LevelRuns>().0;
-            let mut net = world.resource_mut::<NetClient>();
-            if net.warned_run != Some(run) {
-                net.warned_run = Some(run);
-                warn!("dropped a snapshot that does not fit the level: {e:?}");
-            }
-            return false;
-        }
-    };
-    world.resource_mut::<NetClient>().last_tick = Some(snap.tick);
-    let glass_sectors: Vec<usize> = {
-        let map = &world.resource::<CurrentMap>().0;
-        changes
-            .glass
-            .iter()
-            .flat_map(|&w| std::iter::once(map.walls[w].sector).chain(map.walls[w].next_sector))
-            .collect()
-    };
-    world
-        .resource_mut::<DirtySectors>()
-        .0
-        .extend(changes.sectors.iter().copied().chain(glass_sectors));
-    // `changes.glass` lists both sides of a pane; one event per pane.
-    let panes: Vec<usize> = {
-        let map = &world.resource::<CurrentMap>().0;
-        changes
-            .glass
-            .iter()
-            .copied()
-            .filter(|&w| {
-                map.walls[w]
-                    .next_wall
-                    .is_none_or(|t| t > w || !changes.glass.contains(&t))
-            })
-            .collect()
-    };
-    {
-        let mut fx = world.resource_mut::<FxQueue>();
-        fx.combat
-            .extend(panes.into_iter().map(|wall| CombatEvent::GlassBroken {
-                wall,
-                dirty: vec![],
-            }));
-        fx.combat
-            .extend(changes.lights.iter().map(|&i| CombatEvent::LightBroken(i)));
-        fx.combat
-            .extend(changes.actors_added.clone().map(CombatEvent::ActorSpawned));
-    }
-    apply_players(world, you, &snap.players);
-    true
-}
-
-/// Seats the local player as `you` and brings every player in line with its snap; players the
-/// snapshot does not hold go.
-fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
+/// Seats the local player as `you` and brings every other player in line with its snap;
+/// players the snapshot does not hold go.
+pub(super) fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
     let mut local = None;
     let mut others = Vec::new();
     for (e, p, is_local) in world
@@ -342,6 +276,10 @@ fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
                 .find(|(_, p)| p.id == s.id)
                 .map(|(e, _)| e)
         };
+        // The local player is `reconcile`'s.
+        if s.id == you && found.is_some() {
+            continue;
+        }
         let (e, prev) = match found {
             Some(e) => (e, world.get::<PlayerBody>(e).map(|b| b.0.pos)),
             None => (spawn_player(world, s.id), None),
@@ -357,9 +295,7 @@ fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
         if let Some(mut inv) = entity.get_mut::<Inventory>() {
             inv.keys = s.keys;
         }
-        if s.id != you
-            && let Some(mut look) = entity.get_mut::<Look>()
-        {
+        if let Some(mut look) = entity.get_mut::<Look>() {
             look.angle = s.angle;
             look.pitch = s.pitch;
         }
@@ -374,56 +310,6 @@ fn spawn_player(world: &mut World, id: PlayerId) -> Entity {
     let e = spawn_coop_player(&mut commands, &map, &tuning, &defs, id);
     world.flush();
     e
-}
-
-/// Sends the local player's input for this tick. Taps are taken the way the sim systems take
-/// them; the automap toggle stays local.
-fn client_send_input(
-    mut net: ResMut<NetClient>,
-    state: Res<PlayState>,
-    from: Res<crate::flow::PausedFrom>,
-    mode: Option<Res<NetMode>>,
-    mut q: Query<(&mut PendingInput, &Look), With<LocalPlayer>>,
-) {
-    if net.welcomed.is_none() || !world_running(state, from, mode) {
-        return;
-    }
-    let Ok((mut input, look)) = q.single_mut() else {
-        return;
-    };
-    let mut bits = 0;
-    let mut set = |bit: u16, on: bool| {
-        if on {
-            bits |= bit;
-        }
-    };
-    set(buttons::JUMP, input.jump);
-    set(buttons::CROUCH, input.crouch);
-    set(buttons::FIRE, input.fire);
-    set(buttons::USE, std::mem::take(&mut input.use_pressed));
-    set(
-        buttons::FIRE_PRESSED,
-        std::mem::take(&mut input.fire_pressed),
-    );
-    set(buttons::RELOAD, std::mem::take(&mut input.reload));
-    set(buttons::KICK, std::mem::take(&mut input.kick));
-    set(buttons::MEDKIT, std::mem::take(&mut input.use_medkit));
-    set(buttons::JETPACK, std::mem::take(&mut input.toggle_jetpack));
-    set(buttons::NIGHT_VISION, std::mem::take(&mut input.toggle_nv));
-    let cycle = std::mem::take(&mut input.cycle).clamp(i8::MIN.into(), i8::MAX.into()) as i8;
-    net.seq += 1;
-    let frame = InputFrame {
-        seq: net.seq,
-        forward: input.forward,
-        strafe: input.strafe,
-        angle: look.angle,
-        pitch: look.pitch,
-        buttons: bits,
-        select: input.select.take(),
-        cycle,
-    };
-    net.client.send(&ClientMsg::Input(frame));
-    net.client.flush();
 }
 
 /// Closing the app leaves the game, so the host hears it now rather than times out.

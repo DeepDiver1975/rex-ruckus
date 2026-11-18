@@ -159,7 +159,7 @@ pub fn mech_cues(ev: &MechEvent, map: &Map, out: &mut Out) {
                 out.push((Cue::SwitchUse, Some(wall_mid(map, s.wall))));
             }
         }
-        MechEvent::NeedKey(_) => out.push((Cue::Denied, None)),
+        MechEvent::NeedKey { .. } => out.push((Cue::Denied, None)),
         MechEvent::Exit => out.push((Cue::LevelComplete, None)),
         // The trigger itself is silent: what it starts makes the noise.
         MechEvent::TriggerFired(_) => {}
@@ -702,7 +702,10 @@ mod tests {
                 kind: MoverKind::Crack,
             },
             MechEvent::SwitchUsed(0),
-            MechEvent::NeedKey(Key::Red),
+            MechEvent::NeedKey {
+                player: PlayerId(0),
+                key: Key::Red,
+            },
             MechEvent::Exit,
             MechEvent::ItemTaken {
                 item: 1,
@@ -724,7 +727,7 @@ mod tests {
                 MechEvent::MoverStarted { .. }
                 | MechEvent::MoverStopped { .. }
                 | MechEvent::SwitchUsed(_)
-                | MechEvent::NeedKey(_)
+                | MechEvent::NeedKey { .. }
                 | MechEvent::Exit
                 | MechEvent::ItemTaken { .. }
                 | MechEvent::TriggerFired(_)
