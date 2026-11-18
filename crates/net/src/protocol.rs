@@ -17,7 +17,8 @@ pub const PROTOCOL_VERSION: u16 = 3;
 /// Input frames per datagram: the newest plus the ones before it, so a lost datagram costs
 /// nothing.
 pub const INPUT_REDUNDANCY: usize = 4;
-/// Most events of one kind in one [`TickEvents`] (and of combat, weapon and mech together).
+/// Most events of each stream (`combat`, `weapon`, `mech`) in one [`TickEvents`]: the cap is
+/// per stream, so a message holds up to three times this many in all.
 pub const MAX_EVENTS: usize = 256;
 /// Longest HUD line in bytes.
 pub const MAX_HUD: usize = 120;

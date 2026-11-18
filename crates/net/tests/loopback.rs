@@ -367,6 +367,58 @@ fn lossy_link_delays_and_drops() {
 }
 
 #[test]
+fn lossy_link_jitter_keeps_order() {
+    const JITTER: Duration = Duration::from_millis(30);
+    let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+    server.set_nonblocking(true).unwrap();
+    let mut link = LossyLink::new(server.local_addr().unwrap(), DELAY, 0.0, 7)
+        .unwrap()
+        .with_jitter(JITTER);
+    let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let via = link.addr();
+    let mut arrived: Vec<(u32, Duration)> = Vec::new();
+    let mut buf = [0u8; 64];
+    let mut drain = |now: Duration, arrived: &mut Vec<(u32, Duration)>| {
+        while let Ok((n, _)) = server.recv_from(&mut buf) {
+            arrived.push((u32::from_le_bytes(buf[..n].try_into().unwrap()), now));
+        }
+    };
+    let total = 500u32;
+    for ms in 0..total + 200 {
+        let now = Duration::from_millis(u64::from(ms));
+        if ms < total {
+            client.send_to(&ms.to_le_bytes(), via).unwrap();
+        }
+        link.pump(now);
+        // Loopback delivery before the next millisecond's drain.
+        std::thread::sleep(Duration::from_micros(200));
+        drain(now, &mut arrived);
+    }
+    std::thread::sleep(Duration::from_millis(20));
+    drain(Duration::from_millis(u64::from(total + 200)), &mut arrived);
+    assert_eq!(arrived.len(), total as usize, "nothing is lost");
+    let ids: Vec<u32> = arrived.iter().map(|(i, _)| *i).collect();
+    assert!(ids.windows(2).all(|w| w[0] < w[1]), "reordered: {ids:?}");
+    let late: Vec<Duration> = arrived
+        .iter()
+        .map(|(i, at)| *at - Duration::from_millis(u64::from(*i)))
+        .collect();
+    // The drain sees a datagram up to a pump (1 ms) after it went out.
+    let slack = Duration::from_millis(2);
+    assert!(
+        late.iter()
+            .all(|&d| d >= DELAY && d <= DELAY + JITTER + slack),
+        "{late:?}"
+    );
+    let spread = late
+        .iter()
+        .max()
+        .unwrap()
+        .saturating_sub(*late.iter().min().unwrap());
+    assert!(spread >= JITTER / 2, "jitter shows: spread {spread:?}");
+}
+
+#[test]
 fn session_survives_loss() {
     let mut host = host();
     let mut link = LossyLink::new(host.local_addr(), DELAY, 0.05, 7).unwrap();

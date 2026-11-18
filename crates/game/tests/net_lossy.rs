@@ -28,6 +28,8 @@ use rr_net::testing::LossyLink;
 const DELAY: Duration = Duration::from_millis(100);
 const LOSS: f32 = 0.05;
 const SEED: u64 = 7;
+/// Extra delay of up to a tick, for the tests that time the link.
+const JITTER: Duration = Duration::from_millis(16);
 
 fn sim_app(extra: impl FnOnce(&mut App)) -> App {
     let mut app = App::new();
@@ -58,6 +60,11 @@ struct Game {
 
 impl Game {
     fn new(level: &str) -> Game {
+        Game::with_jitter(level, Duration::ZERO)
+    }
+
+    /// [`Game::new`] with up to `jitter` extra delay per datagram (no reordering).
+    fn with_jitter(level: &str, jitter: Duration) -> Game {
         let mut host = sim_app(|app| {
             insert_level(app, load_map(level), Difficulty::Normal);
             app.insert_resource(LevelFile(level.into()));
@@ -69,7 +76,9 @@ impl Game {
         )
         .expect("host");
         let server = host.world().resource::<NetHost>().host.local_addr();
-        let link = LossyLink::new(server, DELAY, LOSS, SEED).expect("link");
+        let link = LossyLink::new(server, DELAY, LOSS, SEED)
+            .expect("link")
+            .with_jitter(jitter);
         let mut client = sim_app(|app| {
             insert_level(app, combat_room(), Difficulty::Normal);
             app.insert_resource(LevelFile("combat_room".into()));
@@ -315,4 +324,75 @@ fn events_arrive_in_order_once() {
     }
     assert_eq!(on_host, order);
     assert_eq!(on_client, order);
+}
+
+fn explosions(app: &App) -> usize {
+    app.world()
+        .resource::<FxQueue>()
+        .combat
+        .iter()
+        .filter(|e| matches!(e, CombatEvent::Explosion { .. }))
+        .count()
+}
+
+/// Most ticks a relayed event may be released after the host raised it: the link's 6 ticks and
+/// the interpolation delay's 6 (13 in all, with the tick it is raised in), plus a reliable
+/// resend (100 ms, 6 ticks) after a lost datagram, which the interpolation delay mostly hides.
+/// A 300 ms resend took 25.
+const MAX_RELEASE_LATENESS: usize = 20;
+/// Blasts in [`lost_events_are_resent_promptly`], one every [`BLAST_EVERY`] ticks.
+const BLASTS: usize = 120;
+const BLAST_EVERY: usize = 6;
+
+#[test]
+fn lost_events_are_resent_promptly() {
+    let mut game = Game::with_jitter("test_yard.ron", JITTER);
+    game.rounds(30);
+    let (at, sector) = {
+        let mut q = game.host.world_mut().query::<(&Player, &PlayerBody)>();
+        let (_, b) = q
+            .iter(game.host.world())
+            .find(|(p, _)| p.id == PlayerId(0))
+            .unwrap();
+        (b.0.pos + Vec3::Z, b.0.sector)
+    };
+    let (mut on_host, mut on_client) = (Vec::new(), Vec::new());
+    for round in 0..BLASTS * BLAST_EVERY + 120 {
+        if round % BLAST_EVERY == 0 && round < BLASTS * BLAST_EVERY {
+            game.host
+                .world_mut()
+                .resource_mut::<LevelCombat>()
+                .0
+                .pending_blasts
+                .push(PendingBlast {
+                    fuse: 0.0,
+                    blast: Blast {
+                        center: at,
+                        sector,
+                        splash: SplashDef {
+                            radius: 0.5,
+                            damage: 0,
+                            self_scale: 0.0,
+                        },
+                        owner: Shooter::World,
+                    },
+                    via: Via::Direct,
+                });
+        }
+        game.round();
+        on_host.extend(std::iter::repeat_n(round, explosions(&game.host)));
+        on_client.extend(std::iter::repeat_n(round, explosions(&game.client)));
+    }
+    assert_eq!(on_host.len(), BLASTS);
+    assert_eq!(
+        on_client.len(),
+        BLASTS,
+        "every blast reaches the client once"
+    );
+    let late: Vec<usize> = on_host.iter().zip(&on_client).map(|(h, c)| c - h).collect();
+    let worst = *late.iter().max().unwrap();
+    assert!(
+        worst <= MAX_RELEASE_LATENESS,
+        "released up to {worst} ticks late: {late:?}"
+    );
 }

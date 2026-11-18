@@ -20,8 +20,11 @@ struct Held {
 
 /// A UDP relay for tests. The client connects to [`LossyLink::addr`]; the server sees the
 /// link's socket as the client's address. Every datagram, either way, is dropped with
-/// probability `loss` (a seeded SplitMix64, so a run repeats) or held `delay` and sent on.
-/// Time is passed to [`LossyLink::pump`], never read from the clock. One client per link.
+/// probability `loss` (a seeded SplitMix64, so a run repeats) or held `delay` and sent on; with
+/// [`LossyLink::with_jitter`] each also waits a seeded uniform extra of up to `jitter`, but never
+/// overtakes an earlier datagram the same way (each direction stays in order, as a jittery
+/// link that does not reorder). Time is passed to [`LossyLink::pump`], never read from the
+/// clock. One client per link.
 pub struct LossyLink {
     socket: UdpSocket,
     addr: SocketAddr,
@@ -29,10 +32,13 @@ pub struct LossyLink {
     /// The client's address, learnt from its first datagram.
     client: Option<SocketAddr>,
     delay: Duration,
+    jitter: Duration,
     loss: f32,
     rng: Rng,
-    /// Oldest first: with one delay and a clock that never runs back, also in due order.
+    /// Oldest first; in due order within each direction.
     held: VecDeque<Held>,
+    /// The latest due time held so far towards the server and towards the client.
+    last_due: [Duration; 2],
 }
 
 impl LossyLink {
@@ -50,10 +56,18 @@ impl LossyLink {
             server,
             client: None,
             delay,
+            jitter: Duration::ZERO,
             loss,
             rng: Rng::new(seed),
             held: VecDeque::new(),
+            last_due: [Duration::ZERO; 2],
         })
+    }
+
+    /// The link with up to `jitter` extra delay per datagram (seeded like the loss).
+    pub fn with_jitter(mut self, jitter: Duration) -> LossyLink {
+        self.jitter = jitter;
+        self
     }
 
     /// Where the client connects.
@@ -73,8 +87,16 @@ impl LossyLink {
                         self.client = Some(from);
                     }
                     if !self.rng.chance(self.loss) {
+                        let mut due = now + self.delay;
+                        if !self.jitter.is_zero() {
+                            due += self.jitter.mul_f32(self.rng.unit());
+                        }
+                        // Never ahead of an earlier datagram the same way.
+                        let last = &mut self.last_due[usize::from(to_server)];
+                        due = due.max(*last);
+                        *last = due;
                         self.held.push_back(Held {
-                            due: now + self.delay,
+                            due,
                             to_server,
                             bytes: buf[..n].to_vec(),
                         });
@@ -89,8 +111,12 @@ impl LossyLink {
                 Err(_) => break,
             }
         }
-        while self.held.front().is_some_and(|h| h.due <= now) {
-            let h = self.held.pop_front().expect("a held datagram");
+        // In arrival order: the due ones of each direction are a prefix of that direction.
+        let (due, later): (VecDeque<Held>, VecDeque<Held>) = std::mem::take(&mut self.held)
+            .into_iter()
+            .partition(|h| h.due <= now);
+        self.held = later;
+        for h in due {
             let to = if h.to_server {
                 Some(self.server)
             } else {

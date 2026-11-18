@@ -16,7 +16,8 @@ use crate::protocol::{
     ClientMsg, GAME_PORT, NETCODE_PROTOCOL_ID, ServerMsg, decode_client, decode_server, encode,
 };
 
-/// Everything but state: hello, welcome, refusals, roster, level loads. Reliable and ordered.
+/// Everything but state: hello, welcome, refusals, roster, level loads, relayed events and HUD
+/// lines. Reliable and ordered.
 pub const CH_CONTROL: u8 = 0;
 /// Snapshots and inputs: a late one is worthless, so unreliable.
 pub const CH_STATE: u8 = 1;
@@ -29,8 +30,11 @@ fn connection_config() -> ConnectionConfig {
             ChannelConfig {
                 channel_id: CH_CONTROL,
                 max_memory_usage_bytes: 1024 * 1024,
+                // The relayed events ride here: a lost datagram must not hold them (or the
+                // ones queued behind it) back much longer than the client's 100 ms
+                // interpolation delay hides.
                 send_type: SendType::ReliableOrdered {
-                    resend_time: Duration::from_millis(300),
+                    resend_time: Duration::from_millis(100),
                 },
             },
             ChannelConfig {
