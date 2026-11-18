@@ -20,6 +20,7 @@ use crate::projectile::{Projectile, Shooter};
 use crate::vitals::Vitals;
 use crate::weapons::Arsenal;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Most actors a snapshot may carry (authored ones plus spawned minions); a longer one is
 /// refused, so a hostile host cannot make a client grow without bound.
@@ -316,6 +317,38 @@ impl Snapshot {
             cracks: sorted(cracks),
             actors_added: added,
         })
+    }
+
+    /// Blends this snapshot with `next` at `f` (clamped to [0, 1]; 0 is this snapshot, 1 is
+    /// `next`), for the client to draw between two host ticks. Each actor of `combat` that both
+    /// snapshots carry (matched by index) gets `prev_pos` = its current position and `body.pos`
+    /// = the blend. Projectiles are matched by `id` the same way. Returns each player both carry,
+    /// by id, with its body's `pos` blended (its other fields are this snapshot's). Writes
+    /// nothing else, never touches rng, and tolerates mismatched lengths.
+    pub fn blend(&self, next: &Snapshot, f: f32, combat: &mut Combat) -> Vec<(PlayerId, Body)> {
+        let f = f.clamp(0.0, 1.0);
+        for ((a, from), to) in combat.actors.iter_mut().zip(&self.actors).zip(&next.actors) {
+            a.prev_pos = a.body.pos;
+            a.body.pos = from.body.pos.lerp(to.body.pos, f);
+        }
+        let shots: HashMap<u32, &Projectile> = self.projectiles.iter().map(|p| (p.id, p)).collect();
+        let next_shots: HashMap<u32, &Projectile> =
+            next.projectiles.iter().map(|p| (p.id, p)).collect();
+        for p in &mut combat.projectiles {
+            if let (Some(from), Some(to)) = (shots.get(&p.id), next_shots.get(&p.id)) {
+                p.prev = p.pos;
+                p.pos = from.pos.lerp(to.pos, f);
+            }
+        }
+        self.players
+            .iter()
+            .filter_map(|p| {
+                let to = next.players.iter().find(|q| q.id == p.id)?;
+                let mut body = p.body;
+                body.pos = p.body.pos.lerp(to.body.pos, f);
+                Some((p.id, body))
+            })
+            .collect()
     }
 
     /// Checks that the snapshot fits the client's level and builds the actors it appends,
@@ -1134,5 +1167,111 @@ mod tests {
         let mut bad = ok;
         bad.players[0].arsenal.phase = crate::weapons::WeaponPhase::Reloading(f32::NAN);
         assert!(!bad.is_finite());
+    }
+
+    /// The arena's snapshot with actor 0 moved to `at`.
+    fn arena_snap(defs: &Defs, at: Vec3) -> Snapshot {
+        let mut snap = World::load(ARENA, defs).capture(0);
+        snap.actors[0].body.pos = at;
+        snap
+    }
+
+    /// A player standing at `at` on the arena floor.
+    fn player_at(defs: &Defs, id: u8, at: Vec2) -> PlayerSnap {
+        let world = World::load(ARENA, defs);
+        PlayerSnap {
+            id: PlayerId(id),
+            body: Body::spawn(&world.map, at, 0.35, 1.8).expect("player spot"),
+            angle: 0.0,
+            pitch: 0.0,
+            vitals: Vitals::new(),
+            arsenal: Arsenal::new(defs),
+            inventory: Inventory::new(),
+            keys: KeySet::default(),
+            ack: 0,
+        }
+    }
+
+    #[test]
+    fn blend_halfway() {
+        let defs = Defs::builtin();
+        let a = arena_snap(&defs, Vec3::new(0.0, 5.0, 0.0));
+        let b = arena_snap(&defs, Vec3::new(2.0, 5.0, 0.0));
+        let mut combat = World::load(ARENA, &defs).combat;
+        let before = Vec3::new(0.5, 5.0, 0.0);
+        combat.actors[0].body.pos = before;
+        a.blend(&b, 0.5, &mut combat);
+        let actor = &combat.actors[0];
+        assert!((actor.body.pos - Vec3::new(1.0, 5.0, 0.0)).length() < 1e-6);
+        assert_eq!(
+            actor.prev_pos, before,
+            "prev_pos is where the client had it"
+        );
+    }
+
+    #[test]
+    fn blend_matches_projectiles_by_id() {
+        let defs = Defs::builtin();
+        let mut a = arena_snap(&defs, Vec3::new(0.0, 5.0, 0.0));
+        let mut b = a.clone();
+        a.projectiles = vec![
+            bolt(1, Vec3::new(0.0, 0.0, 1.0)),
+            bolt(2, Vec3::new(0.0, 1.0, 1.0)),
+        ];
+        // Same ids, reversed order.
+        b.projectiles = vec![
+            bolt(2, Vec3::new(2.0, 1.0, 1.0)),
+            bolt(1, Vec3::new(4.0, 0.0, 1.0)),
+        ];
+        let mut combat = World::load(ARENA, &defs).combat;
+        combat.projectiles = vec![bolt(2, Vec3::splat(9.0)), bolt(1, Vec3::splat(9.0))];
+        a.blend(&b, 0.5, &mut combat);
+        let shot = |id| combat.projectiles.iter().find(|p| p.id == id).unwrap();
+        assert_eq!(shot(1).pos, Vec3::new(2.0, 0.0, 1.0));
+        assert_eq!(shot(2).pos, Vec3::new(1.0, 1.0, 1.0));
+        assert_eq!(shot(1).prev, Vec3::splat(9.0));
+        assert_eq!(shot(2).prev, Vec3::splat(9.0));
+    }
+
+    #[test]
+    fn blend_skips_newcomers() {
+        let defs = Defs::builtin();
+        let mut a = arena_snap(&defs, Vec3::new(0.0, 5.0, 0.0));
+        let mut b = arena_snap(&defs, Vec3::new(2.0, 5.0, 0.0));
+        let mut combat = World::load(ARENA, &defs).combat;
+        // Actor only `next` knows about: the client's copy stays as it is.
+        let newcomer = combat.actors.len() - 1;
+        a.actors.truncate(newcomer);
+        let before = combat.actors[newcomer].clone();
+        // Projectile only in `next`: the client's copy of its id stays as it is.
+        b.projectiles = vec![bolt(7, Vec3::X)];
+        a.projectiles = Vec::new();
+        combat.projectiles = vec![bolt(7, Vec3::Y)];
+        a.players = vec![player_at(&defs, 0, Vec2::new(5.0, 10.0))];
+        b.players = vec![
+            player_at(&defs, 0, Vec2::new(5.5, 10.0)),
+            player_at(&defs, 1, Vec2::new(5.0, 10.5)),
+        ];
+        let players = a.blend(&b, 0.5, &mut combat);
+        assert_eq!(combat.actors[newcomer], before);
+        assert_eq!(combat.projectiles[0].pos, Vec3::Y);
+        assert_eq!(combat.projectiles[0].prev, Vec3::Y);
+        assert_eq!(players.len(), 1);
+        assert_eq!(players[0].0, PlayerId(0));
+    }
+
+    #[test]
+    fn blend_clamps_f() {
+        let defs = Defs::builtin();
+        let a = arena_snap(&defs, Vec3::new(0.0, 5.0, 0.0));
+        let b = arena_snap(&defs, Vec3::new(2.0, 5.0, 0.0));
+        let mut over = World::load(ARENA, &defs).combat;
+        let mut one = World::load(ARENA, &defs).combat;
+        let players_over = a.blend(&b, 2.0, &mut over);
+        let players_one = a.blend(&b, 1.0, &mut one);
+        assert_eq!(over.actors[0].body.pos, Vec3::new(2.0, 5.0, 0.0));
+        assert_eq!(over.actors[0].body.pos, one.actors[0].body.pos);
+        assert_eq!(over.actors[0].prev_pos, one.actors[0].prev_pos);
+        assert_eq!(players_over, players_one);
     }
 }
