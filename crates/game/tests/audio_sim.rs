@@ -550,7 +550,7 @@ fn a_need_key_quip_leaves_the_key_message_readable() {
         fx(&mut app)
             .mech
             .iter()
-            .any(|e| matches!(e, MechEvent::NeedKey(Key::Red)))
+            .any(|e| matches!(e, MechEvent::NeedKey { key: Key::Red, .. }))
     );
     skip_cooldown(&mut app);
     app.update();

@@ -31,7 +31,7 @@ pub enum WeaponPhase {
     Switching { to: WeaponId, left: f32 },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WeaponEvent {
     Fire {
         weapon: WeaponId,

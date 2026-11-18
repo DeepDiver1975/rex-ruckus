@@ -208,7 +208,7 @@ pub fn use_key(
     // In id order, so two players on one switch or door settle it the same way on every machine.
     let mut players: Vec<_> = q.iter_mut().collect();
     players.sort_by_key(|(p, ..)| p.id);
-    for (_, local, body, look, inv, mut input, mut vitals) in players {
+    for (player, local, body, look, inv, mut input, mut vitals) in players {
         let target = use_target(&map.0, &mech.0, &body.0, look.angle);
         if local {
             prompt.0 = target;
@@ -231,7 +231,7 @@ pub fn use_key(
             }
             continue;
         }
-        match mech.0.activate(&map.0, t, inv.keys) {
+        match mech.0.activate(&map.0, player.id, t, inv.keys) {
             UseOutcome::Activated => {}
             UseOutcome::NeedKey(k) if local => {
                 msg.show(format!("You need the {} keycard", k.name()))

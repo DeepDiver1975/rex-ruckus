@@ -78,6 +78,15 @@ pub fn shown_locally(ev: &CombatEvent, local: Option<PlayerId>) -> bool {
     event_player(ev).is_none_or(|p| Some(p) == local)
 }
 
+/// Whether this machine presents mechanics event `ev`: a denied-key buzz and quip belong to the
+/// player who pressed use (`local`), everything else is the world's.
+pub fn mech_shown_locally(ev: &MechEvent, local: Option<PlayerId>) -> bool {
+    match ev {
+        MechEvent::NeedKey { player, .. } => Some(*player) == local,
+        _ => true,
+    }
+}
+
 /// Every `Update` system that reads [`FxQueue`]. Readers only read; [`clear_fx`] runs after
 /// the set and is the only system that empties the queue.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -325,6 +334,19 @@ fn mark_dirty(events: &[CombatEvent], dirty: &mut DirtySectors) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rr_core::map::Key;
+
+    #[test]
+    fn need_key_shows_for_its_player_only() {
+        let ev = MechEvent::NeedKey {
+            player: PlayerId(1),
+            key: Key::Red,
+        };
+        assert!(mech_shown_locally(&ev, Some(PlayerId(1))));
+        assert!(!mech_shown_locally(&ev, Some(PlayerId(0))));
+        assert!(!mech_shown_locally(&ev, None));
+        assert!(mech_shown_locally(&MechEvent::Exit, Some(PlayerId(0))));
+    }
 
     #[test]
     fn aim_follows_heading_and_pitch_up_positive() {

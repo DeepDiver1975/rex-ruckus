@@ -39,13 +39,14 @@ use crate::trace::{Hit, HitKind};
 use crate::vitals::Vitals;
 use blasts::sector_of;
 use glam::{Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 
 /// What a combat tick did, for the game's presentation. The game's audio maps events to sounds
 /// (`audio::cues`; a boss's `ActorWoke` and `PhaseChanged` get its roar), `ActorKilled` also
 /// drives the kill stats and, for the player's own kills, the hero quips, and the game's combat
 /// tick routes `DeathAction` through the level's mechanics. `BombsDetonated` and
 /// `ProjectileGone` have no game reader: core tests consume them, and they are spare hooks.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CombatEvent {
     /// A non-ignored hit on actor `actor`; `amount` is the total damage dealt this attack.
     ActorHurt {

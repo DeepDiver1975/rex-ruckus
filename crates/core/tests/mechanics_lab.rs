@@ -4,6 +4,7 @@ use rr_core::interact::use_target;
 use rr_core::map::{ItemKind, Key, KeySet, Map};
 use rr_core::mechanics::{Mechanics, UseOutcome};
 use rr_core::movement::{MoveInput, Tuning, step_player};
+use rr_core::players::PlayerId;
 use rr_core::validate::validate;
 
 const LAB: &str = include_str!("../../../assets/levels/mechanics_lab.ron");
@@ -80,7 +81,7 @@ impl Run {
     fn press_use(&mut self, heading_deg: f32) -> UseOutcome {
         let t = use_target(&self.map, &self.mech, &self.body, heading_deg.to_radians())
             .unwrap_or_else(|| panic!("nothing to use at {} facing {heading_deg}°", self.body.pos));
-        self.mech.activate(&self.map, t, self.keys)
+        self.mech.activate(&self.map, PlayerId(0), t, self.keys)
     }
 }
 

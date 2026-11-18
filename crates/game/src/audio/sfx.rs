@@ -5,7 +5,7 @@ use super::{
     AudioVolumes, GameCues, JetpackHum, MAX_LIVE_VOICES, MoverLoop, QUAKE_FADE, QuakeLoop, SfxRng,
     SfxVoice, SoundBank, spatial_scale, voice_volume,
 };
-use crate::combat::{FxQueue, LevelCombat, eye_of, shown_locally};
+use crate::combat::{FxQueue, LevelCombat, eye_of, mech_shown_locally, shown_locally};
 use crate::coords::to_bevy;
 use crate::flow::LevelEntity;
 use crate::level::CurrentMap;
@@ -184,7 +184,7 @@ pub fn play_cues(
     for (_, ev) in src.fx.weapon.iter().filter(|(p, _)| Some(*p) == local) {
         weapon_cues(ev, &mut cues);
     }
-    for ev in &src.fx.mech {
+    for ev in src.fx.mech.iter().filter(|e| mech_shown_locally(e, local)) {
         mech_cues(ev, map, &mut cues);
     }
     cues.extend(game);

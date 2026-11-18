@@ -84,7 +84,7 @@ pub enum UseOutcome {
 /// `MoverStarted` fires when a mover leaves rest (`AtStart` or `AtEnd`), however it was
 /// triggered: toggle, channel, use or an auto-close. `MoverStopped` fires when it arrives. A
 /// reversal mid-motion (a re-toggle, or a body in the way) emits nothing: it is still moving.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MechEvent {
     MoverStarted {
         sector: SectorId,
@@ -96,7 +96,11 @@ pub enum MechEvent {
     },
     /// Index into `map.switches`.
     SwitchUsed(usize),
-    NeedKey(Key),
+    /// `player` pressed use on something locked and lacks `key`.
+    NeedKey {
+        player: PlayerId,
+        key: Key,
+    },
     Exit,
     /// `item` indexes `map.items`.
     ItemTaken {
@@ -451,8 +455,14 @@ impl Mechanics {
         outcome
     }
 
-    /// Pressing use on `target` while holding `keys`.
-    pub fn activate(&mut self, map: &Map, target: UseTarget, keys: KeySet) -> UseOutcome {
+    /// Player `player` pressing use on `target` while holding `keys`.
+    pub fn activate(
+        &mut self,
+        map: &Map,
+        player: PlayerId,
+        target: UseTarget,
+        keys: KeySet,
+    ) -> UseOutcome {
         match target {
             // Props go through `use_prop` (they need the player's vitals).
             UseTarget::Prop(_) => UseOutcome::Activated,
@@ -460,7 +470,7 @@ impl Mechanics {
                 if let Some(k) = self.movers[m].def.lock
                     && !keys.contains(k)
                 {
-                    self.events.push(MechEvent::NeedKey(k));
+                    self.events.push(MechEvent::NeedKey { player, key: k });
                     return UseOutcome::NeedKey(k);
                 }
                 self.toggle(m);
@@ -471,13 +481,13 @@ impl Mechanics {
                 if let Some(k) = sw.key
                     && !keys.contains(k)
                 {
-                    self.events.push(MechEvent::NeedKey(k));
+                    self.events.push(MechEvent::NeedKey { player, key: k });
                     return UseOutcome::NeedKey(k);
                 }
                 if let SwitchAction::Channel(ch) = sw.action
                     && let Some(k) = self.missing_listener_key(map, ch, keys)
                 {
-                    self.events.push(MechEvent::NeedKey(k));
+                    self.events.push(MechEvent::NeedKey { player, key: k });
                     return UseOutcome::NeedKey(k);
                 }
                 self.switch_on[i] = !self.switch_on[i];
@@ -905,14 +915,14 @@ mod tests {
     fn activate_respects_locks() {
         let (map, mut mech) = setup(door_rooms("(kind: Door, lock: Some(Red))", ""));
         assert_eq!(
-            mech.activate(&map, UseTarget::Mover(0), KeySet::default()),
+            mech.activate(&map, PlayerId(0), UseTarget::Mover(0), KeySet::default()),
             UseOutcome::NeedKey(Key::Red)
         );
         assert_eq!(mech.movers[0].motion, Motion::AtStart);
         let mut keys = KeySet::default();
         keys.insert(Key::Red);
         assert_eq!(
-            mech.activate(&map, UseTarget::Mover(0), keys),
+            mech.activate(&map, PlayerId(0), UseTarget::Mover(0), keys),
             UseOutcome::Activated
         );
         assert_eq!(mech.movers[0].motion, Motion::ToEnd);
@@ -925,7 +935,7 @@ mod tests {
             "switches: [(wall: (7, 0), action: Channel(1))],",
         ));
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), KeySet::default()),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default()),
             UseOutcome::Activated
         );
         assert!(mech.switch_on[0]);
@@ -939,13 +949,13 @@ mod tests {
             "switches: [(wall: (7, 0), action: Exit, key: Some(Blue))],",
         ));
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), KeySet::default()),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default()),
             UseOutcome::NeedKey(Key::Blue)
         );
         let mut keys = KeySet::default();
         keys.insert(Key::Blue);
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), keys),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), keys),
             UseOutcome::Exit
         );
     }
@@ -990,7 +1000,7 @@ mod tests {
     fn door_use_emits_start_stop_then_auto_close_pair() {
         let (mut map, mut mech) = setup(door_rooms("(kind: Door, auto_return: Some(1.0))", ""));
         let door = MoverKind::Door;
-        mech.activate(&map, UseTarget::Mover(0), KeySet::default());
+        mech.activate(&map, PlayerId(0), UseTarget::Mover(0), KeySet::default());
         assert_eq!(mech.drain_events(), vec![started(1, door)]);
         run(&mut map, &mut mech, &mut [], 80);
         assert_eq!(mech.drain_events(), vec![stopped(1, door)]);
@@ -1023,7 +1033,7 @@ mod tests {
             "(kind: Lift(to: 2.0), channel: Some(1))",
             CH_SWITCH,
         ));
-        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default());
         assert_eq!(
             mech.drain_events(),
             vec![
@@ -1035,22 +1045,54 @@ mod tests {
     }
 
     #[test]
+    fn need_key_names_the_player() {
+        let (map, mut mech) = setup(door_rooms("(kind: Door, lock: Some(Red))", ""));
+        let out = mech.activate(&map, PlayerId(1), UseTarget::Mover(0), KeySet::default());
+        assert_eq!(out, UseOutcome::NeedKey(Key::Red));
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::NeedKey {
+                player: PlayerId(1),
+                key: Key::Red
+            }]
+        );
+    }
+
+    #[test]
     fn missing_key_emits_need_key_only() {
         let (map, mut mech) = setup(door_rooms("(kind: Door, lock: Some(Red))", ""));
-        mech.activate(&map, UseTarget::Mover(0), KeySet::default());
-        assert_eq!(mech.drain_events(), vec![MechEvent::NeedKey(Key::Red)]);
+        mech.activate(&map, PlayerId(0), UseTarget::Mover(0), KeySet::default());
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::NeedKey {
+                player: PlayerId(0),
+                key: Key::Red
+            }]
+        );
         let (map, mut mech) = setup(door_rooms(
             "(kind: Door, channel: Some(1), lock: Some(Red))",
             CH_SWITCH,
         ));
-        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
-        assert_eq!(mech.drain_events(), vec![MechEvent::NeedKey(Key::Red)]);
+        mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default());
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::NeedKey {
+                player: PlayerId(0),
+                key: Key::Red
+            }]
+        );
         let (map, mut mech) = setup(door_rooms(
             "(kind: Door)",
             "switches: [(wall: (7, 0), action: Exit, key: Some(Blue))],",
         ));
-        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
-        assert_eq!(mech.drain_events(), vec![MechEvent::NeedKey(Key::Blue)]);
+        mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default());
+        assert_eq!(
+            mech.drain_events(),
+            vec![MechEvent::NeedKey {
+                player: PlayerId(0),
+                key: Key::Blue
+            }]
+        );
     }
 
     #[test]
@@ -1059,7 +1101,7 @@ mod tests {
             "(kind: Door)",
             "switches: [(wall: (7, 0), action: Exit)],",
         ));
-        mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default());
         assert_eq!(
             mech.drain_events(),
             vec![MechEvent::SwitchUsed(0), MechEvent::Exit]
@@ -1093,14 +1135,14 @@ mod tests {
             "(kind: Door, channel: Some(1), lock: Some(Red))",
             CH_SWITCH,
         ));
-        let out = mech.activate(&map, UseTarget::Switch(0), KeySet::default());
+        let out = mech.activate(&map, PlayerId(0), UseTarget::Switch(0), KeySet::default());
         assert_eq!(out, UseOutcome::NeedKey(Key::Red));
         assert!(!mech.switch_on[0], "lamp stays off");
         assert_eq!(mech.movers[0].motion, Motion::AtStart, "nothing fired");
         let mut keys = KeySet::default();
         keys.insert(Key::Red);
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), keys),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), keys),
             UseOutcome::Activated
         );
         assert!(mech.switch_on[0]);
@@ -1123,20 +1165,20 @@ mod tests {
         let mut keys = KeySet::default();
         keys.insert(Key::Red);
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), keys),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), keys),
             UseOutcome::NeedKey(Key::Blue)
         );
         let mut keys = KeySet::default();
         keys.insert(Key::Blue);
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), keys),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), keys),
             UseOutcome::NeedKey(Key::Red)
         );
         assert!(!mech.switch_on[0]);
         assert!(mech.movers.iter().all(|m| m.motion == Motion::AtStart));
         keys.insert(Key::Red);
         assert_eq!(
-            mech.activate(&map, UseTarget::Switch(0), keys),
+            mech.activate(&map, PlayerId(0), UseTarget::Switch(0), keys),
             UseOutcome::Activated
         );
         assert!(mech.movers.iter().all(|m| m.motion == Motion::ToEnd));

@@ -10,6 +10,7 @@ pub mod combat;
 pub mod defs;
 pub mod destruct;
 pub mod difficulty;
+pub mod events;
 pub mod explosion;
 pub mod extrude;
 pub mod fixtures;
