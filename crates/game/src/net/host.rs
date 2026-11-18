@@ -18,7 +18,7 @@ use rr_net::{
     buttons, check_hello, valid_level_name,
 };
 
-use super::NetMode;
+use super::{NetMode, apply_frame};
 use crate::combat::{
     CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, spawn_combat,
@@ -415,25 +415,7 @@ fn apply_remote_input(
         };
         let id = seat_player(k);
         if let Some((_, mut input, mut look)) = players.iter_mut().find(|(p, ..)| p.id == id) {
-            let held = |bit: u16| frame.buttons & bit != 0;
-            look.angle = frame.angle;
-            look.pitch = frame.pitch;
-            input.forward = frame.forward;
-            input.strafe = frame.strafe;
-            input.jump = held(buttons::JUMP);
-            input.crouch = held(buttons::CROUCH);
-            input.fire = held(buttons::FIRE);
-            input.use_pressed |= held(buttons::USE);
-            input.fire_pressed |= held(buttons::FIRE_PRESSED);
-            input.reload |= held(buttons::RELOAD);
-            input.kick |= held(buttons::KICK);
-            input.use_medkit |= held(buttons::MEDKIT);
-            input.toggle_jetpack |= held(buttons::JETPACK);
-            input.toggle_nv |= held(buttons::NIGHT_VISION);
-            if frame.select.is_some() {
-                input.select = frame.select;
-            }
-            input.cycle += i32::from(frame.cycle);
+            apply_frame(frame, &mut input, &mut look);
         }
         // Applied, or dropped with no player to take it: a tap never acts twice.
         frame.buttons &= !TAPS;

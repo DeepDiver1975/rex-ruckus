@@ -206,6 +206,20 @@ pub fn spawn_combat(
     }
 }
 
+/// This tick's weapon controls, taking the weapon latches of `input`. The inventory taps
+/// (Q, J, N) belong to `use_inventory` and stay.
+pub fn weapon_input(input: &mut PendingInput) -> WeaponInput {
+    WeaponInput {
+        // A tap between ticks fires at least once even though the button is up again.
+        fire: input.fire | input.fire_pressed,
+        fire_pressed: std::mem::take(&mut input.fire_pressed),
+        reload: std::mem::take(&mut input.reload),
+        kick: std::mem::take(&mut input.kick),
+        select: input.select.take(),
+        cycle: std::mem::take(&mut input.cycle),
+    }
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn player_weapons(
     time: Res<Time<Fixed>>,
@@ -230,16 +244,7 @@ fn player_weapons(
     players.sort_by_key(|(p, ..)| p.id);
     for (player, body, look, vitals, mut arsenal, mut input) in players {
         // Consume the latches every tick so presses never pile up.
-        // The inventory taps (Q, J, N) belong to `use_inventory`.
-        let input = WeaponInput {
-            // A tap between ticks fires at least once even though the button is up again.
-            fire: input.fire | input.fire_pressed,
-            fire_pressed: std::mem::take(&mut input.fire_pressed),
-            reload: std::mem::take(&mut input.reload),
-            kick: std::mem::take(&mut input.kick),
-            select: input.select.take(),
-            cycle: std::mem::take(&mut input.cycle),
-        };
+        let input = weapon_input(&mut input);
         if !vitals.0.health.alive() {
             continue;
         }

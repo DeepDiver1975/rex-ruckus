@@ -364,29 +364,54 @@ fn simulate_player(
         prev.0 = body.0.pos;
         // The dead (a co-op partner still plays on) ignore their input but still fall.
         let alive = vitals.is_none_or(|v| v.0.health.alive());
-        let input = if alive {
-            input
-        } else {
-            &PendingInput::default()
-        };
-        let forward = forward_2d(look.angle);
-        let right = Vec2::new(forward.y, -forward.x);
-        let wish = forward * input.forward + right * input.strafe;
-        // Jump climbs and crouch descends, but only with the jetpack on; the dead drop.
-        let jetpack = alive && carried.is_some_and(|i| i.0.jetpack_on);
-        let move_input = MoveInput {
-            wish,
-            jump: input.jump,
-            crouch: input.crouch,
-            thrust: if jetpack {
-                f32::from(input.jump) - f32::from(input.crouch)
-            } else {
-                0.0
-            },
-            jetpack,
-        };
-        step_player(&map.0, &mut body.0, &move_input, &tuning.0, dt);
+        let jetpack_on = carried.is_some_and(|i| i.0.jetpack_on);
+        step_body(
+            &map.0,
+            &tuning.0,
+            dt,
+            &mut body.0,
+            input,
+            look,
+            jetpack_on,
+            alive,
+        );
     }
+}
+
+/// One player's movement step for `dt` from its controls. The dead ignore `input` but still
+/// fall; jump climbs and crouch descends only with the jetpack on (and alive).
+#[allow(clippy::too_many_arguments)]
+pub fn step_body(
+    map: &Map,
+    tuning: &Tuning,
+    dt: f32,
+    body: &mut Body,
+    input: &PendingInput,
+    look: &Look,
+    jetpack_on: bool,
+    alive: bool,
+) {
+    let input = if alive {
+        input
+    } else {
+        &PendingInput::default()
+    };
+    let forward = forward_2d(look.angle);
+    let right = Vec2::new(forward.y, -forward.x);
+    let wish = forward * input.forward + right * input.strafe;
+    let jetpack = alive && jetpack_on;
+    let move_input = MoveInput {
+        wish,
+        jump: input.jump,
+        crouch: input.crouch,
+        thrust: if jetpack {
+            f32::from(input.jump) - f32::from(input.crouch)
+        } else {
+            0.0
+        },
+        jetpack,
+    };
+    step_player(map, body, &move_input, tuning, dt);
 }
 
 /// Keyboard/mouse, cursor grab and the first-person camera. Needs a window.

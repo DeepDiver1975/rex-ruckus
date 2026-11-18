@@ -1,5 +1,6 @@
 //! Joining a co-op game: the client never ticks its own simulation. It loads the host's level,
-//! applies the host's snapshots to its copy of it and sends the local player's input.
+//! applies the host's snapshots to its copy of it, and predicts and sends the local player's
+//! input (`predict`).
 
 use std::io;
 use std::net::SocketAddr;
@@ -9,23 +10,23 @@ use rr_core::combat::CombatEvent;
 use rr_core::players::PlayerId;
 use rr_core::snapshot::{PlayerSnap, Snapshot};
 use rr_net::{
-    Client, ClientMsg, ClientState, Hello, InputFrame, LostReason, PROTOCOL_VERSION, Refusal,
-    ServerMsg, Welcome, buttons,
+    Client, ClientMsg, ClientState, Hello, LostReason, PROTOCOL_VERSION, Refusal, ServerMsg,
+    Welcome,
 };
 
 use super::NetMode;
 use super::host::NetIdentity;
+use super::predict::{InputHistory, predict_local, reconcile};
 use crate::combat::{FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::episode::Episode;
 use crate::flow::{
     LevelDifficulty, LevelFile, LevelRuns, LocalSeat, PlayState, freeze_interpolation, load_level,
-    world_running,
 };
 use crate::level::{CurrentMap, try_load_map};
 use crate::mechanics::{DirtySectors, LevelMechanics, use_key};
 use crate::player::{
-    Inventory, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet, PlayerTuning,
-    PrevFeet, spawn_coop_player,
+    Inventory, LocalPlayer, Look, Player, PlayerBody, PlayerSimSet, PlayerTuning, PrevFeet,
+    spawn_coop_player,
 };
 
 /// The notice for a host's level this machine does not have.
@@ -133,12 +134,13 @@ impl Plugin for NetClientPlugin {
     fn build(&self, app: &mut App) {
         let joined = resource_exists::<NetClient>;
         app.init_resource::<NetNotice>()
+            .init_resource::<InputHistory>()
             .add_systems(
                 FixedUpdate,
                 (
                     client_receive.run_if(joined),
                     client_apply.run_if(joined),
-                    client_send_input.run_if(joined),
+                    predict_local.run_if(joined),
                 )
                     .chain()
                     .before(use_key)
@@ -152,11 +154,23 @@ impl Plugin for NetClientPlugin {
 pub fn client_receive(world: &mut World) {
     let dt = world.resource::<Time<Fixed>>().timestep();
     let msgs = world.resource_mut::<NetClient>().client.update(dt);
+    let pending = |world: &World| {
+        let net = world.resource::<NetClient>();
+        net.pending.as_ref().map(|(_, s)| s.tick)
+    };
+    let before = pending(world);
     for msg in msgs {
         client_handle(world, msg);
         if !world.contains_resource::<NetClient>() {
             return;
         }
+    }
+    // The newest snapshot corrects the local player as soon as it arrives.
+    if pending(world) != before
+        && let Some((you, snap)) = &world.resource::<NetClient>().pending
+        && let Some(me) = snap.players.iter().find(|p| p.id == *you).cloned()
+    {
+        reconcile(world, &me);
     }
     if world.resource::<NetClient>().client.control_garbage() > 0 {
         end_session(world, Some(NOT_UNDERSTOOD.into()));
@@ -308,8 +322,8 @@ fn apply_pending(world: &mut World) -> bool {
     true
 }
 
-/// Seats the local player as `you` and brings every player in line with its snap; players the
-/// snapshot does not hold go.
+/// Seats the local player as `you` and brings every other player in line with its snap;
+/// players the snapshot does not hold go.
 fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
     let mut local = None;
     let mut others = Vec::new();
@@ -344,6 +358,10 @@ fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
                 .find(|(_, p)| p.id == s.id)
                 .map(|(e, _)| e)
         };
+        // The local player is `reconcile`'s.
+        if s.id == you && found.is_some() {
+            continue;
+        }
         let (e, prev) = match found {
             Some(e) => (e, world.get::<PlayerBody>(e).map(|b| b.0.pos)),
             None => (spawn_player(world, s.id), None),
@@ -359,9 +377,7 @@ fn apply_players(world: &mut World, you: PlayerId, snaps: &[PlayerSnap]) {
         if let Some(mut inv) = entity.get_mut::<Inventory>() {
             inv.keys = s.keys;
         }
-        if s.id != you
-            && let Some(mut look) = entity.get_mut::<Look>()
-        {
+        if let Some(mut look) = entity.get_mut::<Look>() {
             look.angle = s.angle;
             look.pitch = s.pitch;
         }
@@ -376,56 +392,6 @@ fn spawn_player(world: &mut World, id: PlayerId) -> Entity {
     let e = spawn_coop_player(&mut commands, &map, &tuning, &defs, id);
     world.flush();
     e
-}
-
-/// Sends the local player's input for this tick. Taps are taken the way the sim systems take
-/// them; the automap toggle stays local.
-fn client_send_input(
-    mut net: ResMut<NetClient>,
-    state: Res<PlayState>,
-    from: Res<crate::flow::PausedFrom>,
-    mode: Option<Res<NetMode>>,
-    mut q: Query<(&mut PendingInput, &Look), With<LocalPlayer>>,
-) {
-    if net.welcomed.is_none() || !world_running(state, from, mode) {
-        return;
-    }
-    let Ok((mut input, look)) = q.single_mut() else {
-        return;
-    };
-    let mut bits = 0;
-    let mut set = |bit: u16, on: bool| {
-        if on {
-            bits |= bit;
-        }
-    };
-    set(buttons::JUMP, input.jump);
-    set(buttons::CROUCH, input.crouch);
-    set(buttons::FIRE, input.fire);
-    set(buttons::USE, std::mem::take(&mut input.use_pressed));
-    set(
-        buttons::FIRE_PRESSED,
-        std::mem::take(&mut input.fire_pressed),
-    );
-    set(buttons::RELOAD, std::mem::take(&mut input.reload));
-    set(buttons::KICK, std::mem::take(&mut input.kick));
-    set(buttons::MEDKIT, std::mem::take(&mut input.use_medkit));
-    set(buttons::JETPACK, std::mem::take(&mut input.toggle_jetpack));
-    set(buttons::NIGHT_VISION, std::mem::take(&mut input.toggle_nv));
-    let cycle = std::mem::take(&mut input.cycle).clamp(i8::MIN.into(), i8::MAX.into()) as i8;
-    net.seq += 1;
-    let frame = InputFrame {
-        seq: net.seq,
-        forward: input.forward,
-        strafe: input.strafe,
-        angle: look.angle,
-        pitch: look.pitch,
-        buttons: bits,
-        select: input.select.take(),
-        cycle,
-    };
-    net.client.send(&ClientMsg::Input(vec![frame]));
-    net.client.flush();
 }
 
 /// Closing the app leaves the game, so the host hears it now rather than times out.

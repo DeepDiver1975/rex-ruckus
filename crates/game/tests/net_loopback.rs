@@ -23,8 +23,9 @@ use rr_game::net::client::{
     start_joining,
 };
 use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity, start_hosting};
+use rr_game::net::predict::{InputHistory, reconcile};
 use rr_game::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
-use rr_net::{Load, ServerMsg};
+use rr_net::{InputFrame, Load, ServerMsg, buttons};
 
 fn sim_plugins(app: &mut App) {
     app.add_plugins((
@@ -216,9 +217,12 @@ fn set_forward(client: &mut App, f: f32) {
     q.single_mut(client.world_mut()).unwrap().forward = f;
 }
 
-/// Whether every player's `PrevFeet` and every actor's `prev_pos` is its current pose.
+/// Whether every remote player's `PrevFeet` and every actor's `prev_pos` is its current pose
+/// (the local player is predicted and steps every tick).
 fn at_rest(app: &mut App) -> bool {
-    let mut q = app.world_mut().query::<(&PlayerBody, &PrevFeet)>();
+    let mut q = app
+        .world_mut()
+        .query_filtered::<(&PlayerBody, &PrevFeet), Without<LocalPlayer>>();
     let players = q.iter(app.world()).all(|(b, p)| b.0.pos == p.0);
     let combat = &app.world().resource::<LevelCombat>().0;
     players && combat.actors.iter().all(|a| a.prev_pos == a.body.pos)
@@ -231,7 +235,8 @@ fn interpolation_rests_between_snapshots() {
     let (mut stepped, mut rested) = (0, 0);
     let mut applied_before = false;
     for _ in 0..120 {
-        set_forward(&mut client, 1.0);
+        // The host walks: its player is remote on the client, so snapshots move it.
+        set_forward(&mut host, 1.0);
         let before = client.world().resource::<NetClient>().last_tick;
         round(&mut host, &mut client);
         let applied = client.world().resource::<NetClient>().last_tick != before;
@@ -494,4 +499,163 @@ fn glass_broken_on_host_remeshes_on_client() {
     let dirty = &client.world().resource::<DirtySectors>().0;
     assert!(dirty.contains(&side) && dirty.contains(&back), "{dirty:?}");
     assert!(!client.world().resource::<CurrentMap>().0.walls[wall].glass);
+}
+
+/// One client tick alone: no host round, so nothing can have come back from it.
+fn client_tick(client: &mut App) {
+    client.update();
+    client.world_mut().run_schedule(FixedUpdate);
+}
+
+#[test]
+fn own_movement_is_immediate() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 10);
+    let start = local_pos(&mut client);
+    set_forward(&mut client, 1.0);
+    client_tick(&mut client);
+    let moved = local_pos(&mut client).truncate().distance(start.truncate());
+    assert!(moved > 0.0, "moved {moved}");
+}
+
+#[test]
+fn prediction_matches_the_host() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    for _ in 0..60 {
+        set_forward(&mut client, 1.0);
+        round(&mut host, &mut client);
+    }
+    set_forward(&mut client, 0.0);
+    pump(&mut host, &mut client, 30);
+    let (h, c) = (pos(&mut host, PlayerId(1)), local_pos(&mut client));
+    assert!(h.distance(c) < 0.05, "host {h} client {c}");
+}
+
+#[test]
+fn correction_is_applied() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 10);
+    let spot = {
+        let map = host.world().resource::<CurrentMap>().0.clone();
+        let mut q = host.world_mut().query::<(&Player, &mut PlayerBody)>();
+        let (_, mut body) = q
+            .iter_mut(host.world_mut())
+            .find(|(p, _)| p.id == PlayerId(1))
+            .unwrap();
+        body.0.pos.x += 3.0;
+        body.0.sector = map
+            .find_sector(body.0.pos.truncate(), Some(body.0.sector))
+            .expect("the new spot is in the level");
+        body.0.pos
+    };
+    let tick = host.world().resource::<NetHost>().tick;
+    pump_until(
+        &mut host,
+        &mut client,
+        "a snapshot after the move",
+        |_, c| {
+            c.world()
+                .resource::<NetClient>()
+                .last_tick
+                .is_some_and(|t| t > tick)
+        },
+    );
+    let c = local_pos(&mut client);
+    let off = c.truncate().distance(spot.truncate());
+    assert!(off < 0.05, "client {c} spot {spot}");
+}
+
+/// The local player's `Fire` events in the client's [`FxQueue`] now.
+fn own_fires(client: &mut App) -> usize {
+    let me = local_id(client).unwrap();
+    client
+        .world()
+        .resource::<FxQueue>()
+        .weapon
+        .iter()
+        .filter(|(p, e)| *p == me && matches!(e, rr_core::weapons::WeaponEvent::Fire { .. }))
+        .count()
+}
+
+#[test]
+fn own_shot_is_immediate_and_single() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 30);
+    {
+        let mut q = client
+            .world_mut()
+            .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+        q.single_mut(client.world_mut()).unwrap().fire_pressed = true;
+    }
+    client_tick(&mut client);
+    assert_eq!(own_fires(&mut client), 1, "the shot on the press tick");
+    let mut later = 0;
+    for _ in 0..60 {
+        round(&mut host, &mut client);
+        later += own_fires(&mut client);
+    }
+    assert_eq!(later, 0, "the shot shows once");
+}
+
+#[test]
+fn replay_discards_events() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 30);
+    let snap = {
+        let world = client.world_mut();
+        let mut q = world.query_filtered::<(
+            &Player,
+            &PlayerBody,
+            &rr_game::player::Look,
+            &rr_game::combat::PlayerVitals,
+            &rr_game::combat::PlayerArsenal,
+            &rr_game::combat::PlayerInventory,
+            &rr_game::player::Inventory,
+        ), With<LocalPlayer>>();
+        let (p, body, look, vitals, arsenal, carried, inv) = q.single(world).unwrap();
+        rr_core::snapshot::PlayerSnap {
+            id: p.id,
+            body: body.0,
+            angle: look.angle,
+            pitch: look.pitch,
+            vitals: vitals.0,
+            arsenal: arsenal.0.clone(),
+            inventory: carried.0,
+            keys: inv.keys,
+            ack: 1000,
+        }
+    };
+    let frames = (1001..=1010).map(|seq| InputFrame {
+        seq,
+        forward: 1.0,
+        strafe: 0.0,
+        angle: snap.angle,
+        pitch: 0.0,
+        buttons: buttons::FIRE | buttons::FIRE_PRESSED,
+        select: None,
+        cycle: 0,
+    });
+    client.world_mut().resource_mut::<InputHistory>().0 = frames.collect();
+    {
+        let mut fx = client.world_mut().resource_mut::<FxQueue>();
+        fx.combat.clear();
+        fx.weapon.clear();
+        fx.mech.clear();
+    }
+    reconcile(client.world_mut(), &snap);
+    let fx = client.world().resource::<FxQueue>();
+    assert!(
+        fx.combat.is_empty() && fx.weapon.is_empty() && fx.mech.is_empty(),
+        "replay raised events"
+    );
+    assert_eq!(client.world().resource::<InputHistory>().0.len(), 10);
+    let moved = local_pos(&mut client)
+        .truncate()
+        .distance(snap.body.pos.truncate());
+    assert!(moved > 0.0, "the frames were replayed");
 }
