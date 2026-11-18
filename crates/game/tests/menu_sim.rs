@@ -1,6 +1,7 @@
 //! The menus drive the game flow (headless: actions are injected through `MenuInput`).
 
 use bevy::prelude::*;
+use bevy::time::TimeUpdateStrategy;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use rr_core::defs::Defs;
 use rr_core::difficulty::Difficulty;
@@ -24,6 +25,7 @@ use rr_game::player::{LocalPlayer, PendingInput, PlayerBody, PlayerSimPlugin};
 use rr_game::settings::{Settings, SettingsPlugin};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 /// The settings file of a test app.
 #[derive(Resource)]
@@ -60,6 +62,10 @@ fn fresh_settings_path() -> PathBuf {
 fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
+    // The clock stands still, so `app.update()` never runs `FixedUpdate` on its own (that would
+    // reset a `StateAge` a test set, depending on how long a frame took): the tests run every
+    // fixed tick by hand.
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
     insert_level(&mut app, maps[0].clone(), Difficulty::Normal);
     insert_defs(&mut app, Defs::builtin());
     let mut episode = Episode::new(EpisodeDef {
@@ -886,6 +892,8 @@ fn start_in_the_lobby_takes_the_client_into_the_level() {
             break;
         }
     }
+    // The load lands in a fixed tick; the menu closes in the frame after it.
+    client.update();
     assert_eq!(state(&client), PlayState::Playing);
     assert_eq!(screen(&client), None, "still in the lobby");
     assert_eq!(
