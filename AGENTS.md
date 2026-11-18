@@ -128,8 +128,8 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - A co-op client applies the host's snapshots and never simulates: its sim systems run on
   `sim_ticks`, which is false for `NetMode::Client`. `world_running` keeps a net game running under
   the pause menu. The host's `LevelRuns` changing (any `restart_level`/`load_level`) is what sends
-  `Load` to the clients. Until PR 6 relays events, a client makes up `GlassBroken`, `LightBroken`
-  and `ActorSpawned` from what a snapshot changed (`net/client.rs`), so the visuals follow.
+  `Load` to the clients. A client's shards, sounds and lights come only from the host's relayed
+  events; from a snapshot's changes it only marks `DirtySectors` for re-meshing (`net/interp.rs`).
 - Bump `rr_net::PROTOCOL_VERSION` whenever a wire type or any snapshot type (`rr_core::snapshot` and what it embeds) changes shape; a host refuses a client with another version.
 - A co-op client runs two clocks: its own player is predicted now (`net/predict.rs`), everything
   else is drawn `INTERP_DELAY` (6) ticks behind the newest snapshot (`net/interp.rs`'s `Timeline`).

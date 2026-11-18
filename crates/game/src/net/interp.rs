@@ -7,6 +7,7 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
+use rr_core::combat::Combat;
 use rr_core::events::{combat_event_fits, mech_event_fits, weapon_event_fits};
 use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::snapshot::Snapshot;
@@ -43,6 +44,8 @@ pub struct Timeline {
     /// The tick of the last `Load`: anything at or before it is the old run's, dropped on
     /// arrival.
     pub floor: u32,
+    /// Whether this run already reported a full hold (one warning per run).
+    overflowed: bool,
 }
 
 impl Timeline {
@@ -68,9 +71,20 @@ impl Timeline {
         }
         self.snaps.push_back((you, snap));
         while self.snaps.len() > MAX_HELD_SNAPS {
-            self.snaps.pop_front();
+            // The front is the blend base once it is applied: the oldest waiting one goes.
+            let base = self.snaps.front().is_some_and(|(_, s)| s.tick <= applied);
+            self.snaps.remove(usize::from(base));
+            self.overflow("snapshots");
         }
         true
+    }
+
+    /// Reports, once per run, that the hold is full and the oldest go.
+    fn overflow(&mut self, what: &str) {
+        if !self.overflowed {
+            self.overflowed = true;
+            warn!("the co-op client holds too many {what}; dropping the oldest");
+        }
     }
 
     /// Holds a tick's events unless they belong to the old run.
@@ -81,6 +95,7 @@ impl Timeline {
         self.events.push_back(ev);
         while self.events.len() > MAX_HELD_EVENTS {
             self.events.pop_front();
+            self.overflow("event messages");
         }
     }
 
@@ -240,7 +255,9 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
         }
         let f = render.saturating_sub(a.tick) as f32 / (b.tick - a.tick) as f32;
         let mut combat = world.get_resource_mut::<LevelCombat>()?;
-        Some(a.blend(b, f, &mut combat.0))
+        let players = a.blend(b, f, &mut combat.0);
+        settle_unblended(a, b, &mut combat.0);
+        Some(players)
     });
     let Some(players) = players else {
         return false;
@@ -249,12 +266,32 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
     let mut q =
         world.query_filtered::<(&Player, &mut PlayerBody, &mut PrevFeet), Without<LocalPlayer>>();
     for (p, mut body, mut prev) in q.iter_mut(world) {
-        if let Some((_, b)) = players.iter().find(|(id, _)| *id == p.id) {
-            prev.0 = body.0.pos;
-            body.0.pos = b.pos;
+        match players.iter().find(|(id, _)| *id == p.id) {
+            Some((_, b)) => {
+                prev.0 = body.0.pos;
+                body.0.pos = b.pos;
+            }
+            // Not in both snapshots: it holds still rather than replay its last step.
+            None if prev.0 != body.0.pos => prev.0 = body.0.pos,
+            None => {}
         }
     }
     true
+}
+
+/// Rests the actors and projectiles [`Snapshot::blend`] left alone (not carried by both `a`
+/// and `b`) on their current pose, so frame interpolation does not replay their last step.
+fn settle_unblended(a: &Snapshot, b: &Snapshot, combat: &mut Combat) {
+    let both = a.actors.len().min(b.actors.len());
+    for actor in combat.actors.iter_mut().skip(both) {
+        actor.prev_pos = actor.body.pos;
+    }
+    let carried = |s: &Snapshot, id: u32| s.projectiles.iter().any(|p| p.id == id);
+    for p in &mut combat.projectiles {
+        if !(carried(a, p.id) && carried(b, p.id)) {
+            p.prev = p.pos;
+        }
+    }
 }
 
 /// Rests every interpolation endpoint but the local player's (prediction steps it) on the
@@ -266,6 +303,8 @@ fn freeze_remote(world: &mut World) {
             prev.0 = body.0.pos;
         }
     }
+    // Through a system so `settle_combat` gets a `ResMut` and touches change detection only
+    // when something moved.
     if let Err(e) = world.run_system_cached(settle_remote_combat) {
         warn!("cannot settle interpolation: {e}");
     }
@@ -327,6 +366,63 @@ mod tests {
         t.push_events(ev(10));
         t.push_events(ev(11));
         assert_eq!(t.events.len(), 1);
+    }
+
+    #[test]
+    fn the_blend_base_is_never_evicted() {
+        let mut t = Timeline::default();
+        t.push_snapshot(PlayerId(1), snap(1), 0);
+        for i in 2..=100 {
+            t.push_snapshot(PlayerId(1), snap(i), 1);
+        }
+        assert_eq!(t.snaps.len(), MAX_HELD_SNAPS);
+        assert_eq!(t.snaps[0].1.tick, 1, "the applied base stays");
+        assert_eq!(t.snaps[1].1.tick, 100 - MAX_HELD_SNAPS as u32 + 2);
+    }
+
+    #[test]
+    fn blending_rests_what_only_one_snapshot_carries() {
+        use rr_core::defs::Defs;
+        use rr_core::projectile::{Projectile, Shooter, Targets};
+        let map = rr_core::fixtures::combat_room();
+        let mut combat = Combat::spawn(&map, &Defs::builtin(), 1);
+        let shot = |id: u32, x: f32| Projectile {
+            id,
+            pos: Vec3::new(x, 2.0, 1.0),
+            prev: Vec3::new(x - 0.5, 2.0, 1.0),
+            vel: Vec3::X,
+            sector: 0,
+            radius: 0.1,
+            damage: 1,
+            owner: Shooter::World,
+            targets: Targets::All,
+            life: 1.0,
+            gravity: 0.0,
+            bounce: None,
+            remote: false,
+            splash: None,
+            resting: false,
+        };
+        // 1 is in both snapshots, 2 only in the first (it hit something).
+        combat.projectiles = vec![shot(1, 2.0), shot(2, 3.0)];
+        let mut a = snap(10);
+        a.projectiles = vec![shot(1, 2.0), shot(2, 3.0)];
+        let mut b = snap(12);
+        b.projectiles = vec![shot(1, 3.0)];
+        let mut world = World::new();
+        world.insert_resource(LevelCombat(combat));
+        let mut t = Timeline::default();
+        t.snaps.push_back((PlayerId(1), a));
+        t.snaps.push_back((PlayerId(1), b));
+        world.insert_resource(t);
+        assert!(blend(&mut world, 10, 11));
+        let c = &world.resource::<LevelCombat>().0;
+        assert_eq!(c.projectiles[0].pos, Vec3::new(2.5, 2.0, 1.0));
+        assert_eq!(c.projectiles[0].prev, Vec3::new(2.0, 2.0, 1.0));
+        assert_eq!(
+            c.projectiles[1].prev, c.projectiles[1].pos,
+            "the lone shot rests"
+        );
     }
 
     #[test]
