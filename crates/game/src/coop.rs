@@ -140,6 +140,9 @@ pub fn respawn_players(
         }
         let xy = spawn_spot(&map.0, &tuning.0, p.id);
         let Some(spawned) = Body::spawn(&map.0, xy, PLAYER_RADIUS, tuning.0.stand_height) else {
+            // Try again after another wait instead of warning every tick.
+            warn!("no room to respawn player {:?} at {xy}", p.id);
+            down.0 = 0.0;
             continue;
         };
         body.0 = spawned;

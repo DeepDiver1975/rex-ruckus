@@ -10,8 +10,9 @@ use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
-use rr_core::fixtures::{combat_room, engine_room};
+use rr_core::fixtures::{combat_room, door_rooms, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
+use rr_core::mechanics::MechEvent;
 use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
@@ -947,15 +948,15 @@ fn single_player_death_is_unchanged() {
 
 #[test]
 fn keys_are_shared() {
-    let mut map = combat_room();
+    let mut map = door_rooms("(kind: Door, lock: Some(Red))", "");
     map.items.push(Item {
         kind: ItemKind::Key(Key::Red),
-        pos: Vec2::new(6.0, 6.5),
+        pos: Vec2::new(1.0, 3.0),
         skill: Difficulty::Easy,
     });
     let mut app = app(map);
     spawn_coop(&mut app, PlayerId(1));
-    place(&mut app, PlayerId(1), 6.0, 6.5);
+    place(&mut app, PlayerId(1), 1.0, 3.0);
     ticks(&mut app, 1);
     for id in [PlayerId(0), PlayerId(1)] {
         let e = player(&mut app, id);
@@ -968,4 +969,26 @@ fn keys_are_shared() {
             "{id:?}"
         );
     }
+    // Player 0 never touched the key, yet opens the red door: walk east to it and press use.
+    let e0 = player(&mut app, PlayerId(0));
+    app.world_mut().get_mut::<PendingInput>(e0).unwrap().forward = 1.0;
+    ticks(&mut app, 40);
+    app.world_mut().get_mut::<PendingInput>(e0).unwrap().forward = 0.0;
+    ticks(&mut app, 30);
+    app.world_mut().resource_mut::<FxQueue>().mech.clear();
+    app.world_mut()
+        .get_mut::<PendingInput>(e0)
+        .unwrap()
+        .use_pressed = true;
+    ticks(&mut app, 1);
+    assert!(
+        !app.world()
+            .resource::<FxQueue>()
+            .mech
+            .iter()
+            .any(|e| matches!(e, MechEvent::NeedKey { .. }))
+    );
+    ticks(&mut app, 20);
+    let m = &app.world().resource::<LevelMechanics>().0.movers[0];
+    assert!(m.z > m.start, "door did not open: {} vs {}", m.z, m.start);
 }
