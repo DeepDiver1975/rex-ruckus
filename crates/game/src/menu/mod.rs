@@ -473,7 +473,7 @@ pub(crate) fn quit_to_menu(world: &mut World) {
         return;
     };
     episode.index = 0;
-    episode.entry = None;
+    episode.entries = Default::default();
     episode.totals = default();
     let (file, map) = (episode.file(0), episode.map(0));
     world.insert_resource(crate::flow::LevelFile(file));

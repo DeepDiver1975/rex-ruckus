@@ -6,6 +6,7 @@ pub mod automap;
 pub mod bindings;
 pub mod breakables;
 pub mod combat;
+pub mod coop;
 pub mod coords;
 pub mod decals;
 pub mod demo;

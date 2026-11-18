@@ -666,7 +666,7 @@ fn new_game_after_the_episode_end_starts_fresh() {
     let ep = app.world().resource::<Episode>();
     assert_eq!(ep.index, 0);
     assert_eq!(ep.totals, Default::default());
-    assert!(ep.entry.is_none());
+    assert!(ep.entries.iter().all(Option::is_none));
     assert_eq!(state(&app), PlayState::Playing);
     assert_eq!(
         app.world().resource::<LevelDifficulty>().0,

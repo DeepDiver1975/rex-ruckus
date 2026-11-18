@@ -7,6 +7,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::actors::Target;
+use rr_core::carry::CarryOver;
 use rr_core::combat::{CombatEvent, PendingBlast, Via};
 use rr_core::defs::SplashDef;
 use rr_core::defs::{Defs, WeaponId};
@@ -15,10 +16,13 @@ use rr_core::explosion::Blast;
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
 use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
+use rr_core::vitals::Vitals;
+use rr_core::weapons::Arsenal;
 use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
+use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, LevelFile, restart_level};
 use rr_game::level::CurrentMap;
 use rr_game::level::load_map;
@@ -904,4 +908,32 @@ fn hud_line_goes_to_its_player() {
             .text,
         ""
     );
+}
+
+#[test]
+fn leaving_shifts_entries_and_kills_down() {
+    let mut app = host_app();
+    let mut a = join(&mut app, "A");
+    let mut b = join(&mut app, "B");
+    let defs = app.world().resource::<GameDefs>().0.clone();
+    let mut arsenal = Arsenal::new(&defs);
+    arsenal.give_weapon(&defs, WeaponId::Shotgun);
+    let shotgun = CarryOver::take(&Vitals::new(), &arsenal, &Default::default());
+    let mut episode = Episode::new(EpisodeDef {
+        name: "t".into(),
+        levels: vec![],
+    });
+    episode.entries[2] = Some(shotgun.clone());
+    app.insert_resource(episode);
+    let mut stats = Stats::default();
+    stats.0.kills_by = [0, 2, 5, 0];
+    app.insert_resource(stats);
+    a.client.disconnect();
+    pump_until(&mut app, &mut [&mut b], "A gone", |app, _| {
+        player_ids(app) == [0, 1]
+    });
+    let ep = app.world().resource::<Episode>();
+    assert_eq!(ep.entries[1], Some(shotgun));
+    assert!(ep.entries[2].is_none());
+    assert_eq!(app.world().resource::<Stats>().0.kills_by, [0, 5, 0, 0]);
 }

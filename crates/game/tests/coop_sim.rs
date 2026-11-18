@@ -20,7 +20,9 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, insert_defs,
 };
+use rr_game::coop::EntryLoadout;
 use rr_game::coords::{core_angle_to_yaw, to_bevy};
+use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, PlayState};
 use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
 use rr_game::level::CurrentMap;
@@ -28,6 +30,7 @@ use rr_game::mechanics::{
     HudMessage, LevelMechanics, MESSAGE_SECS, MechanicsSimPlugin, PlayerLines, insert_level,
 };
 use rr_game::models::{ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig};
+use rr_game::net::host::stop_hosting;
 use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
     DevPartners, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player,
@@ -815,4 +818,44 @@ fn partners_flag_spawns_standing_players() {
     ticks(&mut app, 1);
     assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
     assert_eq!(player_ids(&mut app), (vec![0, 1, 2], 1), "after a restart");
+}
+
+#[test]
+fn stop_hosting_clears_remote_core_state() {
+    let mut app = app(combat_room());
+    for id in [1, 2] {
+        spawn_coop(&mut app, PlayerId(id));
+    }
+    ticks(&mut app, 3);
+    // `Combat::hazard` is the one per-player vector the core exposes; mechanics' own is private
+    // (its `remove_player` is covered by an rr-core test), so only the shared state is checked.
+    app.world_mut()
+        .resource_mut::<LevelCombat>()
+        .0
+        .hazard
+        .resize_with(3, Default::default);
+    let mut episode = Episode::new(EpisodeDef {
+        name: "t".into(),
+        levels: vec![],
+    });
+    episode.entries[1] = episode.entries[0].clone();
+    app.insert_resource(episode);
+    let mut stats = Stats::default();
+    stats.0.kills_by = [1, 2, 3, 0];
+    app.insert_resource(stats);
+    stop_hosting(app.world_mut());
+    assert_eq!(app.world().resource::<LevelCombat>().0.hazard.len(), 1);
+    assert_eq!(app.world().resource::<Stats>().0.kills_by, [1, 0, 0, 0]);
+    let mut q = app.world_mut().query::<&Player>();
+    assert_eq!(q.iter(app.world()).count(), 1);
+    // The local player's state is untouched; the sim keeps running with one player.
+    ticks(&mut app, 3);
+}
+
+#[test]
+fn coop_players_get_an_entry_loadout() {
+    let mut app = app(combat_room());
+    let e = spawn_coop(&mut app, PlayerId(1));
+    let l = app.world().get::<EntryLoadout>(e).unwrap();
+    assert_eq!(l.0.vitals.health.hp, 100);
 }

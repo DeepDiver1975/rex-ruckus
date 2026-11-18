@@ -4,14 +4,16 @@
 use crate::combat::{
     CombatSet, FxQueue, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
 };
+use crate::coop::{CoopPlugin, EntryLoadout};
 use crate::flow::{LevelDifficulty, LevelFile, PlayState, SpawnLevel, load_level, sim_ticks};
 use crate::level::load_map;
 use crate::paths::assets_dir;
-use crate::player::LocalPlayer;
+use crate::player::Player;
 use bevy::prelude::*;
 use rr_core::carry::CarryOver;
 use rr_core::difficulty::Difficulty;
 use rr_core::map::Map;
+use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::stats::LevelStats;
 use serde::Deserialize;
 
@@ -68,8 +70,9 @@ pub struct Episode {
     pub chosen: usize,
     /// Index into the level list of the level being played.
     pub index: usize,
-    /// Loadout the player entered the current level with; `None` = the starting loadout.
-    pub entry: Option<CarryOver>,
+    /// Loadout each player (index = `PlayerId`) enters the current level with; `None` = the
+    /// starting loadout.
+    pub entries: [Option<CarryOver>; MAX_PLAYERS],
     /// Stats of the finished levels.
     pub totals: LevelStats,
     /// Pre-built maps used instead of loading `def.levels` (test/demo hook).
@@ -92,7 +95,7 @@ impl Episode {
             choices,
             chosen,
             index: 0,
-            entry: None,
+            entries: Default::default(),
             totals: LevelStats::default(),
             maps: None,
         }
@@ -106,12 +109,22 @@ impl Episode {
                 self.def = def.clone();
                 self.chosen = i;
                 self.index = 0;
-                self.entry = None;
+                self.entries = Default::default();
                 self.totals = LevelStats::default();
                 true
             }
             _ => false,
         }
+    }
+
+    /// Player `id` left: later players' entry loadouts and kill tallies move down one slot.
+    pub fn remove_player(&mut self, id: PlayerId) {
+        let i = id.0 as usize;
+        if i < MAX_PLAYERS {
+            self.entries[i..].rotate_left(1);
+            self.entries[MAX_PLAYERS - 1] = None;
+        }
+        self.totals.remove_player(id);
     }
 
     /// Number of levels: the test maps when set, else the episode file's list.
@@ -150,7 +163,7 @@ pub fn start_episode(world: &mut World, d: Difficulty) {
     let (file, map) = {
         let mut ep = world.resource_mut::<Episode>();
         ep.index = 0;
-        ep.entry = None;
+        ep.entries = Default::default();
         ep.totals = LevelStats::default();
         (ep.file(0), ep.map(0))
     };
@@ -160,16 +173,29 @@ pub fn start_episode(world: &mut World, d: Difficulty) {
 
 /// After a completed level: carry the loadout on and load the next level, or end the episode.
 pub fn advance(world: &mut World) {
-    let carry = world
-        .query_filtered::<(&PlayerVitals, &PlayerArsenal, &PlayerInventory), With<LocalPlayer>>()
-        .iter(world)
-        .next()
-        .map(|(v, a, i)| CarryOver::take(&v.0, &a.0, &i.0));
+    let mut entries: [Option<CarryOver>; MAX_PLAYERS] = Default::default();
+    let mut q = world.query::<(
+        &Player,
+        &PlayerVitals,
+        &PlayerArsenal,
+        &PlayerInventory,
+        Option<&EntryLoadout>,
+    )>();
+    for (p, v, a, i, entry) in q.iter(world) {
+        // A player who is down goes on with what they entered the level with.
+        let carry = match entry {
+            Some(e) if v.0.health.hp <= 0 => e.0.clone(),
+            _ => CarryOver::take(&v.0, &a.0, &i.0),
+        };
+        if let Some(slot) = entries.get_mut(p.id.0 as usize) {
+            *slot = Some(carry);
+        }
+    }
     let stats = world.resource::<Stats>().0;
     let next = {
         let mut ep = world.resource_mut::<Episode>();
         ep.totals.add(&stats);
-        ep.entry = carry;
+        ep.entries = entries;
         ep.index += 1;
         (ep.index < ep.len()).then(|| (ep.file(ep.index), ep.map(ep.index)))
     };
@@ -187,7 +213,8 @@ pub struct EpisodePlugin;
 
 impl Plugin for EpisodePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Stats>()
+        app.add_plugins(CoopPlugin)
+            .init_resource::<Stats>()
             .add_systems(SpawnLevel, reset_stats.after(crate::combat::spawn_combat))
             .add_systems(FixedUpdate, record_stats.after(CombatSet).run_if(sim_ticks));
     }

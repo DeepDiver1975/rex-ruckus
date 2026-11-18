@@ -26,6 +26,7 @@ use crate::combat::{
     CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, spawn_combat,
 };
+use crate::episode::{Episode, Stats};
 use crate::flow::{
     LevelDifficulty, LevelFile, LevelRuns, LevelSource, PlayState, SpawnLevel, advance_level,
     check_player_death,
@@ -197,6 +198,14 @@ pub fn stop_hosting(world: &mut World) {
     }
     world.remove_resource::<NetIdentity>();
     world.remove_resource::<HostBeacon>();
+    // Back to one player: drop the seats' per-player state, highest id first.
+    let n = world
+        .query_filtered::<(), With<Player>>()
+        .iter(world)
+        .count();
+    for id in (1..n.min(MAX_PLAYERS)).rev().map(|i| PlayerId(i as u8)) {
+        remove_player_state(world, id);
+    }
     let remote: Vec<Entity> = world
         .query_filtered::<Entity, (With<Player>, Without<LocalPlayer>)>()
         .iter(world)
@@ -245,7 +254,7 @@ impl Plugin for NetHostPlugin {
 }
 
 /// Spawns the co-op player of every seat.
-fn spawn_seated_players(
+pub fn spawn_seated_players(
     mut commands: Commands,
     net: Res<NetHost>,
     map: Res<CurrentMap>,
@@ -411,6 +420,22 @@ fn spawn_player(world: &mut World, id: PlayerId) {
     world.flush();
 }
 
+/// Drops player `gone`'s share of the level, episode and stats state (later ids move down).
+fn remove_player_state(world: &mut World, gone: PlayerId) {
+    if let Some(mut combat) = world.get_resource_mut::<LevelCombat>() {
+        combat.0.remove_player(gone);
+    }
+    if let Some(mut mech) = world.get_resource_mut::<LevelMechanics>() {
+        mech.0.remove_player(gone);
+    }
+    if let Some(mut ep) = world.get_resource_mut::<Episode>() {
+        ep.remove_player(gone);
+    }
+    if let Some(mut stats) = world.get_resource_mut::<Stats>() {
+        stats.0.remove_player(gone);
+    }
+}
+
 /// A client left: its seat and player go, everyone above moves down one.
 fn leave(world: &mut World, key: ClientKey) {
     let identity = world.resource::<NetIdentity>().name.clone();
@@ -421,12 +446,7 @@ fn leave(world: &mut World, key: ClientKey) {
     let roster = net.roster(&identity);
     net.broadcast(&roster);
     let gone = seat_player(k);
-    if let Some(mut combat) = world.get_resource_mut::<LevelCombat>() {
-        combat.0.remove_player(gone);
-    }
-    if let Some(mut mech) = world.get_resource_mut::<LevelMechanics>() {
-        mech.0.remove_player(gone);
-    }
+    remove_player_state(world, gone);
     let mut q = world.query::<(Entity, &mut Player)>();
     let mut despawn = None;
     for (e, mut p) in q.iter_mut(world) {
