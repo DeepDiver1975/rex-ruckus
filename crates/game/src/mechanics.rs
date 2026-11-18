@@ -63,18 +63,23 @@ impl PlayerLines {
 
 /// Shows the local player's [`PlayerLines`] on the [`HudMessage`] (the last one wins) and takes
 /// them out, at the end of the tick that raised them, so a line shows exactly when it did
-/// before co-op.
+/// before co-op. On the tick the level is won they are dropped: [`finish_level`]'s
+/// "Level complete!" stays.
 pub fn show_local_lines(
     local: LocalId,
+    state: Res<PlayState>,
     mut lines: ResMut<PlayerLines>,
     mut msg: ResMut<HudMessage>,
 ) {
     let Some(id) = local.get() else { return };
+    let won = *state == PlayState::Complete;
     lines.0.retain(|(p, text)| {
         if *p != id {
             return true;
         }
-        msg.show(text.clone());
+        if !won {
+            msg.show(text.clone());
+        }
         false
     });
 }
@@ -366,6 +371,30 @@ pub fn pickup_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lines_shown(state: PlayState) -> String {
+        let mut world = World::new();
+        world.spawn((Player { id: PlayerId(0) }, LocalPlayer));
+        world.insert_resource(state);
+        let mut msg = HudMessage::default();
+        let mut lines = PlayerLines::default();
+        if state == PlayState::Complete {
+            let mut s = PlayState::Playing;
+            finish_level(&mut s, &mut msg);
+        }
+        lines.push(PlayerId(0), "Picked up a medkit");
+        world.insert_resource(msg);
+        world.insert_resource(lines);
+        world.run_system_cached(show_local_lines).unwrap();
+        assert!(world.resource::<PlayerLines>().0.is_empty(), "taken");
+        world.resource::<HudMessage>().text.clone()
+    }
+
+    #[test]
+    fn level_complete_beats_a_line_of_the_same_tick() {
+        assert_eq!(lines_shown(PlayState::Playing), "Picked up a medkit");
+        assert_eq!(lines_shown(PlayState::Complete), "Level complete!");
+    }
 
     #[test]
     fn prop_messages() {
