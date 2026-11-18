@@ -16,7 +16,7 @@ use rr_net::{
 
 use super::NetMode;
 use super::host::NetIdentity;
-use super::predict::{InputHistory, predict_local, reconcile};
+use super::predict::{CorrectionOffset, InputHistory, predict_local, reconcile, reset_prediction};
 use crate::combat::{FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals};
 use crate::episode::Episode;
 use crate::flow::{
@@ -87,6 +87,7 @@ pub fn start_joining(world: &mut World, addr: SocketAddr, name: String) -> io::R
     });
     world.insert_resource(identity);
     world.insert_resource(NetMode::Client);
+    reset_prediction(world);
     Ok(())
 }
 
@@ -97,6 +98,7 @@ pub fn stop_joining(world: &mut World) {
         net.client.flush();
     }
     world.remove_resource::<NetIdentity>();
+    reset_prediction(world);
     let players: Vec<(Entity, bool)> = world
         .query::<(Entity, Has<LocalPlayer>)>()
         .iter(world)
@@ -135,6 +137,7 @@ impl Plugin for NetClientPlugin {
         let joined = resource_exists::<NetClient>;
         app.init_resource::<NetNotice>()
             .init_resource::<InputHistory>()
+            .init_resource::<CorrectionOffset>()
             .add_systems(
                 FixedUpdate,
                 (

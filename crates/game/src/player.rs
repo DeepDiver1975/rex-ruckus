@@ -9,6 +9,7 @@ use crate::inventory::use_inventory;
 use crate::level::CurrentMap;
 use crate::mechanics::{HudMessage, PlayerLines, use_key};
 use crate::menu::MenuScreen;
+use crate::net::predict::CorrectionOffset;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
@@ -647,6 +648,7 @@ pub fn read_input(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
@@ -655,6 +657,7 @@ pub(crate) fn update_camera(
     player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<LocalPlayer>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
     mut roll: ResMut<ViewRoll>,
+    correction: Option<ResMut<CorrectionOffset>>,
 ) {
     let (body, prev, look, mut eye_h) = player.into_inner();
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
@@ -664,7 +667,13 @@ pub(crate) fn update_camera(
     roll.0 = ease_toward(roll.0, roll_target, EYE_EASE_RATE, dt);
     let (_, ceil) = z_range(&map.0, body.0.pos.truncate(), body.0.radius, body.0.sector);
     eye_h.0 = clamp_eye(eye_h.0, feet.z, ceil);
-    let eye = feet + Vec3::Z * eye_h.0;
+    let mut eye = feet + Vec3::Z * eye_h.0;
+    // A co-op client draws its corrected player where it was predicted, sliding onto the
+    // host's spot (the viewmodel is the camera's child and follows).
+    if let Some(mut correction) = correction {
+        eye += correction.offset;
+        correction.fade(dt);
+    }
     camera.translation = to_bevy(eye);
     camera.rotation = Quat::from_euler(
         EulerRot::YXZ,

@@ -18,13 +18,17 @@ use rr_game::flow::{FlowPlugin, LevelFile, LevelRuns, LevelSource, LocalSeat, re
 use rr_game::level::{CurrentMap, load_map};
 use rr_game::mechanics::{DirtySectors, LevelMechanics, MechanicsSimPlugin, insert_level};
 use rr_game::net::NetMode;
+use rr_game::net::client::stop_joining;
 use rr_game::net::client::{
     NOT_UNDERSTOOD, NetClient, NetClientPlugin, NetNotice, client_apply, client_handle,
     start_joining,
 };
 use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity, start_hosting};
-use rr_game::net::predict::{InputHistory, reconcile};
-use rr_game::player::{LocalPlayer, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
+use rr_game::net::predict::{CorrectionOffset, InputHistory, reconcile};
+use rr_game::player::{
+    LocalPlayer, PendingInput, Player, PlayerBody, PlayerCamera, PlayerControlPlugin,
+    PlayerSimPlugin, PrevFeet,
+};
 use rr_net::{InputFrame, Load, ServerMsg, buttons};
 
 fn sim_plugins(app: &mut App) {
@@ -58,8 +62,14 @@ fn host_app(level: &str) -> App {
 
 /// A client app on another level than any host's, not joined yet.
 fn idle_client() -> App {
+    client_with(|_| {})
+}
+
+/// [`idle_client`] with `extra` plugins added before the first update.
+fn client_with(extra: impl FnOnce(&mut App)) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
+    extra(&mut app);
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
     insert_level(&mut app, combat_room(), Difficulty::Normal);
     app.insert_resource(LevelFile("combat_room".into()));
@@ -152,13 +162,18 @@ fn mode(app: &App) -> NetMode {
 /// A client that took the host's level and has applied a snapshot with both players.
 fn joined(host: &mut App) -> App {
     let mut client = client_app(host_addr(host));
-    pump_until(host, &mut client, "the join", |_, c| {
+    wait_joined(host, &mut client);
+    client
+}
+
+/// Pumps until `client` (joining `host`) has applied a snapshot with both players.
+fn wait_joined(host: &mut App, client: &mut App) {
+    pump_until(host, client, "the join", |_, c| {
         player_ids(c) == [0, 1]
             && c.world()
                 .get_resource::<NetClient>()
                 .is_some_and(|n| n.last_tick.is_some())
     });
-    client
 }
 
 #[test]
@@ -533,24 +548,27 @@ fn prediction_matches_the_host() {
     assert!(h.distance(c) < 0.05, "host {h} client {c}");
 }
 
+/// Moves the host's player 1 by `dx` metres east; returns its new feet.
+fn teleport(host: &mut App, dx: f32) -> Vec3 {
+    let map = host.world().resource::<CurrentMap>().0.clone();
+    let mut q = host.world_mut().query::<(&Player, &mut PlayerBody)>();
+    let (_, mut body) = q
+        .iter_mut(host.world_mut())
+        .find(|(p, _)| p.id == PlayerId(1))
+        .unwrap();
+    body.0.pos.x += dx;
+    body.0.sector = map
+        .find_sector(body.0.pos.truncate(), Some(body.0.sector))
+        .expect("the new spot is in the level");
+    body.0.pos
+}
+
 #[test]
 fn correction_is_applied() {
     let mut host = host_app("test_yard.ron");
     let mut client = joined(&mut host);
     pump(&mut host, &mut client, 10);
-    let spot = {
-        let map = host.world().resource::<CurrentMap>().0.clone();
-        let mut q = host.world_mut().query::<(&Player, &mut PlayerBody)>();
-        let (_, mut body) = q
-            .iter_mut(host.world_mut())
-            .find(|(p, _)| p.id == PlayerId(1))
-            .unwrap();
-        body.0.pos.x += 3.0;
-        body.0.sector = map
-            .find_sector(body.0.pos.truncate(), Some(body.0.sector))
-            .expect("the new spot is in the level");
-        body.0.pos
-    };
+    let spot = teleport(&mut host, 3.0);
     let tick = host.world().resource::<NetHost>().tick;
     pump_until(
         &mut host,
@@ -658,4 +676,140 @@ fn replay_discards_events() {
         .truncate()
         .distance(snap.body.pos.truncate());
     assert!(moved > 0.0, "the frames were replayed");
+}
+
+#[test]
+fn rejoining_starts_a_fresh_input_stream() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    // Leave while walking, with frames the host never acknowledged.
+    for _ in 0..60 {
+        set_forward(&mut client, 1.0);
+        round(&mut host, &mut client);
+    }
+    stop_joining(client.world_mut());
+    pump_until(
+        &mut host,
+        &mut client,
+        "the host to drop the seat",
+        |h, _| player_ids(h) == [0],
+    );
+    start_joining(client.world_mut(), host_addr(&host), "Tester".into()).expect("rejoin");
+    wait_joined(&mut host, &mut client);
+    // No frame of the old session is sent or replayed (well inside `INPUT_HISTORY`).
+    let seq = client.world().resource::<NetClient>().seq;
+    let history = &client.world().resource::<InputHistory>().0;
+    assert!(
+        history.iter().all(|f| f.seq <= seq),
+        "old frames {:?} past seq {seq}",
+        history.iter().map(|f| f.seq).collect::<Vec<_>>()
+    );
+    let start = pos(&mut host, PlayerId(1));
+    for _ in 0..30 {
+        set_forward(&mut client, 1.0);
+        round(&mut host, &mut client);
+    }
+    set_forward(&mut client, 0.0);
+    pump(&mut host, &mut client, 30);
+    let h = pos(&mut host, PlayerId(1));
+    let moved = h.truncate().distance(start.truncate());
+    assert!(moved > 0.5, "the host's player moved {moved}");
+    let c = local_pos(&mut client);
+    assert!(h.distance(c) < 0.05, "host {h} client {c}");
+}
+
+#[test]
+fn steady_walking_needs_no_corrections() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 10);
+    let mut checked = 0;
+    for _ in 0..120 {
+        set_forward(&mut client, 1.0);
+        let before = client.world().resource::<NetClient>().last_tick;
+        round(&mut host, &mut client);
+        if client.world().resource::<NetClient>().last_tick != before {
+            let last = client.world().resource::<CorrectionOffset>().last;
+            assert!(last < 0.01, "a correction of {last} m");
+            checked += 1;
+        }
+    }
+    assert!(checked > 30, "only {checked} snapshots");
+}
+
+/// A joined client that also runs the camera (scripted: no keyboard or mouse), both apps on a
+/// 60 Hz frame clock so frames have a duration and each runs one fixed tick.
+fn camera_pair() -> (App, App) {
+    let mut host = host_app("test_yard.ron");
+    let mut client = client_with(|app| {
+        app.add_plugins(PlayerControlPlugin { scripted: true });
+    });
+    start_joining(client.world_mut(), host_addr(&host), "Tester".into()).expect("client");
+    wait_joined(&mut host, &mut client);
+    let frame = || TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0));
+    host.insert_resource(frame());
+    client.insert_resource(frame());
+    for _ in 0..10 {
+        frame_round(&mut host, &mut client);
+    }
+    (host, client)
+}
+
+/// One frame of both apps on the frame clock (FixedUpdate runs from the clock).
+fn frame_round(host: &mut App, client: &mut App) {
+    host.update();
+    client.update();
+    std::thread::sleep(Duration::from_millis(1));
+}
+
+fn camera_pos(client: &mut App) -> Vec3 {
+    let mut q = client
+        .world_mut()
+        .query_filtered::<&Transform, With<PlayerCamera>>();
+    q.single(client.world()).unwrap().translation
+}
+
+/// Teleports the host's player 1 by `dx` and runs frames until its snapshot is in; returns the
+/// camera before the move and on the frame the snapshot landed.
+fn camera_on_correction(host: &mut App, client: &mut App, dx: f32) -> (Vec3, Vec3) {
+    let before = camera_pos(client);
+    teleport(host, dx);
+    let tick = host.world().resource::<NetHost>().tick;
+    for _ in 0..300 {
+        frame_round(host, client);
+        if client
+            .world()
+            .resource::<NetClient>()
+            .last_tick
+            .is_some_and(|t| t > tick)
+        {
+            return (before, camera_pos(client));
+        }
+    }
+    panic!("no snapshot after the move");
+}
+
+#[test]
+fn a_small_correction_slides_the_camera() {
+    let (mut host, mut client) = camera_pair();
+    let (before, first) = camera_on_correction(&mut host, &mut client, 0.3);
+    assert!(
+        first.distance(before) < 0.05,
+        "the camera jumped {}",
+        first.distance(before)
+    );
+    let mut moved = 0.0;
+    for _ in 0..10 {
+        frame_round(&mut host, &mut client);
+        moved = camera_pos(&mut client).distance(before);
+    }
+    assert!((moved - 0.3).abs() < 0.01, "the camera moved {moved}");
+}
+
+#[test]
+fn a_teleport_snaps_the_camera() {
+    let (mut host, mut client) = camera_pair();
+    let (before, first) = camera_on_correction(&mut host, &mut client, 3.0);
+    let jump = first.distance(before);
+    assert!((jump - 3.0).abs() < 0.05, "the camera jumped {jump}");
 }

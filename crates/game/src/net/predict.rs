@@ -1,7 +1,12 @@
 //! Client-side prediction: the client's own player moves and shoots on the tick it is told to,
 //! without waiting for the host. Every tick's controls go into [`InputHistory`]; when a snapshot
 //! arrives, [`reconcile`] takes the host's state of the player and replays the frames the host
-//! has not applied yet on top of it.
+//! has not applied yet on top of it. The camera hides the jump a small correction makes with a
+//! [`CorrectionOffset`] that fades out; the simulated body takes the host's state at once.
+//!
+//! Only movement and the arsenal are predicted. The jetpack, medkit and night-vision taps are
+//! the host's to apply (`use_inventory`): prediction and replay step with the inventory of the
+//! last snapshot, so a jetpack switched on flies here once a snapshot says it is on.
 
 use std::collections::VecDeque;
 
@@ -33,13 +38,50 @@ use crate::player::{
 /// Most frames [`InputHistory`] keeps: two seconds at the 60 Hz tick.
 pub const INPUT_HISTORY: usize = 128;
 
-/// A correction at least this far (metres) moves the camera at once; a smaller one keeps
-/// [`PrevFeet`] so the camera eases onto it.
-pub const SNAP_DISTANCE: f32 = 0.25;
+/// A correction farther than this (metres) is a teleport, not an error: the camera snaps.
+pub const CORRECTION_SNAP: f32 = 1.0;
+
+/// Rate (1/s) at which [`CorrectionOffset`] fades: under 1 % left after 92 ms.
+pub const CORRECTION_EASE_RATE: f32 = 50.0;
 
 /// The local player's frames the host has not acknowledged yet, oldest first.
 #[derive(Resource, Default)]
 pub struct InputHistory(pub VecDeque<InputFrame>);
+
+/// Where the camera draws the local player relative to its simulated body (core metres): a
+/// correction moves the body at once and this by the opposite, so the view slides onto the new
+/// spot as it fades ([`CorrectionOffset::fade`]). Never added to the body itself.
+#[derive(Resource, Default, Debug)]
+pub struct CorrectionOffset {
+    pub offset: Vec3,
+    /// The length of the last correction (metres), for tests and debugging.
+    pub last: f32,
+}
+
+impl CorrectionOffset {
+    /// Takes a correction from `predicted` to `corrected`: a small one adds to the offset, one
+    /// past [`CORRECTION_SNAP`] clears it.
+    pub fn correct(&mut self, predicted: Vec3, corrected: Vec3) {
+        let error = predicted - corrected;
+        self.last = error.length();
+        self.offset = if self.last > CORRECTION_SNAP {
+            Vec3::ZERO
+        } else {
+            self.offset + error
+        };
+    }
+
+    /// Fades the offset over a frame of `dt` seconds, frame-rate independent.
+    pub fn fade(&mut self, dt: f32) {
+        self.offset *= (-CORRECTION_EASE_RATE * dt).exp();
+    }
+}
+
+/// Forgets the prediction of a session: a new one starts its frames at seq 1 again.
+pub fn reset_prediction(world: &mut World) {
+    world.insert_resource(InputHistory::default());
+    world.insert_resource(CorrectionOffset::default());
+}
 
 /// What every predicted step reads besides the player.
 struct StepCtx<'a> {
@@ -60,7 +102,8 @@ struct Predicted<'a> {
 }
 
 /// One tick of `frame` for the local player, as the host steps it: movement, then the arsenal
-/// (never an attack: the host's shot is the one that hits). Returns the arsenal's events.
+/// (never an attack: the host's shot is the one that hits). Use, medkit, jetpack and
+/// night-vision taps are left to the host. Returns the arsenal's events.
 fn step_local(ctx: &StepCtx, frame: &InputFrame, me: Predicted, rng: &mut Rng) -> Vec<WeaponEvent> {
     let mut input = PendingInput::default();
     let mut look = Look {
@@ -199,8 +242,9 @@ pub fn predict_local(
 
 /// Takes the host's state of the local player from `snap` (the newest snapshot, on arrival):
 /// frames up to its `ack` leave the history, the rest are replayed on top of it with their
-/// events discarded (they already played when predicted). A correction under
-/// [`SNAP_DISTANCE`] keeps [`PrevFeet`], a larger one moves the camera at once.
+/// events discarded (they already played when predicted). The difference to the prediction
+/// goes into [`CorrectionOffset`]. Inventory taps in the replayed frames are not replayed (the
+/// host applies them; see the module docs).
 pub fn reconcile(world: &mut World, snap: &PlayerSnap) {
     {
         let mut history = world.resource_mut::<InputHistory>();
@@ -244,7 +288,9 @@ pub fn reconcile(world: &mut World, snap: &PlayerSnap) {
             step_local(&ctx, frame, me, &mut rng);
         }
     }
-    let snap_camera = body.pos.distance(predicted) >= SNAP_DISTANCE;
+    world
+        .get_resource_or_init::<CorrectionOffset>()
+        .correct(predicted, body.pos);
     let mut entity = world.entity_mut(e);
     entity.insert((
         PlayerBody(body),
@@ -252,10 +298,41 @@ pub fn reconcile(world: &mut World, snap: &PlayerSnap) {
         PlayerArsenal(arsenal),
         PlayerInventory(snap.inventory),
     ));
-    if snap_camera {
-        entity.insert(PrevFeet(body.pos));
-    }
     if let Some(mut inv) = entity.get_mut::<Inventory>() {
         inv.keys = snap.keys;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_corrections_add_up_and_a_teleport_snaps() {
+        let mut c = CorrectionOffset::default();
+        c.correct(Vec3::new(0.3, 0.0, 0.0), Vec3::ZERO);
+        c.correct(Vec3::new(0.0, 0.2, 0.0), Vec3::ZERO);
+        assert!((c.offset - Vec3::new(0.3, 0.2, 0.0)).length() < 1e-6);
+        assert!((c.last - 0.2).abs() < 1e-6);
+        c.correct(Vec3::new(3.0, 0.0, 0.0), Vec3::ZERO);
+        assert_eq!(c.offset, Vec3::ZERO);
+        assert!((c.last - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_offset_fades_in_100_ms_at_any_frame_rate() {
+        let fade = |frames: u32| {
+            let mut c = CorrectionOffset {
+                offset: Vec3::X,
+                last: 1.0,
+            };
+            for _ in 0..frames {
+                c.fade(0.1 / frames as f32);
+            }
+            c.offset.x
+        };
+        let (slow, fast) = (fade(6), fade(24));
+        assert!(slow < 0.01, "{slow}");
+        assert!((slow - fast).abs() < 1e-5, "{slow} vs {fast}");
     }
 }
