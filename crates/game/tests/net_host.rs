@@ -22,10 +22,11 @@ use rr_game::combat::{
 use rr_game::flow::{FlowPlugin, LevelFile, restart_level};
 use rr_game::level::CurrentMap;
 use rr_game::level::load_map;
+use rr_game::mechanics::use_key;
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::net::host::{
-    HELLO_TIMEOUT, MAX_INPUT_QUEUE, NetHost, NetHostPlugin, NetIdentity, SNAPSHOT_EVERY,
-    start_hosting,
+    HELLO_TIMEOUT, MAX_INPUT_QUEUE, NetHost, NetHostPlugin, NetIdentity, QUEUE_SLACK,
+    SNAPSHOT_EVERY, apply_remote_input, start_hosting,
 };
 use rr_game::player::{Look, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
 use rr_net::*;
@@ -624,14 +625,15 @@ fn applied(app: &mut App, peer: &mut Peer, n: usize) -> Vec<u32> {
 fn redundant_frames_apply_once_each() {
     let mut app = host_app();
     let mut peer = join(&mut app, "Tester");
-    peer.send(&ClientMsg::Input((1..=4).map(marked).collect()));
-    peer.send(&ClientMsg::Input((2..=5).map(marked).collect()));
+    // Four frames in all: not so deep that the queue drains past one.
+    peer.send(&ClientMsg::Input((1..=3).map(marked).collect()));
+    peer.send(&ClientMsg::Input((2..=4).map(marked).collect()));
     std::thread::sleep(Duration::from_millis(10));
-    assert_eq!(applied(&mut app, &mut peer, 12), [1, 2, 3, 4, 5]);
-    pump_until(&mut app, &mut [&mut peer], "a snapshot acking 5", |_, p| {
+    assert_eq!(applied(&mut app, &mut peer, 12), [1, 2, 3, 4]);
+    pump_until(&mut app, &mut [&mut peer], "a snapshot acking 4", |_, p| {
         p[0].snapshots()
             .last()
-            .is_some_and(|(_, s)| s.players[1].ack == 5)
+            .is_some_and(|(_, s)| s.players[1].ack == 4)
     });
 }
 
@@ -669,7 +671,121 @@ fn queue_is_capped() {
     let acks = applied(&mut app, &mut peer, 30);
     assert!(acks.len() <= MAX_INPUT_QUEUE, "{acks:?}");
     assert_eq!(acks.last(), Some(&20), "{acks:?}");
-    assert!(acks.windows(2).all(|w| w[1] == w[0] + 1), "{acks:?}");
+    assert!(
+        acks[0] > 20 - MAX_INPUT_QUEUE as u32,
+        "the oldest went: {acks:?}"
+    );
+    assert!(acks.windows(2).all(|w| w[1] > w[0]), "{acks:?}");
+}
+
+/// One-shot input the host applied to player 1 this tick, taken so nothing else acts on it.
+#[derive(Resource, Default, Debug)]
+struct Applied {
+    /// The `buttons` bit of each tap applied.
+    taps: Vec<u16>,
+    selects: Vec<WeaponId>,
+    cycle: i32,
+}
+
+fn record_applied(mut applied: ResMut<Applied>, mut q: Query<(&Player, &mut PendingInput)>) {
+    let Some((_, mut input)) = q.iter_mut().find(|(p, _)| p.id == PlayerId(1)) else {
+        return;
+    };
+    let input = &mut *input;
+    for (bit, latch) in [
+        (buttons::USE, &mut input.use_pressed),
+        (buttons::FIRE_PRESSED, &mut input.fire_pressed),
+        (buttons::RELOAD, &mut input.reload),
+        (buttons::KICK, &mut input.kick),
+        (buttons::MEDKIT, &mut input.use_medkit),
+        (buttons::JETPACK, &mut input.toggle_jetpack),
+        (buttons::NIGHT_VISION, &mut input.toggle_nv),
+    ] {
+        if std::mem::take(latch) {
+            applied.taps.push(bit);
+        }
+    }
+    if let Some(w) = input.select.take() {
+        applied.selects.push(w);
+    }
+    applied.cycle += std::mem::take(&mut input.cycle);
+}
+
+fn depth(app: &App) -> usize {
+    app.world().resource::<NetHost>().seats[0].queue.len()
+}
+
+#[test]
+fn a_burst_drains_and_keeps_its_taps() {
+    let mut app = host_app();
+    app.init_resource::<Applied>().add_systems(
+        FixedUpdate,
+        record_applied.after(apply_remote_input).before(use_key),
+    );
+    let mut peer = join(&mut app, "Tester");
+    // A burst of ten after a stall: past the cap, every one with a one-shot of its own.
+    let taps = [
+        buttons::USE,
+        buttons::FIRE_PRESSED,
+        buttons::RELOAD,
+        buttons::KICK,
+        buttons::MEDKIT,
+        buttons::JETPACK,
+        buttons::NIGHT_VISION,
+    ];
+    let burst: Vec<InputFrame> = (1..=10u32)
+        .map(|seq| {
+            let mut f = marked(seq);
+            match seq {
+                1 => f.select = Some(WeaponId::Shotgun),
+                2..=8 => f.buttons = taps[seq as usize - 2],
+                9 => f.select = Some(WeaponId::Pistol),
+                _ => f.cycle = 1,
+            }
+            if seq == 1 {
+                f.cycle = 1;
+            }
+            f
+        })
+        .collect();
+    for part in burst.chunks(INPUT_REDUNDANCY) {
+        peer.send(&ClientMsg::Input(part.to_vec()));
+    }
+    std::thread::sleep(Duration::from_millis(10));
+    let mut deepest = Vec::new();
+    for seq in 11..=40 {
+        pump(&mut app, &mut [&mut peer]);
+        deepest.push(depth(&app));
+        // Then one frame a tick, as a client sends them.
+        input(&mut peer, marked(seq));
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(
+        deepest[0],
+        MAX_INPUT_QUEUE - 1,
+        "the burst was queued: {deepest:?}"
+    );
+    let back = deepest
+        .iter()
+        .position(|&d| d <= QUEUE_SLACK)
+        .expect("the queue drains");
+    assert!(back < 20, "drained after {back} ticks: {deepest:?}");
+    assert!(
+        deepest[back..].iter().all(|&d| d <= QUEUE_SLACK),
+        "stays drained: {deepest:?}"
+    );
+    let applied = std::mem::take(&mut *app.world_mut().resource_mut::<Applied>());
+    let mut got = applied.taps.clone();
+    got.sort();
+    let mut want = taps.to_vec();
+    want.sort();
+    assert_eq!(got, want, "each tap once");
+    assert_eq!(applied.selects, [WeaponId::Shotgun, WeaponId::Pistol]);
+    assert_eq!(applied.cycle, 2);
+    for _ in 0..5 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    assert_eq!(ack(&app), 40);
 }
 
 #[test]
