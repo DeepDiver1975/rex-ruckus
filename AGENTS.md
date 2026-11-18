@@ -131,6 +131,13 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
   `Load` to the clients. Until PR 6 relays events, a client makes up `GlassBroken`, `LightBroken`
   and `ActorSpawned` from what a snapshot changed (`net/client.rs`), so the visuals follow.
 - Bump `rr_net::PROTOCOL_VERSION` whenever a wire type or any snapshot type (`rr_core::snapshot` and what it embeds) changes shape; a host refuses a client with another version.
+- A co-op client runs two clocks: its own player is predicted now (`net/predict.rs`), everything
+  else is drawn `INTERP_DELAY` (6) ticks behind the newest snapshot (`net/interp.rs`'s `Timeline`).
+  Relayed events are released into `FxQueue` right after their tick's snapshot is applied, never
+  on arrival, and the local player's relayed weapon events are dropped (prediction played them).
+  Events and snapshots at or before the last `Load` tick are the old run's and are dropped.
+- Every relayed event passes `rr_core::events::*_event_fits` against the client's world before
+  any reader sees it; a new event that carries an index needs a check there.
 - `Automap` is indexed by wall: rebuild it whenever `CurrentMap` changes (`SpawnLevel` does).
 - The Hive Queen (`HiveQueen`) is the second boss. Her moves are data: a phase's `burrow` and
   `pound` and the def's `minions` (Slashers, live cap per skill via `Combat::skill`) in

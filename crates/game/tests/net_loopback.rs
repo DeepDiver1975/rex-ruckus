@@ -7,29 +7,35 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::actors::hurt;
+use rr_core::combat::{CombatEvent, PendingBlast, Via};
 use rr_core::defs::Defs;
+use rr_core::defs::{SplashDef, WeaponId};
 use rr_core::difficulty::Difficulty;
+use rr_core::explosion::Blast;
 use rr_core::fixtures::combat_room;
 use rr_core::players::PlayerId;
+use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_core::rng::Rng;
 use rr_core::snapshot::Snapshot;
+use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{CombatSimPlugin, FxQueue, GameDefs, LevelCombat, insert_defs};
 use rr_game::flow::{FlowPlugin, LevelFile, LevelRuns, LevelSource, LocalSeat, restart_level};
 use rr_game::level::{CurrentMap, load_map};
+use rr_game::mechanics::HudMessage;
 use rr_game::mechanics::{DirtySectors, LevelMechanics, MechanicsSimPlugin, insert_level};
 use rr_game::net::NetMode;
 use rr_game::net::client::stop_joining;
 use rr_game::net::client::{
-    NOT_UNDERSTOOD, NetClient, NetClientPlugin, NetNotice, client_apply, client_handle,
-    start_joining,
+    NOT_UNDERSTOOD, NetClient, NetClientPlugin, NetNotice, client_handle, start_joining,
 };
 use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity, start_hosting};
+use rr_game::net::interp::{INTERP_DELAY, Timeline};
 use rr_game::net::predict::{CorrectionOffset, InputHistory, reconcile};
 use rr_game::player::{
     LocalPlayer, PendingInput, Player, PlayerBody, PlayerCamera, PlayerControlPlugin,
     PlayerSimPlugin, PrevFeet,
 };
-use rr_net::{InputFrame, Load, ServerMsg, buttons};
+use rr_net::{InputFrame, Load, ServerMsg, TickEvents, buttons};
 
 fn sim_plugins(app: &mut App) {
     app.add_plugins((
@@ -148,6 +154,16 @@ fn local_pos(app: &mut App) -> Vec3 {
     q.single(app.world()).unwrap().0.pos
 }
 
+/// The tick of the newest snapshot the client holds: it corrects the local player on arrival,
+/// [`INTERP_DELAY`] ticks before the rest of the world is drawn at it.
+fn newest_held(app: &App) -> Option<u32> {
+    app.world()
+        .resource::<Timeline>()
+        .snaps
+        .back()
+        .map(|(_, s)| s.tick)
+}
+
 fn notice(app: &App) -> Option<String> {
     app.world().resource::<NetNotice>().0.clone()
 }
@@ -244,31 +260,21 @@ fn at_rest(app: &mut App) -> bool {
 }
 
 #[test]
-fn interpolation_rests_between_snapshots() {
+fn interpolation_rests_without_a_next_snapshot() {
     let mut host = host_app("combat_arena.ron");
     let mut client = joined(&mut host);
-    let (mut stepped, mut rested) = (0, 0);
-    let mut applied_before = false;
-    for _ in 0..120 {
+    for _ in 0..30 {
         // The host walks: its player is remote on the client, so snapshots move it.
         set_forward(&mut host, 1.0);
-        let before = client.world().resource::<NetClient>().last_tick;
         round(&mut host, &mut client);
-        let applied = client.world().resource::<NetClient>().last_tick != before;
-        if applied && !at_rest(&mut client) {
-            stepped += 1;
-        } else if !applied && applied_before {
-            assert!(
-                at_rest(&mut client),
-                "a tick without a snapshot replays the step"
-            );
-            rested += 1;
-        }
-        applied_before = applied;
+    }
+    // The host falls silent: the client draws past every snapshot it holds.
+    for _ in 0..(2 * INTERP_DELAY as usize + 4) {
+        client_tick(&mut client);
     }
     assert!(
-        stepped > 0 && rested > 0,
-        "stepped {stepped} rested {rested}"
+        at_rest(&mut client),
+        "a tick without a next snapshot replays the step"
     );
 }
 
@@ -338,19 +344,19 @@ fn stale_snapshots_are_dropped() {
         &host.world().resource::<LevelSource>().0,
         players,
     );
-    let before_actor = client.world().resource::<LevelCombat>().0.actors[0]
-        .body
-        .pos;
-    let before_me = local_pos(&mut client);
-    client.world_mut().resource_mut::<NetClient>().pending = Some((PlayerId(1), snap));
-    client.world_mut().run_system_cached(client_apply).unwrap();
-    assert_eq!(
-        client.world().resource::<LevelCombat>().0.actors[0]
-            .body
-            .pos,
-        before_actor
+    let held = |c: &App| -> Vec<u32> {
+        let t = c.world().resource::<Timeline>();
+        t.snaps.iter().map(|(_, s)| s.tick).collect()
+    };
+    let before = held(&client);
+    client_handle(
+        client.world_mut(),
+        ServerMsg::Snapshot {
+            you: PlayerId(1),
+            snap,
+        },
     );
-    assert_eq!(local_pos(&mut client), before_me);
+    assert_eq!(held(&client), before, "an old snapshot is not held");
     assert_eq!(client.world().resource::<NetClient>().last_tick, Some(last));
 }
 
@@ -484,13 +490,19 @@ fn glass_broken_on_host_remeshes_on_client() {
         let map = &host.world().resource::<CurrentMap>().0;
         (map.walls[wall].sector, map.walls[wall].next_sector.unwrap())
     };
-    {
-        let world = host.world_mut();
-        world.resource_scope(|world, mut combat: Mut<LevelCombat>| {
-            let mut map = world.resource_mut::<CurrentMap>();
-            assert!(!combat.0.destruct.break_glass(&mut map.0, wall).is_empty());
-        });
-    }
+    // A blast at the pane: the host's combat breaks it and relays `GlassBroken`.
+    let center = {
+        let map = &host.world().resource::<CurrentMap>().0;
+        let w = &map.walls[wall];
+        let mid = (w.a + w.b) / 2.0;
+        let inward = (w.b - w.a).perp().normalize() * 0.3;
+        let at = [mid + inward, mid - inward]
+            .into_iter()
+            .find(|p| map.find_sector(*p, None) == Some(side))
+            .expect("a spot beside the pane");
+        at.extend(map.sectors[side].floor_z + 1.0)
+    };
+    blast(&mut host, center, side, 2.0, 0);
     client.world_mut().resource_mut::<DirtySectors>().0.clear();
     let panes = |c: &App| -> Vec<usize> {
         c.world()
@@ -498,7 +510,7 @@ fn glass_broken_on_host_remeshes_on_client() {
             .combat
             .iter()
             .filter_map(|e| match e {
-                rr_core::combat::CombatEvent::GlassBroken { wall, .. } => Some(*wall),
+                CombatEvent::GlassBroken { wall, .. } => Some(*wall),
                 _ => None,
             })
             .collect()
@@ -510,10 +522,36 @@ fn glass_broken_on_host_remeshes_on_client() {
     let twin = host.world().resource::<CurrentMap>().0.walls[wall]
         .next_wall
         .unwrap();
-    assert_eq!(panes(&client), [wall.min(twin)]);
+    // The blast may break a neighbouring pane too; each pane is reported once.
+    let got = panes(&client);
+    assert!(got.contains(&wall.min(twin)), "{got:?}");
+    assert!(!got.contains(&wall.max(twin)), "{got:?}");
+    let mut once = got.clone();
+    once.sort();
+    once.dedup();
+    assert_eq!(once.len(), got.len(), "{got:?}");
     let dirty = &client.world().resource::<DirtySectors>().0;
     assert!(dirty.contains(&side) && dirty.contains(&back), "{dirty:?}");
     assert!(!client.world().resource::<CurrentMap>().0.walls[wall].glass);
+}
+
+/// Queues a blast on the host's combat, going off on its next tick.
+fn blast(host: &mut App, center: Vec3, sector: usize, radius: f32, damage: i32) {
+    let combat = &mut host.world_mut().resource_mut::<LevelCombat>().0;
+    combat.pending_blasts.push(PendingBlast {
+        fuse: 0.0,
+        blast: Blast {
+            center,
+            sector,
+            splash: SplashDef {
+                radius,
+                damage,
+                self_scale: 1.0,
+            },
+            owner: Shooter::World,
+        },
+        via: Via::Direct,
+    });
 }
 
 /// One client tick alone: no host round, so nothing can have come back from it.
@@ -726,9 +764,9 @@ fn steady_walking_needs_no_corrections() {
     let mut checked = 0;
     for _ in 0..120 {
         set_forward(&mut client, 1.0);
-        let before = client.world().resource::<NetClient>().last_tick;
+        let before = newest_held(&client);
         round(&mut host, &mut client);
-        if client.world().resource::<NetClient>().last_tick != before {
+        if newest_held(&client) != before {
             let last = client.world().resource::<CorrectionOffset>().last;
             assert!(last < 0.01, "a correction of {last} m");
             checked += 1;
@@ -777,12 +815,7 @@ fn camera_on_correction(host: &mut App, client: &mut App, dx: f32) -> (Vec3, Vec
     let tick = host.world().resource::<NetHost>().tick;
     for _ in 0..300 {
         frame_round(host, client);
-        if client
-            .world()
-            .resource::<NetClient>()
-            .last_tick
-            .is_some_and(|t| t > tick)
-        {
+        if newest_held(client).is_some_and(|t| t > tick) {
             return (before, camera_pos(client));
         }
     }
@@ -812,4 +845,267 @@ fn a_teleport_snaps_the_camera() {
     let (before, first) = camera_on_correction(&mut host, &mut client, 3.0);
     let jump = first.distance(before);
     assert!((jump - 3.0).abs() < 0.05, "the camera jumped {jump}");
+}
+
+/// Turns the host's own player to `angle` (radians, 0 = east).
+fn face(host: &mut App, angle: f32) {
+    let mut q = host
+        .world_mut()
+        .query_filtered::<&mut rr_game::player::Look, With<LocalPlayer>>();
+    q.single_mut(host.world_mut()).unwrap().angle = angle;
+}
+
+#[test]
+fn remote_players_move_smoothly() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    // East-north-east: clear of the pillar and of player 1, south-east of the start.
+    face(&mut host, 0.3);
+    for _ in 0..20 {
+        set_forward(&mut host, 1.0);
+        round(&mut host, &mut client);
+    }
+    let mut last = pos(&mut client, PlayerId(0)).x;
+    for i in 0..20 {
+        set_forward(&mut host, 1.0);
+        round(&mut host, &mut client);
+        let x = pos(&mut client, PlayerId(0)).x;
+        assert!(x > last, "tick {i}: x {x} after {last}");
+        last = x;
+    }
+}
+
+#[test]
+fn world_is_drawn_behind_by_the_delay() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 60);
+    let t = client.world().resource::<Timeline>();
+    let render = i64::from(t.render.expect("a render tick"));
+    let newest = i64::from(newest_held(&client).unwrap());
+    let behind = newest - render;
+    assert!(
+        (behind - i64::from(INTERP_DELAY)).abs() <= 2,
+        "render {render} newest {newest}"
+    );
+}
+
+fn explosions(client: &App) -> usize {
+    client
+        .world()
+        .resource::<FxQueue>()
+        .combat
+        .iter()
+        .filter(|e| matches!(e, CombatEvent::Explosion { .. }))
+        .count()
+}
+
+#[test]
+fn explosion_reaches_the_client_once() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 10);
+    const ROCKET: u32 = 999_999;
+    {
+        let start = pos(&mut host, PlayerId(0));
+        let sector = {
+            let mut q = host.world_mut().query::<(&Player, &PlayerBody)>();
+            q.iter(host.world())
+                .find(|(p, _)| p.id == PlayerId(0))
+                .unwrap()
+                .1
+                .0
+                .sector
+        };
+        let at = start + Vec3::Z;
+        // North, into the courtyard's wall.
+        host.world_mut()
+            .resource_mut::<LevelCombat>()
+            .0
+            .projectiles
+            .push(Projectile {
+                id: ROCKET,
+                pos: at,
+                prev: at,
+                vel: Vec3::new(0.0, 20.0, 0.0),
+                sector,
+                radius: 0.1,
+                damage: 50,
+                owner: Shooter::Player(PlayerId(0)),
+                targets: Targets::Actors,
+                life: 5.0,
+                gravity: 0.0,
+                bounce: None,
+                remote: false,
+                splash: Some(SplashDef {
+                    radius: 2.0,
+                    damage: 50,
+                    self_scale: 1.0,
+                }),
+                resting: false,
+            });
+    }
+    let held = |c: &App| {
+        c.world()
+            .resource::<LevelCombat>()
+            .0
+            .projectiles
+            .iter()
+            .any(|p| p.id == ROCKET)
+    };
+    let (mut seen, mut booms) = (false, 0);
+    for _ in 0..120 {
+        round(&mut host, &mut client);
+        seen |= held(&client);
+        let n = explosions(&client);
+        if n > 0 {
+            assert!(
+                !held(&client),
+                "the blast came before the rocket's last snapshot"
+            );
+        }
+        booms += n;
+    }
+    assert!(seen, "the rocket never reached the client");
+    assert_eq!(booms, 1);
+}
+
+#[test]
+fn events_follow_their_snapshot() {
+    let mut host = host_app("combat_arena.ron");
+    let mut client = joined(&mut host);
+    let body = host.world().resource::<LevelCombat>().0.actors[0].body;
+    blast(&mut host, body.pos + Vec3::Z, body.sector, 1.5, 1000);
+    let mut seen = false;
+    for _ in 0..120 {
+        round(&mut host, &mut client);
+        let killed = client
+            .world()
+            .resource::<FxQueue>()
+            .combat
+            .iter()
+            .any(|e| matches!(e, CombatEvent::ActorKilled { actor: 0, .. }));
+        if killed {
+            assert!(
+                !client.world().resource::<LevelCombat>().0.actors[0].alive(),
+                "the kill came before its snapshot"
+            );
+            seen = true;
+        }
+    }
+    assert!(seen, "the kill never reached the client");
+}
+
+/// Hands the client `ev` as if the host sent it.
+fn inject(client: &mut App, ev: TickEvents) {
+    client_handle(client.world_mut(), ServerMsg::Events(ev));
+}
+
+fn hurt_event(actor: usize, amount: i32) -> CombatEvent {
+    CombatEvent::ActorHurt { actor, amount }
+}
+
+#[test]
+fn bad_event_is_dropped() {
+    let mut host = host_app("combat_arena.ron");
+    let mut client = joined(&mut host);
+    let tick = newest_held(&client).unwrap() + 1;
+    inject(
+        &mut client,
+        TickEvents {
+            tick,
+            combat: vec![hurt_event(9999, 5), hurt_event(0, 7)],
+            weapon: vec![],
+            mech: vec![],
+        },
+    );
+    let has = |c: &App, e: &CombatEvent| c.world().resource::<FxQueue>().combat.contains(e);
+    let mut good = false;
+    for _ in 0..60 {
+        round(&mut host, &mut client);
+        assert!(!has(&client, &hurt_event(9999, 5)), "an event for no actor");
+        good |= has(&client, &hurt_event(0, 7));
+    }
+    assert!(good, "the fitting event of the same tick was released");
+}
+
+#[test]
+fn old_run_events_are_dropped() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    let runs = client.world().resource::<LevelRuns>().0;
+    restart_level(host.world_mut());
+    pump_until(&mut host, &mut client, "the reload", |_, c| {
+        c.world().resource::<LevelRuns>().0 > runs
+    });
+    let floor = client.world().resource::<Timeline>().floor;
+    let boom = |radius: f32| CombatEvent::Explosion {
+        point: Vec3::new(3.0, 3.0, 1.0),
+        radius,
+    };
+    for (tick, radius) in [(floor - 1, 1.25), (floor, 1.5), (floor + 1, 1.75)] {
+        inject(
+            &mut client,
+            TickEvents {
+                tick,
+                combat: vec![boom(radius)],
+                weapon: vec![],
+                mech: vec![],
+            },
+        );
+    }
+    let has = |c: &App, e: &CombatEvent| c.world().resource::<FxQueue>().combat.contains(e);
+    let mut new_run = false;
+    for _ in 0..60 {
+        round(&mut host, &mut client);
+        assert!(!has(&client, &boom(1.25)) && !has(&client, &boom(1.5)));
+        new_run |= has(&client, &boom(1.75));
+    }
+    assert!(new_run, "an event of the new run was released");
+}
+
+#[test]
+fn hud_line_is_shown() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    {
+        let mut net = host.world_mut().resource_mut::<NetHost>();
+        let key = net.seats[0].client;
+        net.host.send(key, &ServerMsg::Hud("Got it".into()));
+    }
+    pump_until(&mut host, &mut client, "the HUD line", |_, c| {
+        c.world().resource::<HudMessage>().text == "Got it"
+    });
+}
+
+#[test]
+fn own_weapon_events_not_doubled() {
+    let mut host = host_app("test_yard.ron");
+    let mut client = joined(&mut host);
+    let me = local_id(&mut client).unwrap();
+    let fire = || WeaponEvent::Fire {
+        weapon: WeaponId::Pistol,
+        dirs: vec![Vec3::X],
+    };
+    let tick = newest_held(&client).unwrap() + 1;
+    inject(
+        &mut client,
+        TickEvents {
+            tick,
+            combat: vec![],
+            weapon: vec![(me, fire()), (PlayerId(0), fire())],
+            mech: vec![],
+        },
+    );
+    let mut partner = false;
+    for _ in 0..60 {
+        round(&mut host, &mut client);
+        assert_eq!(own_fires(&mut client), 0, "a relayed shot of our own");
+        partner |= client
+            .world()
+            .resource::<FxQueue>()
+            .weapon
+            .contains(&(PlayerId(0), fire()));
+    }
+    assert!(partner, "the partner's shot was released");
 }

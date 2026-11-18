@@ -8,6 +8,7 @@ use crate::player::{Look, PendingInput};
 
 pub mod client;
 pub mod host;
+pub mod interp;
 pub mod lobby;
 pub mod predict;
 
