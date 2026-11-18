@@ -245,10 +245,13 @@ fn host_receive(world: &mut World) {
         match event {
             HostEvent::Connected(key) => world.resource_mut::<NetHost>().waiting.push((key, 0.0)),
             HostEvent::Message(key, ClientMsg::Hello(hello)) => greet(world, key, &hello),
-            HostEvent::Message(key, ClientMsg::Input(frame)) => {
+            HostEvent::Message(key, ClientMsg::Input(frames)) => {
                 let mut net = world.resource_mut::<NetHost>();
                 if let Some(k) = net.seat_of(key) {
-                    take_frame(&mut net.seats[k], &frame);
+                    // Oldest first; `take_frame` skips those it already has.
+                    for frame in &frames {
+                        take_frame(&mut net.seats[k], frame);
+                    }
                 }
             }
             HostEvent::Disconnected(key) => leave(world, key),

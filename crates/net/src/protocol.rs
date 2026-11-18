@@ -1,13 +1,26 @@
 //! Wire protocol: messages, encoding and the host's handshake check.
 
+use rr_core::combat::CombatEvent;
 use rr_core::defs::WeaponId;
 use rr_core::difficulty::Difficulty;
+use rr_core::events::{
+    combat_event_finite, combat_event_players_ok, mech_event_finite, weapon_event_fits,
+};
+use rr_core::mechanics::MechEvent;
 use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::snapshot::Snapshot;
+use rr_core::weapons::WeaponEvent;
 use serde::{Deserialize, Serialize};
 
 /// Bump whenever any wire type or snapshot type changes shape.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
+/// Input frames per datagram: the newest plus the ones before it, so a lost datagram costs
+/// nothing.
+pub const INPUT_REDUNDANCY: usize = 4;
+/// Most events of one kind in one [`TickEvents`] (and of combat, weapon and mech together).
+pub const MAX_EVENTS: usize = 256;
+/// Longest HUD line in bytes.
+pub const MAX_HUD: usize = 120;
 /// Netcode protocol id, "RRNCOOP1". Never changes, so a version mismatch always reaches
 /// [`check_hello`] and gets a clear refusal instead of a silent netcode deny.
 pub const NETCODE_PROTOCOL_ID: u64 = 0x5252_4E43_4F4F_5031;
@@ -84,7 +97,8 @@ pub struct Hello {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientMsg {
     Hello(Hello),
-    Input(InputFrame),
+    /// The newest frame last, at most [`INPUT_REDUNDANCY`], seqs strictly increasing.
+    Input(Vec<InputFrame>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -102,12 +116,12 @@ pub struct Load {
     pub tick: u32,
 }
 
-/// Whether `name` is a level file name a peer may ask for: 1-64 bytes of `[a-z0-9_]` then `.ron`.
 /// A player name: 1 to [`MAX_NAME`] bytes, no control characters.
 pub fn valid_player_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_NAME && !name.chars().any(char::is_control)
 }
 
+/// Whether `name` is a level file name a peer may ask for: 1-64 bytes of `[a-z0-9_]` then `.ron`.
 pub fn valid_level_name(name: &str) -> bool {
     match name.strip_suffix(".ron") {
         Some(stem) => {
@@ -129,6 +143,16 @@ pub enum Refusal {
     BadName,
 }
 
+/// What the host's simulation reported in one tick, for the client's sounds, effects and HUD.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TickEvents {
+    pub tick: u32,
+    pub combat: Vec<CombatEvent>,
+    /// Weapon events with the player they belong to.
+    pub weapon: Vec<(PlayerId, WeaponEvent)>,
+    pub mech: Vec<MechEvent>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)] // snapshots dominate by design; messages are short-lived
 pub enum ServerMsg {
@@ -142,6 +166,11 @@ pub enum ServerMsg {
     /// Every player's name, index = `PlayerId`.
     Roster(Vec<String>),
     Load(Load),
+    /// What happened in one host tick (reliable).
+    Events(TickEvents),
+    /// A HUD line for this client only (reliable): at most [`MAX_HUD`] bytes, no control
+    /// characters.
+    Hud(String),
 }
 
 /// A host's LAN announcement.
@@ -202,7 +231,9 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, NetError> {
 }
 
 /// [`decode`] for what clients receive: a snapshot with a NaN or infinity, or one out of
-/// bounds ([`Snapshot::is_sane`], or `you` not a seat in it), is rejected; so are a roster that
+/// bounds ([`Snapshot::is_sane`], or `you` not a seat in it), is rejected; so are an `Events` stream over [`MAX_EVENTS`], with a non-finite float or a
+/// player id past `MAX_PLAYERS`, a `Hud` line over [`MAX_HUD`] bytes or with control
+/// characters, a roster that
 /// is too long or has an over-long name, a `Welcome` to a seat past `MAX_PLAYERS`, and a
 /// `Welcome`/`Load` with a bad level name.
 pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
@@ -227,17 +258,54 @@ pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
         {
             Err(NetError::Invalid)
         }
+        ServerMsg::Events(ev) => check_events(ev).map(|()| msg),
+        ServerMsg::Hud(line) if line.len() > MAX_HUD || line.chars().any(char::is_control) => {
+            Err(NetError::Invalid)
+        }
         _ => Ok(msg),
     }
 }
 
-/// [`decode`] for what the host receives: the host uses it for every datagram. An `Input` with a
-/// NaN or infinity is rejected. Clamping to range lives in [`InputFrame::clamped`], which the
+/// Caps, player ids and finiteness of one tick's events. Indices into the world are the
+/// client's to check.
+fn check_events(ev: &TickEvents) -> Result<(), NetError> {
+    if ev.combat.len() > MAX_EVENTS || ev.weapon.len() > MAX_EVENTS || ev.mech.len() > MAX_EVENTS {
+        return Err(NetError::Invalid);
+    }
+    if !ev.combat.iter().all(combat_event_players_ok)
+        || ev
+            .weapon
+            .iter()
+            .any(|(p, _)| usize::from(p.0) >= MAX_PLAYERS)
+    {
+        return Err(NetError::Invalid);
+    }
+    // `weapon_event_fits` is world-free: finite directions and a pellet cap.
+    if !ev.combat.iter().all(combat_event_finite)
+        || !ev.mech.iter().all(mech_event_finite)
+        || !ev.weapon.iter().all(|(_, e)| weapon_event_fits(e))
+    {
+        return Err(NetError::NonFinite);
+    }
+    Ok(())
+}
+
+/// [`decode`] for what the host receives: the host uses it for every datagram. An `Input` with
+/// more than [`INPUT_REDUNDANCY`] frames or seqs that do not strictly increase is `Invalid`,
+/// one with a NaN or infinity `NonFinite`. Clamping to range lives in [`InputFrame::clamped`], which the
 /// host calls where it applies the input, not here.
 pub fn decode_client(bytes: &[u8]) -> Result<ClientMsg, NetError> {
     let msg: ClientMsg = decode(bytes)?;
     match &msg {
-        ClientMsg::Input(i) if !i.is_finite() => Err(NetError::NonFinite),
+        ClientMsg::Input(frames)
+            if frames.len() > INPUT_REDUNDANCY
+                || frames.windows(2).any(|w| w[0].seq >= w[1].seq) =>
+        {
+            Err(NetError::Invalid)
+        }
+        ClientMsg::Input(frames) if !frames.iter().all(InputFrame::is_finite) => {
+            Err(NetError::NonFinite)
+        }
         _ => Ok(msg),
     }
 }
@@ -286,6 +354,7 @@ mod tests {
     use rr_core::snapshot::{PlayerSnap, Snapshot};
     use rr_core::vitals::Vitals;
     use rr_core::weapons::Arsenal;
+    use rr_core::weapons::WeaponEvent;
 
     const DT: f32 = 1.0 / 60.0;
 
@@ -402,7 +471,7 @@ mod tests {
             select: Some(rr_core::defs::WeaponId::ALL[1]),
             cycle: -1,
         };
-        for m in [ClientMsg::Hello(hello()), ClientMsg::Input(input)] {
+        for m in [ClientMsg::Hello(hello()), ClientMsg::Input(vec![input])] {
             assert_eq!(decode::<ClientMsg>(&encode(&m)).unwrap(), m);
         }
         let servers = [
@@ -515,12 +584,12 @@ mod tests {
             select: None,
             cycle: 0,
         };
-        let good = ClientMsg::Input(frame.clone());
+        let good = ClientMsg::Input(vec![frame.clone()]);
         assert_eq!(decode_client(&encode(&good)).unwrap(), good);
-        let bad = ClientMsg::Input(InputFrame {
+        let bad = ClientMsg::Input(vec![InputFrame {
             forward: f32::NAN,
             ..frame
-        });
+        }]);
         assert!(matches!(
             decode_client(&encode(&bad)),
             Err(NetError::NonFinite)
@@ -538,6 +607,120 @@ mod tests {
         let n = encode(&snap_msg(s.clone())).len();
         eprintln!("undertow snapshot: {} actors, {n} bytes", s.actors.len());
         assert!(n <= SNAPSHOT_BUDGET, "{n} bytes");
+    }
+
+    fn frames(seqs: &[u32]) -> Vec<InputFrame> {
+        seqs.iter()
+            .map(|&seq| InputFrame {
+                seq,
+                forward: 1.0,
+                strafe: 0.0,
+                angle: 0.0,
+                pitch: 0.0,
+                buttons: 0,
+                select: None,
+                cycle: 0,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn input_bounds() {
+        let enc = |f: Vec<InputFrame>| encode(&ClientMsg::Input(f));
+        let ok = ClientMsg::Input(frames(&[1, 2, 3, 4]));
+        assert_eq!(decode_client(&encode(&ok)).unwrap(), ok);
+        assert!(matches!(
+            decode_client(&enc(frames(&[1, 2, 3, 4, 5]))),
+            Err(NetError::Invalid)
+        ));
+        assert!(matches!(
+            decode_client(&enc(frames(&[3, 3]))),
+            Err(NetError::Invalid)
+        ));
+        assert!(matches!(
+            decode_client(&enc(frames(&[5, 4]))),
+            Err(NetError::Invalid)
+        ));
+        let mut f = frames(&[1, 2]);
+        f[0].forward = f32::NAN;
+        assert!(matches!(decode_client(&enc(f)), Err(NetError::NonFinite)));
+    }
+
+    fn events(combat: Vec<CombatEvent>) -> ServerMsg {
+        ServerMsg::Events(TickEvents {
+            tick: 5,
+            combat,
+            weapon: vec![],
+            mech: vec![],
+        })
+    }
+
+    fn impact() -> CombatEvent {
+        CombatEvent::Impact {
+            point: Vec3::ONE,
+            normal: Vec3::Z,
+            sector: 0,
+            wall: None,
+        }
+    }
+
+    #[test]
+    fn events_bounds() {
+        let ok = events(vec![impact(); MAX_EVENTS]);
+        assert_eq!(decode_server(&encode(&ok)).unwrap(), ok);
+        assert!(encode(&ok).len() < 8192);
+        assert!(matches!(
+            decode_server(&encode(&events(vec![impact(); MAX_EVENTS + 1]))),
+            Err(NetError::Invalid)
+        ));
+        let nan = events(vec![CombatEvent::Explosion {
+            point: Vec3::new(f32::NAN, 0.0, 0.0),
+            radius: 1.0,
+        }]);
+        assert!(matches!(
+            decode_server(&encode(&nan)),
+            Err(NetError::NonFinite)
+        ));
+        let hurt = events(vec![CombatEvent::PlayerHurt {
+            player: PlayerId(4),
+            amount: 1,
+            from: Vec3::ZERO,
+        }]);
+        assert!(matches!(
+            decode_server(&encode(&hurt)),
+            Err(NetError::Invalid)
+        ));
+        let weapon = |id, dir: Vec3| {
+            ServerMsg::Events(TickEvents {
+                tick: 1,
+                combat: vec![],
+                weapon: vec![(id, WeaponEvent::Kick { dir })],
+                mech: vec![MechEvent::Exit],
+            })
+        };
+        assert!(decode_server(&encode(&weapon(PlayerId(3), Vec3::X))).is_ok());
+        assert!(matches!(
+            decode_server(&encode(&weapon(PlayerId(4), Vec3::X))),
+            Err(NetError::Invalid)
+        ));
+        assert!(matches!(
+            decode_server(&encode(&weapon(PlayerId(0), Vec3::NAN))),
+            Err(NetError::NonFinite)
+        ));
+    }
+
+    #[test]
+    fn hud_bounds() {
+        let hud = |t: &str| encode(&ServerMsg::Hud(t.into()));
+        assert!(decode_server(&hud(&"a".repeat(MAX_HUD))).is_ok());
+        assert!(matches!(
+            decode_server(&hud(&"a".repeat(MAX_HUD + 1))),
+            Err(NetError::Invalid)
+        ));
+        assert!(matches!(
+            decode_server(&hud("a\nb")),
+            Err(NetError::Invalid)
+        ));
     }
 
     #[test]

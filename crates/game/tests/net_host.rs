@@ -227,7 +227,7 @@ fn frame(seq: u32) -> InputFrame {
 }
 
 fn input(peer: &mut Peer, f: InputFrame) {
-    peer.send(&ClientMsg::Input(f));
+    peer.send(&ClientMsg::Input(vec![f]));
 }
 
 #[test]
@@ -373,7 +373,7 @@ fn hostile_input_is_clamped_or_dropped() {
         pitch: f32::NAN,
         ..frame(200)
     };
-    peer.client.send_raw(encode(&ClientMsg::Input(nan)));
+    peer.client.send_raw(encode(&ClientMsg::Input(vec![nan])));
     peer.client.flush();
     for _ in 0..10 {
         pump(&mut app, &mut [&mut peer]);

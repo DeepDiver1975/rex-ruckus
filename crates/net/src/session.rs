@@ -129,6 +129,7 @@ impl Host {
     pub fn send(&mut self, to: ClientKey, msg: &ServerMsg) {
         let ch = match msg {
             ServerMsg::Snapshot { .. } => CH_STATE,
+            // Events and Hud are reliable, like everything else but snapshots.
             _ => CH_CONTROL,
         };
         self.server.send_message(to, ch, encode(msg));

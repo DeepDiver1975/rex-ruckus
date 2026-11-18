@@ -217,6 +217,8 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
                 net.pending = Some((you, snap));
             }
         }
+        // Relayed events and HUD lines are used by a later task; ignored until then.
+        ServerMsg::Events(_) | ServerMsg::Hud(_) => {}
     }
 }
 
@@ -422,7 +424,7 @@ fn client_send_input(
         select: input.select.take(),
         cycle,
     };
-    net.client.send(&ClientMsg::Input(frame));
+    net.client.send(&ClientMsg::Input(vec![frame]));
     net.client.flush();
 }
 

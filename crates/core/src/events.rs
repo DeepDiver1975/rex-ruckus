@@ -69,6 +69,41 @@ pub fn combat_event_fits(e: &CombatEvent, combat: &Combat, map: &Map) -> bool {
     }
 }
 
+/// Whether every float in `e` is finite. Needs no world, so the wire layer can use it.
+pub fn combat_event_finite(e: &CombatEvent) -> bool {
+    match e {
+        CombatEvent::PlayerHurt { from, .. } => finite(*from),
+        CombatEvent::Impact { point, normal, .. } => finite(*point) && finite(*normal),
+        CombatEvent::Explosion { point, radius }
+        | CombatEvent::GroundPound { point, radius, .. } => finite(*point) && radius.is_finite(),
+        _ => true,
+    }
+}
+
+/// Whether every player id `e` names is a seat below `MAX_PLAYERS`. Needs no world.
+pub fn combat_event_players_ok(e: &CombatEvent) -> bool {
+    match e {
+        CombatEvent::PlayerHurt { player, .. }
+        | CombatEvent::PlayerKilled(player)
+        | CombatEvent::HazardBurn { player, .. } => player_ok(*player),
+        CombatEvent::ActorKilled {
+            by: Shooter::Player(p),
+            ..
+        } => player_ok(*p),
+        _ => true,
+    }
+}
+
+/// Whether every float in `e` is finite. Needs no world.
+pub fn mech_event_finite(e: &MechEvent) -> bool {
+    match e {
+        MechEvent::QuakeStarted { strength, duration } => {
+            strength.is_finite() && duration.is_finite()
+        }
+        _ => true,
+    }
+}
+
 /// Whether every index in `e` is in range for this level and every float is finite.
 pub fn mech_event_fits(e: &MechEvent, mech: &Mechanics, map: &Map) -> bool {
     match e {
@@ -251,6 +286,36 @@ mod tests {
             radius: 1.0,
         };
         assert!(combat_event_fits(&ok, &c, &map));
+    }
+
+    #[test]
+    fn world_free_checks() {
+        let nan = Vec3::new(f32::NAN, 0.0, 0.0);
+        assert!(!combat_event_finite(&CombatEvent::Explosion {
+            point: nan,
+            radius: 1.0
+        }));
+        assert!(!combat_event_finite(&CombatEvent::PlayerHurt {
+            player: PlayerId(0),
+            from: nan,
+            amount: 1,
+        }));
+        assert!(combat_event_finite(&CombatEvent::SecretFound));
+        assert!(!mech_event_finite(&MechEvent::QuakeStarted {
+            strength: f32::INFINITY,
+            duration: 1.0
+        }));
+        assert!(mech_event_finite(&MechEvent::Exit));
+        assert!(combat_event_players_ok(&CombatEvent::PlayerKilled(
+            PlayerId(3)
+        )));
+        assert!(!combat_event_players_ok(&CombatEvent::PlayerKilled(
+            PlayerId(4)
+        )));
+        assert!(!combat_event_players_ok(&CombatEvent::ActorKilled {
+            actor: 0,
+            by: Shooter::Player(PlayerId(9)),
+        }));
     }
 
     fn round_trip<T>(v: &T)
