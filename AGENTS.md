@@ -15,7 +15,7 @@ Guidance for AI coding agents (and humans) working on **Rex Ruckus: Meltdown**, 
 | Path | What lives there |
 |---|---|
 | `crates/core` (`rr-core`) | Pure simulation: sector maps, collision, movement, mechanics, combat, actors; triggers, quakes, hazards (`hazard.rs`), gag props (`props.rs`), infighting, boss phases and special moves (`actors/special.rs`), automap (`automap.rs`), world snapshots (`snapshot.rs`: capture and apply of world state; a co-op client applies them and never ticks AI). **No Bevy.** Z-up, metres; headings in radians, 0 = east, CCW. |
-| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals); `src/menu/` holds the menu, pause, options, controls and stats screens, `menu/multiplayer.rs` the co-op screens (Multiplayer, Join, Lobby, NetNotice) and `menu/text_field.rs` their name and address fields. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
+| `crates/game` (`rr-game`, bin `rex-ruckus`) | Bevy front end: rendering, input, HUD, demo playback, `src/automap.rs` (Tab overlay), `src/partners.rs` (co-op partner visuals), `src/coop.rs` (`CoopPlugin`: respawn, shared keys, entry loadouts); `src/menu/` holds the menu, pause, options, controls and stats screens, `menu/multiplayer.rs` the co-op screens (Multiplayer, Join, Lobby, NetNotice) and `menu/text_field.rs` their name and address fields. Convert between core and Bevy coordinates **only** in `src/coords.rs`. |
 | `crates/game/src/net/` | Co-op on the game side: `NetMode` and `apply_frame` (`mod.rs`), `host.rs` (seats, queued remote input, snapshots, relayed events and HUD lines, LAN beacons), `client.rs` (joining, receiving into the `Timeline`, `Load`, seating the players, `NetNotice`), `predict.rs` (the client's own player: sends its input, predicts it now, reconciles with the host's snapshot and eases the camera over a correction), `interp.rs` (`Timeline`: the rest of the world drawn `INTERP_DELAY` ticks behind the newest snapshot, blending between snapshots and releasing relayed events after their snapshot) and `lobby.rs` (the Join screen's `LanGames`). |
 | `crates/net` (`rr-net`) | Co-op wire and socket layer: renet host and client (`session.rs`, `parse_addr`), LAN beacons (`lan.rs`: `BeaconSender`, `LanListener`), protocol constants and messages, postcard encode/decode (`decode_server` also rejects non-finite or out-of-bounds snapshots, a bad seat, an oversized roster and bad level names), `check_hello`, `ServerMsg` `Snapshot{you,snap}`/`Roster`/`Load`/`Events(TickEvents)`/`Hud`/`Play(PlayView)` (events, HUD lines and the host's screen are reliable and bounded by `MAX_EVENTS`/`MAX_HUD`), `ClientMsg::Input(Vec<InputFrame>)` (at most `INPUT_REDUNDANCY` frames, seqs strictly increasing), `valid_level_name`, `InputFrame::clamped`, `NETCODE_PROTOCOL_ID`, the LAN `Beacon`, `InputFrame` and `assets_hash`. Depends on `rr-core` and renet (no Bevy). |
 | `crates/tools` (`rr-tools`) | `validate`, `info`, `render-svg [--ids]` and `build [--check]` for level files. |
@@ -128,6 +128,17 @@ CI uses the latest stable Rust, so its clippy can flag lints an older local tool
 - A co-op client follows the host's screen (`ServerMsg::Play`, sent when it changes and after a
   joiner's `Load`): death, stats and episode-end screens come from the host, only the host continues
   or restarts, and a host restart keeps a client's pause menu open.
+  `PlayView` mirrors the host's play state, so bump `rr_net::PROTOCOL_VERSION` when it changes shape.
+- Co-op rules live in `src/coop.rs` and `CoopPlugin` (headless tests add it themselves). A downed
+  player gets back up after `RESPAWN_SECS` (3 s) at the level start (seat 0 on `player_start`, the
+  rest on `coop_spot`) with its `EntryLoadout`, but only while a partner is alive; with everyone
+  down the level restarts. Keys are the team's (`share_keys`). `Episode.entries` and
+  `LevelStats.kills_by` are indexed by `PlayerId` and shifted down when a seat leaves
+  (`Episode::remove_player`, `LevelStats::remove_player`), so ids stay dense; a player down at the
+  exit carries their `EntryLoadout`, and a mid-level joiner's default loadout is theirs.
+  The host's "Main menu" on the episode-end screen ends the session. A late joiner's first
+  snapshot shows the spawns and broken lights it brings in; `Timeline.covered` drops the relayed
+  copies of those, and partner facing blends the short way round (`Snapshot::blend`).
 - A co-op client applies the host's snapshots and never simulates: its sim systems run on
   `sim_ticks`, which is false for `NetMode::Client`. `world_running` keeps a net game running under
   the pause menu. The host's `LevelRuns` changing (any `restart_level`/`load_level`) is what sends

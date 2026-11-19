@@ -81,8 +81,19 @@ the pause menu ends your session.
 - Over the internet, join by the host's IP address; the host forwards UDP port 27960.
 - For testing: `--host [LEVEL]` hosts at once (LEVEL is a file in `assets/levels/`), `--join
   ADDRESS` joins at once, `--name NAME` sets the name for that run only.
-- Current limits: clients get no sounds or effects yet, and the world pauses for clients while the
-  host is on the death or stats screen.
+
+Co-op rules:
+
+- A downed player watches from the floor for 3 seconds, then gets back up at the level start
+  with the loadout they entered the level with, as long as a partner is still alive. A player who
+  joins mid-level enters with the default loadout.
+- Keys are the team's: one player's key opens doors for everyone.
+- The first player to grab a pickup takes it for the team.
+- If everyone is down at once the level restarts, and everyone gets their entry loadout back.
+- Anyone reaching the exit ends the level for all (a player down at that moment carries their
+  entry loadout into the next level). The stats screen lists the kills of each player by name.
+- Only the host moves on from the stats and death screens; clients see "Waiting for the host".
+  The host's **Main menu** on the episode-end screen ends the session (clients get a notice).
 
 ## Controls
 
