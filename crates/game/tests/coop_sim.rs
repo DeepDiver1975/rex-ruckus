@@ -10,8 +10,9 @@ use rr_core::collide::Body;
 use rr_core::combat::CombatEvent;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
-use rr_core::fixtures::{combat_room, engine_room};
+use rr_core::fixtures::{combat_room, door_rooms, engine_room};
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
+use rr_core::mechanics::MechEvent;
 use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
 use rr_core::weapons::WeaponEvent;
@@ -20,18 +21,23 @@ use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, insert_defs,
 };
+use rr_game::coop::{CoopPlugin, DownTime, EntryLoadout, RESPAWN_SECS};
 use rr_game::coords::{core_angle_to_yaw, to_bevy};
+use rr_game::episode::{Episode, EpisodeDef, Stats};
 use rr_game::flow::{FlowPlugin, PlayState};
-use rr_game::hud::{DamageFlash, FlashColor, read_hurt};
+use rr_game::hud::{DamageFlash, FlashColor, down_overlay, down_text, read_hurt};
 use rr_game::level::CurrentMap;
 use rr_game::mechanics::{
-    HudMessage, LevelMechanics, MESSAGE_SECS, MechanicsSimPlugin, PlayerLines, insert_level,
+    HudMessage, LevelMechanics, MESSAGE_SECS, MechanicsSimPlugin, PlayerLines, UsePrompt,
+    insert_level,
 };
 use rr_game::models::{ModelLibrary, ModelReady, ModelSlot, ModelsPlugin, Rig};
+use rr_game::net::host::stop_hosting;
 use rr_game::partners::{PartnerVisual, PartnersPlugin};
 use rr_game::player::{
-    DevPartners, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS, PendingInput, Player,
-    PlayerBody, PlayerSimPlugin, PlayerTuning, PrevFeet, read_input, spawn_coop_player,
+    DevPartners, EyeHeight, Inventory, LocalPlayer, Look, LookSettings, PLAYER_RADIUS,
+    PendingInput, Player, PlayerBody, PlayerCamera, PlayerSimPlugin, PlayerTuning, PrevFeet,
+    ViewRoll, read_input, spawn_coop_player, update_camera,
 };
 use rr_game::viewmodel::{ViewState, read_fx};
 
@@ -50,6 +56,7 @@ fn app(map: Map) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         PartnersPlugin,
+        CoopPlugin,
     ));
     app.update();
     app
@@ -815,4 +822,213 @@ fn partners_flag_spawns_standing_players() {
     ticks(&mut app, 1);
     assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
     assert_eq!(player_ids(&mut app), (vec![0, 1, 2], 1), "after a restart");
+}
+
+#[test]
+fn stop_hosting_clears_remote_core_state() {
+    let mut app = app(combat_room());
+    for id in [1, 2] {
+        spawn_coop(&mut app, PlayerId(id));
+    }
+    ticks(&mut app, 3);
+    // `Combat::hazard` is the one per-player vector the core exposes; mechanics' own is private
+    // (its `remove_player` is covered by an rr-core test), so only the shared state is checked.
+    app.world_mut()
+        .resource_mut::<LevelCombat>()
+        .0
+        .hazard
+        .resize_with(3, Default::default);
+    let mut episode = Episode::new(EpisodeDef {
+        name: "t".into(),
+        levels: vec![],
+    });
+    episode.entries[1] = episode.entries[0].clone();
+    app.insert_resource(episode);
+    let mut stats = Stats::default();
+    stats.0.kills_by = [1, 2, 3, 0];
+    app.insert_resource(stats);
+    stop_hosting(app.world_mut());
+    assert_eq!(app.world().resource::<LevelCombat>().0.hazard.len(), 1);
+    assert_eq!(app.world().resource::<Stats>().0.kills_by, [1, 0, 0, 0]);
+    let mut q = app.world_mut().query::<&Player>();
+    assert_eq!(q.iter(app.world()).count(), 1);
+    // The local player's state is untouched; the sim keeps running with one player.
+    ticks(&mut app, 3);
+}
+
+#[test]
+fn coop_players_get_an_entry_loadout() {
+    let mut app = app(combat_room());
+    let e = spawn_coop(&mut app, PlayerId(1));
+    let l = app.world().get::<EntryLoadout>(e).unwrap();
+    assert_eq!(l.0.vitals.health.hp, 100);
+}
+
+fn tick_secs(app: &App) -> f32 {
+    app.world()
+        .resource::<Time<Fixed>>()
+        .timestep()
+        .as_secs_f32()
+}
+
+fn secs(app: &mut App, s: f32) {
+    let n = (s / tick_secs(app)).round() as usize;
+    ticks(app, n);
+}
+
+fn has_shotgun(app: &mut App, id: PlayerId) -> bool {
+    let e = player(app, id);
+    app.world().get::<PlayerArsenal>(e).unwrap().0.owned[WeaponId::Shotgun.index()]
+}
+
+#[test]
+fn downed_player_respawns_with_entry_loadout() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    app.update();
+    ticks(&mut app, 1);
+    let defs = app.world().resource::<GameDefs>().0.clone();
+    let e = player(&mut app, PlayerId(1));
+    app.world_mut()
+        .get_mut::<PlayerArsenal>(e)
+        .unwrap()
+        .0
+        .give_weapon(&defs, WeaponId::Shotgun);
+    let spawn = body(&mut app, PlayerId(1)).pos;
+    place(&mut app, PlayerId(1), spawn.x + 5.0, spawn.y);
+    let away = body(&mut app, PlayerId(1)).pos;
+    app.world_mut().get_mut::<Look>(e).unwrap().angle = 2.0;
+    kill(&mut app, PlayerId(1));
+    secs(&mut app, RESPAWN_SECS - 0.1);
+    assert_eq!(health(&mut app, PlayerId(1)), 0);
+    assert_eq!(body(&mut app, PlayerId(1)).pos.truncate(), away.truncate());
+    assert!(has_shotgun(&mut app, PlayerId(1)));
+    let extra = 0.1 + tick_secs(&app);
+    secs(&mut app, extra);
+    assert_eq!(health(&mut app, PlayerId(1)), 100);
+    assert!(!has_shotgun(&mut app, PlayerId(1)));
+    let map = app.world().resource::<CurrentMap>().0.clone();
+    let tuning = app.world().resource::<PlayerTuning>().0;
+    let want = rr_game::player::spawn_spot(&map, &tuning, PlayerId(1));
+    let b = body(&mut app, PlayerId(1));
+    assert!(
+        (b.pos.truncate() - want).length() < 0.01,
+        "{:?} {want}",
+        b.pos
+    );
+    let look = app.world().get::<Look>(e).unwrap();
+    assert_eq!(look.angle, map.player_start.angle_deg.to_radians());
+    assert_eq!(look.pitch, 0.0);
+    assert_eq!(app.world().get::<DownTime>(e).unwrap().0, 0.0);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+}
+
+#[test]
+fn nobody_respawns_when_everyone_is_down() {
+    let mut app = app(combat_room());
+    spawn_coop(&mut app, PlayerId(1));
+    kill(&mut app, PlayerId(1));
+    secs(&mut app, 1.0);
+    kill(&mut app, PlayerId(0));
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    secs(&mut app, 5.0);
+    assert_eq!(health(&mut app, PlayerId(0)), 0);
+    assert_eq!(health(&mut app, PlayerId(1)), 0);
+}
+
+#[test]
+fn single_player_death_is_unchanged() {
+    let mut app = app(combat_room());
+    kill(&mut app, PlayerId(0));
+    ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    secs(&mut app, 5.0);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    assert_eq!(health(&mut app, PlayerId(0)), 0);
+}
+
+#[test]
+fn keys_are_shared() {
+    let mut map = door_rooms("(kind: Door, lock: Some(Red))", "");
+    map.items.push(Item {
+        kind: ItemKind::Key(Key::Red),
+        pos: Vec2::new(1.0, 3.0),
+        skill: Difficulty::Easy,
+    });
+    let mut app = app(map);
+    spawn_coop(&mut app, PlayerId(1));
+    place(&mut app, PlayerId(1), 1.0, 3.0);
+    ticks(&mut app, 1);
+    for id in [PlayerId(0), PlayerId(1)] {
+        let e = player(&mut app, id);
+        assert!(
+            app.world()
+                .get::<Inventory>(e)
+                .unwrap()
+                .keys
+                .contains(Key::Red),
+            "{id:?}"
+        );
+    }
+    // Player 0 never touched the key, yet opens the red door: walk east to it and press use.
+    let e0 = player(&mut app, PlayerId(0));
+    app.world_mut().get_mut::<PendingInput>(e0).unwrap().forward = 1.0;
+    ticks(&mut app, 40);
+    app.world_mut().get_mut::<PendingInput>(e0).unwrap().forward = 0.0;
+    ticks(&mut app, 30);
+    app.world_mut().resource_mut::<FxQueue>().mech.clear();
+    app.world_mut()
+        .get_mut::<PendingInput>(e0)
+        .unwrap()
+        .use_pressed = true;
+    ticks(&mut app, 1);
+    assert!(
+        !app.world()
+            .resource::<FxQueue>()
+            .mech
+            .iter()
+            .any(|e| matches!(e, MechEvent::NeedKey { .. }))
+    );
+    ticks(&mut app, 20);
+    let m = &app.world().resource::<LevelMechanics>().0.movers[0];
+    assert!(m.z > m.start, "door did not open: {} vs {}", m.z, m.start);
+}
+
+#[test]
+fn downed_local_player_sees_the_floor_and_no_prompt() {
+    let mut app = app(door_rooms(
+        "(kind: Door)",
+        "switches: [(wall: (7, 0), action: Exit)],",
+    ));
+    spawn_coop(&mut app, PlayerId(1));
+    let e = player(&mut app, PlayerId(0));
+    let y = body(&mut app, PlayerId(0)).pos.y;
+    place(&mut app, PlayerId(0), 1.0, y);
+    app.world_mut().get_mut::<Look>(e).unwrap().angle = std::f32::consts::PI;
+    app.world_mut().spawn((PlayerCamera, Transform::default()));
+    app.init_resource::<ViewRoll>();
+    // Alive and facing the switch: a prompt, and the live eye.
+    ticks(&mut app, 1);
+    assert!(app.world().resource::<UsePrompt>().0.is_some());
+    let live = app.world().get::<EyeHeight>(e).unwrap().0;
+    assert!(live > 1.0, "{live}");
+    kill(&mut app, PlayerId(0));
+    secs(&mut app, 0.5);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    assert!(app.world().resource::<UsePrompt>().0.is_none());
+    // The camera system eases the eye toward the floor (half a second at the real frame rate).
+    app.world_mut()
+        .resource_mut::<Time>()
+        .advance_by(std::time::Duration::from_millis(500));
+    app.world_mut().run_system_once(update_camera).unwrap();
+    let eye = app.world().get::<EyeHeight>(e).unwrap().0;
+    assert!(eye < 0.5, "{eye}");
+    // The overlay counts down.
+    let down = app.world().get::<DownTime>(e).unwrap().0;
+    assert!((down - 0.5).abs() < 0.05, "{down}");
+    assert_eq!(
+        down_overlay(PlayState::Playing, false, down),
+        Some(down_text(RESPAWN_SECS - down))
+    );
 }

@@ -22,6 +22,7 @@ use rr_game::level::load_map;
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
 use rr_game::net::client::{NetClient, NetClientPlugin, start_joining};
 use rr_game::net::host::{NetHost, NetHostPlugin, start_hosting};
+use rr_game::net::interp::Timeline;
 use rr_game::player::{LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimPlugin};
 use rr_net::testing::LossyLink;
 
@@ -395,4 +396,74 @@ fn lost_events_are_resent_promptly() {
         worst <= MAX_RELEASE_LATENESS,
         "released up to {worst} ticks late: {late:?}"
     );
+}
+
+/// A joiner whose first snapshot comes before the reliable `Events` of the tick that spawned a
+/// minion on the host (the events are held back in the test, as a slow control channel would)
+/// sees the spawn once: the snapshot's synthesised `ActorSpawned` and the relayed one are the
+/// same event. `LossyLink` delays both channels alike, so the order is forced at the client's
+/// `Timeline` instead.
+#[test]
+fn late_join_spawn_event_plays_once() {
+    let mut game = Game::new("combat_arena.ron");
+    game.rounds(20);
+    // The minion joins play on the host (the event after the frame, before the tick).
+    game.host.update();
+    let minion = {
+        let world = game.host.world_mut();
+        let mut combat = world.resource_mut::<LevelCombat>();
+        let a = combat.0.actors[0].clone();
+        combat.0.actors.push(a);
+        let i = combat.0.actors.len() - 1;
+        world
+            .resource_mut::<FxQueue>()
+            .combat
+            .push(CombatEvent::ActorSpawned(i));
+        i
+    };
+    game.host.world_mut().run_schedule(FixedUpdate);
+    let mut held = Vec::new();
+    let mut armed = false;
+    let mut seen = 0;
+    for _ in 0..200 {
+        game.round();
+        let appended = game.client.world().resource::<LevelCombat>().0.actors.len() > minion;
+        let applied = game
+            .client
+            .world()
+            .resource::<NetClient>()
+            .last_tick
+            .unwrap();
+        let mut timeline = game.client.world_mut().resource_mut::<Timeline>();
+        if appended {
+            // The snapshot is in; now the Events arrive.
+            for ev in held.drain(..) {
+                timeline.push_events(ev);
+            }
+        } else {
+            held.extend(std::mem::take(&mut timeline.events));
+            // The client is "late": the first snapshot it applies is one that already has the
+            // minion (older ones are dropped), so it is the first of its run.
+            let with_minion = timeline.snaps.iter().any(|(_, s)| s.actors.len() > minion);
+            if !armed && with_minion {
+                armed = true;
+                let mut snaps = std::mem::take(&mut timeline.snaps);
+                snaps.retain(|(_, s)| s.actors.len() > minion);
+                timeline.reset(applied);
+                for (you, snap) in snaps {
+                    timeline.push_snapshot(you, snap, applied);
+                }
+            }
+        }
+        seen += game
+            .client
+            .world()
+            .resource::<FxQueue>()
+            .combat
+            .iter()
+            .filter(|e| **e == CombatEvent::ActorSpawned(minion))
+            .count();
+    }
+    assert!(held.is_empty(), "the held events were never handed back");
+    assert_eq!(seen, 1);
 }

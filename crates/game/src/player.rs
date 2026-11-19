@@ -3,6 +3,7 @@
 
 use crate::bindings::{Action, Bindings};
 use crate::combat::{GameDefs, PlayerInventory, PlayerVitals, player_loadout, spawn_combat};
+use crate::coop::{DownTime, EntryLoadout};
 use crate::coords::{core_angle_to_yaw, forward_2d, to_bevy};
 use crate::flow::{LevelEntity, LocalSeat, PlayState, SpawnLevel, sim_ticks};
 use crate::inventory::use_inventory;
@@ -15,11 +16,14 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
+use rr_core::carry::CarryOver;
 use rr_core::collide::{Body, z_range};
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::map::{KeySet, Map};
 use rr_core::movement::{MoveInput, Tuning, step_player};
 use rr_core::players::{PlayerId, coop_spot};
+use rr_core::vitals::Vitals;
+use rr_core::weapons::Arsenal;
 
 pub const PLAYER_RADIUS: f32 = 0.35;
 /// Eyes sit this far below the top of the body.
@@ -40,11 +44,13 @@ pub const DEATH_EYE: f32 = 0.25;
 /// View roll once dead (radians).
 pub const DEATH_ROLL: f32 = 0.35;
 
-/// Where the eye height and view roll ease to: the live values, or the death camera's.
-pub fn view_targets(state: PlayState, live_eye: f32) -> (f32, f32) {
-    match state {
-        PlayState::Dead => (DEATH_EYE, DEATH_ROLL),
-        _ => (live_eye, 0.0),
+/// Where the eye height and view roll ease to: the live values, or the death camera's. `dead`
+/// is the death screen or, in co-op, a downed local player whose partner plays on.
+pub fn view_targets(dead: bool, live_eye: f32) -> (f32, f32) {
+    if dead {
+        (DEATH_EYE, DEATH_ROLL)
+    } else {
+        (live_eye, 0.0)
     }
 }
 
@@ -257,12 +263,9 @@ pub fn spawn_player(
     tuning: Res<PlayerTuning>,
     seat: Option<Res<LocalSeat>>,
 ) {
-    let start = map.0.player_start;
-    let xy = Vec2::new(start.pos.0, start.pos.1);
-    commands.spawn((
-        player_bundle(&map.0, &tuning.0, seat.map_or(PlayerId(0), |s| s.0), xy),
-        LocalPlayer,
-    ));
+    let id = seat.map_or(PlayerId(0), |s| s.0);
+    let xy = spawn_spot(&map.0, &tuning.0, id);
+    commands.spawn((player_bundle(&map.0, &tuning.0, id, xy), LocalPlayer));
 }
 
 /// Dev aid (`--partners N`, 1-3): stand-in co-op players 1..=N spawned with every level, restarts
@@ -306,18 +309,36 @@ pub fn spawn_coop_player(
     defs: &Defs,
     id: PlayerId,
 ) -> Entity {
+    let xy = spawn_spot(map, tuning, id);
+    commands
+        .spawn((
+            player_bundle(map, tuning, id, xy),
+            player_loadout(defs),
+            EntryLoadout(CarryOver::take(
+                &Vitals::new(),
+                &Arsenal::new(defs),
+                &Default::default(),
+            )),
+        ))
+        .id()
+}
+
+/// Where player `id` stands at the level start: the map's `player_start` for player 0, the
+/// [`coop_spot`] for everyone else.
+pub fn spawn_spot(map: &Map, tuning: &Tuning, id: PlayerId) -> Vec2 {
     let start = map.player_start;
-    let xy = coop_spot(
+    let xy = Vec2::new(start.pos.0, start.pos.1);
+    if id == PlayerId(0) {
+        return xy;
+    }
+    coop_spot(
         map,
-        Vec2::new(start.pos.0, start.pos.1),
+        xy,
         start.angle_deg.to_radians(),
         id,
         PLAYER_RADIUS,
         tuning.stand_height,
-    );
-    commands
-        .spawn((player_bundle(map, tuning, id, xy), player_loadout(defs)))
-        .id()
+    )
 }
 
 /// Every component a player starts with but its loadout, standing at `xy`.
@@ -339,6 +360,7 @@ fn player_bundle(map: &Map, tuning: &Tuning, id: PlayerId, xy: Vec2) -> impl Bun
         },
         PendingInput::default(),
         Inventory::default(),
+        DownTime::default(),
         EyeHeight(tuning.stand_height - EYE_BELOW_TOP),
     )
 }
@@ -648,20 +670,33 @@ pub fn read_input(
     }
 }
 
+/// What the camera follows: the local player's body, look, eased eye and health.
+type CameraQuery = (
+    &'static PlayerBody,
+    &'static PrevFeet,
+    &'static Look,
+    &'static mut EyeHeight,
+    Option<&'static PlayerVitals>,
+);
+
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn update_camera(
+pub fn update_camera(
     time: Res<Time<Fixed>>,
     frame_time: Res<Time>,
     map: Res<CurrentMap>,
     state: Res<PlayState>,
-    player: Single<(&PlayerBody, &PrevFeet, &Look, &mut EyeHeight), With<LocalPlayer>>,
+    player: Single<CameraQuery, With<LocalPlayer>>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
     mut roll: ResMut<ViewRoll>,
     correction: Option<ResMut<CorrectionOffset>>,
 ) {
-    let (body, prev, look, mut eye_h) = player.into_inner();
+    let (body, prev, look, mut eye_h, vitals) = player.into_inner();
+    let local_alive = vitals.is_none_or(|v| v.0.health.alive());
     let feet = prev.0.lerp(body.0.pos, time.overstep_fraction());
-    let (eye_target, roll_target) = view_targets(*state, body.0.height - EYE_BELOW_TOP);
+    let (eye_target, roll_target) = view_targets(
+        *state == PlayState::Dead || !local_alive,
+        body.0.height - EYE_BELOW_TOP,
+    );
     let dt = frame_time.delta_secs();
     eye_h.0 = ease_toward(eye_h.0, eye_target, EYE_EASE_RATE, dt);
     roll.0 = ease_toward(roll.0, roll_target, EYE_EASE_RATE, dt);
@@ -710,9 +745,8 @@ mod tests {
 
     #[test]
     fn dead_view_drops_the_eye_and_rolls() {
-        assert_eq!(view_targets(PlayState::Playing, 1.65), (1.65, 0.0));
-        assert_eq!(view_targets(PlayState::Complete, 1.65), (1.65, 0.0));
-        assert_eq!(view_targets(PlayState::Dead, 1.65), (DEATH_EYE, DEATH_ROLL));
+        assert_eq!(view_targets(false, 1.65), (1.65, 0.0));
+        assert_eq!(view_targets(true, 1.65), (DEATH_EYE, DEATH_ROLL));
     }
 
     #[test]

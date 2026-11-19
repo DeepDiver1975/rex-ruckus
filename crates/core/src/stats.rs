@@ -2,11 +2,17 @@
 
 use crate::combat::{Combat, CombatEvent};
 use crate::map::ActorKind;
+use crate::players::{MAX_PLAYERS, PlayerId};
+use crate::projectile::Shooter;
+use serde::{Deserialize, Serialize};
 
 /// Kills, secrets and time for one level (or, summed with `add`, an episode).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct LevelStats {
     pub kills: u32,
+    /// Kills credited to each player (index = `PlayerId`); kills by anything else only count
+    /// in `kills`.
+    pub kills_by: [u32; MAX_PLAYERS],
     pub kills_total: u32,
     pub secrets: u32,
     pub secrets_total: u32,
@@ -42,10 +48,15 @@ impl LevelStats {
             if !combat.actors.get(*actor).is_some_and(|a| counts(a.kind)) {
                 continue;
             }
-            if matches!(ev, CombatEvent::ActorSpawned(_)) {
-                self.kills_total += 1;
-            } else {
+            if let CombatEvent::ActorKilled { by, .. } = ev {
                 self.kills += 1;
+                if let Shooter::Player(id) = by
+                    && let Some(n) = self.kills_by.get_mut(id.0 as usize)
+                {
+                    *n += 1;
+                }
+            } else {
+                self.kills_total += 1;
             }
         }
         self.secrets = combat.destruct.secrets().0;
@@ -61,9 +72,21 @@ impl LevelStats {
         self.ticks as f32 / hz
     }
 
+    /// A co-op seat left: later players' kills move down one slot, so ids stay dense.
+    pub fn remove_player(&mut self, id: PlayerId) {
+        let i = id.0 as usize;
+        if i < MAX_PLAYERS {
+            self.kills_by.copy_within(i + 1.., i);
+            self.kills_by[MAX_PLAYERS - 1] = 0;
+        }
+    }
+
     /// Adds another level's tallies (episode totals).
     pub fn add(&mut self, o: &LevelStats) {
         self.kills += o.kills;
+        for (a, b) in self.kills_by.iter_mut().zip(o.kills_by) {
+            *a += b;
+        }
         self.kills_total += o.kills_total;
         self.secrets += o.secrets;
         self.secrets_total += o.secrets_total;
@@ -157,6 +180,63 @@ mod tests {
     }
 
     #[test]
+    fn kills_are_credited_to_their_player() {
+        let mut map = combat_room();
+        map.actors.push(spawn(ActorKind::Grunt, 2.0));
+        map.actors.push(spawn(ActorKind::Grunt, 4.0));
+        let combat = Combat::spawn(&map, &defs(), 1);
+        let mut s = LevelStats::new(&combat);
+        s.record(
+            &combat,
+            &[
+                CombatEvent::ActorKilled {
+                    actor: 0,
+                    by: Shooter::Player(PlayerId(1)),
+                },
+                CombatEvent::ActorKilled {
+                    actor: 1,
+                    by: Shooter::World,
+                },
+            ],
+        );
+        assert_eq!(s.kills, 2);
+        assert_eq!(s.kills_by, [0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn out_of_range_player_ids_are_ignored() {
+        let mut map = combat_room();
+        map.actors.push(spawn(ActorKind::Grunt, 2.0));
+        let combat = Combat::spawn(&map, &defs(), 1);
+        let mut s = LevelStats::new(&combat);
+        s.record(
+            &combat,
+            &[CombatEvent::ActorKilled {
+                actor: 0,
+                by: Shooter::Player(PlayerId(200)),
+            }],
+        );
+        assert_eq!((s.kills, s.kills_by), (1, [0; MAX_PLAYERS]));
+        s.remove_player(PlayerId(200));
+        assert_eq!(s.kills_by, [0; MAX_PLAYERS]);
+    }
+
+    #[test]
+    fn add_sums_kills_by_and_remove_player_shifts_down() {
+        let mut a = LevelStats {
+            kills_by: [3, 1, 4, 0],
+            ..Default::default()
+        };
+        a.add(&LevelStats {
+            kills_by: [1, 1, 1, 1],
+            ..Default::default()
+        });
+        assert_eq!(a.kills_by, [4, 2, 5, 1]);
+        a.remove_player(PlayerId(1));
+        assert_eq!(a.kills_by, [4, 5, 1, 0]);
+    }
+
+    #[test]
     fn time_formats_minutes_and_seconds() {
         assert_eq!(format_time(0.0), "0:00");
         assert_eq!(format_time(125.4), "2:05");
@@ -170,6 +250,7 @@ mod tests {
             secrets: 0,
             secrets_total: 1,
             ticks: 60,
+            ..Default::default()
         };
         a.add(&LevelStats {
             kills: 3,
@@ -177,6 +258,7 @@ mod tests {
             secrets: 1,
             secrets_total: 1,
             ticks: 30,
+            ..Default::default()
         });
         assert_eq!(
             (a.kills, a.kills_total, a.secrets, a.secrets_total),

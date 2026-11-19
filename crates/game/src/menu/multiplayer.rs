@@ -19,7 +19,7 @@ use super::{MenuAction, MenuScreen, Screen};
 use crate::episode::{Episode, start_episode};
 use crate::flow::{LevelDifficulty, LevelFile, PlayState};
 use crate::hud::{UiFont, font};
-use crate::net::client::{NetClient, NetNotice, start_joining, stop_joining};
+use crate::net::client::{HostRun, NetClient, NetNotice, start_joining, stop_joining};
 use crate::net::host::{NetHost, NetIdentity, start_hosting, stop_hosting, unhostable_level};
 use crate::net::lobby::LanGames;
 use crate::net::{NetMode, NetStart};
@@ -78,11 +78,32 @@ pub struct NetView<'w> {
     mode: Option<Res<'w, NetMode>>,
     lan: Option<Res<'w, LanGames>>,
     notice: Option<Res<'w, NetNotice>>,
+    host: Option<Res<'w, NetHost>>,
+    identity: Option<Res<'w, NetIdentity>>,
+    client: Option<Res<'w, NetClient>>,
+    run: Option<Res<'w, HostRun>>,
 }
 
 impl NetView<'_> {
     pub fn mode(&self) -> NetMode {
         self.mode.as_deref().copied().unwrap_or_default()
+    }
+
+    /// Every player's name in a net game (host: its own name then the seats'; client: the host's roster), empty in single play.
+    pub fn names(&self) -> Vec<String> {
+        if !self.mode().is_net() {
+            return Vec::new();
+        }
+        roster_names(
+            self.host.as_deref(),
+            self.identity.as_deref(),
+            self.client.as_deref(),
+        )
+    }
+
+    /// What a client knows of the host's run.
+    pub fn run(&self) -> Option<&HostRun> {
+        self.run.as_deref()
     }
 }
 
@@ -306,6 +327,17 @@ pub fn stop_session(world: &mut World) {
     }
 }
 
+/// Pause's Leave game: ends the session, then back to the title screen (a direct-level run has
+/// no episode to rewind, so it just shows the menu).
+pub fn leave_game(world: &mut World) {
+    stop_session(world);
+    if world.contains_resource::<Episode>() {
+        super::quit_to_menu(world);
+    } else {
+        *world.resource_mut::<PlayState>() = PlayState::Menu;
+    }
+}
+
 /// The Lobby's Leave: back to the Multiplayer screen.
 pub fn leave_lobby(world: &mut World) {
     stop_session(world);
@@ -316,7 +348,7 @@ pub fn leave_lobby(world: &mut World) {
 pub fn notice_ok(world: &mut World) {
     world.insert_resource(NetNotice(None));
     let state = *world.resource::<PlayState>();
-    let wanted = Screen::for_state(state, world.contains_resource::<Episode>());
+    let wanted = Screen::for_state(state, super::stats_screens_in(world));
     world.resource_mut::<MenuScreen>().0 = wanted;
 }
 

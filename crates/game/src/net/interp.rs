@@ -14,12 +14,13 @@ use rr_core::snapshot::Snapshot;
 use rr_net::TickEvents;
 
 use super::client::{NetClient, apply_players};
+use super::predict::CORRECTION_SNAP;
 use crate::breakables::put_out_lights;
 use crate::combat::{FxQueue, GameDefs, LevelCombat};
 use crate::flow::{LevelRuns, LocalSeat, settle_combat};
 use crate::level::CurrentMap;
 use crate::mechanics::{DirtySectors, LevelMechanics};
-use crate::player::{LocalPlayer, Player, PlayerBody, PrevFeet};
+use crate::player::{LocalPlayer, Look, Player, PlayerBody, PrevFeet};
 
 /// How far (ticks) the world is drawn behind the newest snapshot: 100 ms at 60 Hz, enough for
 /// the next snapshot (every 2 ticks) to be in before the render tick reaches it.
@@ -54,6 +55,10 @@ pub struct Timeline {
     /// Whether no snapshot of this run was applied yet: the first one also brings in what
     /// happened before the client joined (see [`apply_snapshot`]).
     fresh: bool,
+    /// What the first snapshot of this run synthesised (`ActorSpawned`, `LightBroken`), up to
+    /// tick `covered_tick`: a relayed copy of one of these is the same news, dropped.
+    pub covered: Vec<CombatEvent>,
+    pub covered_tick: u32,
     /// How often the render tick jumped back onto the target after drifting past
     /// [`MAX_DRIFT`] (not counting the first placement).
     pub resyncs: u32,
@@ -247,6 +252,13 @@ fn apply_snapshot(world: &mut World, you: PlayerId, snap: &Snapshot) -> bool {
             .copied()
             .filter(|&i| !relayed(&CombatEvent::LightBroken(i)))
             .collect();
+        let mut timeline = world.resource_mut::<Timeline>();
+        timeline.covered = spawned
+            .iter()
+            .cloned()
+            .chain(lights.iter().copied().map(CombatEvent::LightBroken))
+            .collect();
+        timeline.covered_tick = snap.tick;
         world.resource_mut::<FxQueue>().combat.extend(spawned);
         put_out_lights(world, &lights);
     }
@@ -262,6 +274,10 @@ fn release_events(world: &mut World, tick: u32) {
         return;
     }
     let local = world.get_resource::<LocalSeat>().map(|s| s.0);
+    let (covered, covered_tick) = {
+        let t = world.resource::<Timeline>();
+        (t.covered.clone(), t.covered_tick)
+    };
     let (Some(combat), Some(mech)) = (
         world.get_resource::<LevelCombat>(),
         world.get_resource::<LevelMechanics>(),
@@ -271,11 +287,16 @@ fn release_events(world: &mut World, tick: u32) {
     let map = &world.resource::<CurrentMap>().0;
     let mut fx = FxQueue::default();
     for ev in due {
-        fx.combat.extend(
-            ev.combat
-                .into_iter()
-                .filter(|e| combat_event_fits(e, &combat.0, map)),
-        );
+        // A late joiner's first snapshot already showed these (see `apply_snapshot`).
+        let old = ev.tick <= covered_tick;
+        fx.combat.extend(ev.combat.into_iter().filter(|e| {
+            let shown = matches!(
+                e,
+                CombatEvent::ActorSpawned(_) | CombatEvent::LightBroken(_)
+            ) && old
+                && covered.contains(e);
+            !shown && combat_event_fits(e, &combat.0, map)
+        }));
         fx.weapon.extend(ev.weapon.into_iter().filter(|(p, e)| {
             Some(*p) != local && usize::from(p.0) < MAX_PLAYERS && weapon_event_fits(e)
         }));
@@ -294,6 +315,7 @@ fn release_events(world: &mut World, tick: u32) {
 /// Draws the world at `render` between the last applied snapshot (tick `last`, the front of
 /// the timeline) and the next one held; false if there is no next one.
 fn blend(world: &mut World, last: u32, render: u32) -> bool {
+    let mut ends = None;
     let players = world.resource_scope(|world, timeline: Mut<Timeline>| {
         let (Some((_, a)), Some((_, b))) = (timeline.snaps.front(), timeline.snaps.get(1)) else {
             return None;
@@ -305,19 +327,35 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
         let mut combat = world.get_resource_mut::<LevelCombat>()?;
         let players = a.blend(b, f, &mut combat.0);
         settle_unblended(a, b, &mut combat.0);
+        ends = Some((a.players.clone(), b.players.clone()));
         Some(players)
     });
-    let Some(players) = players else {
+    let (Some(players), Some((a_players, b_players))) = (players, ends) else {
         return false;
     };
-    // Only the feet are blended; the rest of a remote player is its last snapshot's.
-    let mut q =
-        world.query_filtered::<(&Player, &mut PlayerBody, &mut PrevFeet), Without<LocalPlayer>>();
-    for (p, mut body, mut prev) in q.iter_mut(world) {
-        match players.iter().find(|(id, _)| *id == p.id) {
-            Some((_, b)) => {
+    // Only the feet and the facing are blended; the rest of a remote player is its last
+    // snapshot's.
+    let mut q = world.query_filtered::<
+        (&Player, &mut PlayerBody, &mut PrevFeet, Option<&mut Look>),
+        Without<LocalPlayer>,
+    >();
+    for (p, mut body, mut prev, look) in q.iter_mut(world) {
+        match players.iter().find(|(id, ..)| *id == p.id) {
+            Some(&(_, b, angle, pitch)) => {
+                // A respawn jumps across the map between two snapshots: land there instead
+                // of sliding, and rest the interpolation on it.
+                let to = b_players.iter().find(|q| q.id == p.id).map(|q| q.body.pos);
+                let from = a_players.iter().find(|q| q.id == p.id).map(|q| q.body.pos);
+                let jumped = from.zip(to).is_some_and(|(f, t)| teleported(f, t));
                 prev.0 = body.0.pos;
-                body.0.pos = b.pos;
+                body.0.pos = if jumped { to.unwrap_or(b.pos) } else { b.pos };
+                if jumped {
+                    prev.0 = body.0.pos;
+                }
+                if let Some(mut look) = look {
+                    look.angle = angle;
+                    look.pitch = pitch;
+                }
             }
             // Not in both snapshots: it holds still rather than replay its last step.
             None if prev.0 != body.0.pos => prev.0 = body.0.pos,
@@ -325,6 +363,12 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
         }
     }
     true
+}
+
+/// Whether a player moved too far between two snapshots to have walked it (a respawn): the
+/// same distance at which the local player's correction snaps.
+fn teleported(from: Vec3, to: Vec3) -> bool {
+    from.distance(to) > CORRECTION_SNAP
 }
 
 /// Rests the actors and projectiles [`Snapshot::blend`] left alone (not carried by both `a`
@@ -384,6 +428,14 @@ mod tests {
             },
             players: vec![],
         }
+    }
+
+    #[test]
+    fn a_jump_of_more_than_a_metre_is_a_teleport() {
+        let a = Vec3::new(2.0, 3.0, 0.0);
+        assert!(!teleported(a, a + Vec3::new(0.9, 0.0, 0.0)));
+        assert!(teleported(a, a + Vec3::new(0.0, 1.1, 0.0)));
+        assert!(teleported(a, Vec3::new(30.0, -4.0, 1.0)));
     }
 
     #[test]

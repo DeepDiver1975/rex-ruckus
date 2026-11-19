@@ -8,9 +8,10 @@ use std::net::SocketAddr;
 use bevy::prelude::*;
 use rr_core::players::PlayerId;
 use rr_core::snapshot::PlayerSnap;
+use rr_core::stats::LevelStats;
 use rr_net::{
-    Client, ClientMsg, ClientState, Hello, LostReason, PROTOCOL_VERSION, Refusal, ServerMsg,
-    Welcome,
+    Client, ClientMsg, ClientState, Hello, LostReason, PROTOCOL_VERSION, PlayView, Refusal,
+    ServerMsg, Welcome,
 };
 
 use super::NetMode;
@@ -18,10 +19,11 @@ use super::host::{NetIdentity, hud_line};
 use super::interp::{Timeline, advance_timeline};
 use super::predict::{CorrectionOffset, InputHistory, predict_local, reconcile, reset_prediction};
 use crate::combat::{GameDefs, PlayerArsenal, PlayerInventory, PlayerVitals};
-use crate::episode::Episode;
-use crate::flow::{LevelDifficulty, LevelFile, LocalSeat, PlayState, load_level};
+use crate::episode::{Episode, Stats};
+use crate::flow::{LevelDifficulty, LevelFile, LocalSeat, PausedFrom, PlayState, load_level};
 use crate::level::{CurrentMap, try_load_map};
 use crate::mechanics::{HudMessage, use_key};
+use crate::menu::{MenuScreen, Screen};
 use crate::player::{
     Inventory, LocalPlayer, Look, Player, PlayerBody, PlayerSimSet, PlayerTuning, PrevFeet,
     spawn_coop_player,
@@ -49,6 +51,16 @@ pub struct NetClient {
     hello_sent: bool,
     /// The `LevelRuns` a misfitting snapshot was last reported in (one warning per run).
     pub(super) warned_run: Option<u32>,
+}
+
+/// What a client knows of the host's run for its stats screens (`ServerMsg::Play`): whether
+/// the host plays an episode (a completed level shows the stats screen), and the episode's name
+/// and totals once it is over.
+#[derive(Resource, Default, Debug, Clone, PartialEq)]
+pub struct HostRun {
+    pub episode: bool,
+    pub name: String,
+    pub totals: LevelStats,
 }
 
 /// Why the last co-op session ended, for the menu to show; `None` when it ended by choice.
@@ -83,6 +95,7 @@ pub fn start_joining(world: &mut World, addr: SocketAddr, name: String) -> io::R
     world.insert_resource(identity);
     world.insert_resource(NetMode::Client);
     world.insert_resource(Timeline::default());
+    world.insert_resource(HostRun::default());
     reset_prediction(world);
     Ok(())
 }
@@ -133,6 +146,7 @@ impl Plugin for NetClientPlugin {
     fn build(&self, app: &mut App) {
         let joined = resource_exists::<NetClient>;
         app.init_resource::<NetNotice>()
+            .init_resource::<HostRun>()
             .init_resource::<InputHistory>()
             .init_resource::<CorrectionOffset>()
             .init_resource::<Timeline>()
@@ -205,16 +219,25 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
             world.resource_mut::<NetClient>().welcomed = Some(w);
         }
         ServerMsg::Refused(r) => end_session(world, Some(refusal_text(r).into())),
-        ServerMsg::Roster(names) => world.resource_mut::<NetClient>().roster = names,
+        ServerMsg::Roster(names) => {
+            world.resource_mut::<NetClient>().roster = names;
+            rebuild_tally_screen(world);
+        }
         ServerMsg::Load(load) => match try_load_map(&load.level) {
             Err(e) => {
                 warn!("cannot load the host's level: {e}");
                 end_session(world, Some(MISSING_LEVEL.into()));
             }
             Ok(map) => {
+                let paused = *world.resource::<PlayState>() == PlayState::Paused;
                 world.insert_resource(LevelDifficulty(load.skill));
                 world.insert_resource(LevelFile(load.level));
                 load_level(world, map);
+                // The host's restart must not close this player's pause menu: it now pauses
+                // the new run.
+                if paused {
+                    *world.resource_mut::<PlayState>() = PlayState::Paused;
+                }
                 world.resource_mut::<NetClient>().last_tick = Some(load.tick);
                 world.resource_mut::<Timeline>().reset(load.tick);
             }
@@ -237,6 +260,52 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
                 msg.show(hud_line(&text));
             }
         }
+        ServerMsg::Play(view) => follow_view(world, view),
+    }
+}
+
+/// Redraws the stats or episode-end screen when it is already up: its rows come from the
+/// host's tallies and the roster, which can change under it (a seat leaves) without the play
+/// state changing.
+fn rebuild_tally_screen(world: &mut World) {
+    if let Some(mut screen) = world.get_resource_mut::<MenuScreen>()
+        && matches!(screen.0, Some(Screen::Stats | Screen::EpisodeEnd))
+    {
+        screen.set_changed();
+    }
+}
+
+/// Takes the host's screen: its stats into [`Stats`] and [`HostRun`], its state into
+/// [`PlayState`], or into [`PausedFrom`] under this player's pause menu (which Resume then
+/// returns to). The host in its menu sends everyone to the Lobby, paused or not.
+fn follow_view(world: &mut World, view: PlayView) {
+    let target = match view {
+        PlayView::Lobby => {
+            world.insert_resource(PausedFrom::default());
+            *world.resource_mut::<PlayState>() = PlayState::Menu;
+            return;
+        }
+        PlayView::Playing => PlayState::Playing,
+        PlayView::Dead => PlayState::Dead,
+        PlayView::Complete { stats, episode } => {
+            world.insert_resource(Stats(stats));
+            world.resource_mut::<HostRun>().episode = episode;
+            PlayState::Complete
+        }
+        PlayView::EpisodeEnd { name, totals } => {
+            let mut run = world.resource_mut::<HostRun>();
+            run.name = name;
+            run.totals = totals;
+            PlayState::EpisodeEnd
+        }
+    };
+    if matches!(target, PlayState::Complete | PlayState::EpisodeEnd) {
+        rebuild_tally_screen(world);
+    }
+    if *world.resource::<PlayState>() == PlayState::Paused {
+        world.insert_resource(PausedFrom(target));
+    } else {
+        world.resource_mut::<PlayState>().set_if_neq(target);
     }
 }
 

@@ -9,6 +9,7 @@ use rr_core::fixtures::combat_room;
 use rr_core::map::Map;
 use rr_game::bindings::{Action, Binding};
 use rr_game::combat::{CombatSimPlugin, insert_defs};
+use rr_game::coop::CoopPlugin;
 use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin};
 use rr_game::flow::{FlowPlugin, LevelDifficulty, PlayState, RESTART_DELAY, StateAge};
 use rr_game::hud::{HudPlugin, HudRoot};
@@ -86,6 +87,7 @@ fn menu_app_with(maps: Vec<Map>, path: Option<PathBuf>) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        CoopPlugin,
         HudPlugin,
         MenuPlugin { enabled: true },
         NetHostPlugin,
@@ -666,7 +668,7 @@ fn new_game_after_the_episode_end_starts_fresh() {
     let ep = app.world().resource::<Episode>();
     assert_eq!(ep.index, 0);
     assert_eq!(ep.totals, Default::default());
-    assert!(ep.entry.is_none());
+    assert!(ep.entries.iter().all(Option::is_none));
     assert_eq!(state(&app), PlayState::Playing);
     assert_eq!(
         app.world().resource::<LevelDifficulty>().0,
@@ -1165,4 +1167,29 @@ fn quitting_to_the_menu_ends_a_hosted_game() {
         assert_eq!(peer.loads(), loads, "{over:?}: a Load after the quit");
         assert_eq!(screen(&app), Some(Screen::Main), "{over:?}");
     }
+}
+
+/// A direct-level run (no episode) hosting co-op: Leave game ends the session and shows the menu.
+#[test]
+fn leave_game_in_a_direct_level_run_reaches_the_menu() {
+    let mut app = menu_app_with(vec![host_map()], None);
+    app.world_mut().remove_resource::<Episode>();
+    app.world_mut()
+        .insert_resource(rr_game::flow::LevelFile("test_yard.ron".into()));
+    rr_game::net::host::start_hosting(
+        app.world_mut(),
+        "127.0.0.1:0".parse().unwrap(),
+        "Tester".into(),
+    )
+    .expect("host");
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Playing;
+    app.update();
+    assert_eq!(net_mode(&app), NetMode::Host);
+    key(&mut app, KeyCode::Escape);
+    assert_eq!(state(&app), PlayState::Paused);
+    press(&mut app, MenuAction::LeaveGame);
+    app.update();
+    assert_eq!(net_mode(&app), NetMode::Single);
+    assert_eq!(state(&app), PlayState::Menu);
+    assert!(!app.world().contains_resource::<NetHost>());
 }

@@ -452,3 +452,38 @@ fn session_survives_loss() {
     assert_eq!(got, [welcome]);
     assert_eq!(client.state(), ClientState::Connected);
 }
+
+#[test]
+fn play_view_follows_its_load_in_order() {
+    let mut host = host();
+    let mut client = Client::connect(host.local_addr()).unwrap();
+    let key = connected(&mut host, &mut client);
+    let stats = rr_core::stats::LevelStats {
+        kills_by: [2, 1, 0, 0],
+        ..Default::default()
+    };
+    let sent = [
+        ServerMsg::Load(Load {
+            level: "undertow.ron".into(),
+            skill: Difficulty::Hard,
+            tick: 40,
+        }),
+        ServerMsg::Play(PlayView::Complete {
+            stats,
+            episode: false,
+        }),
+        ServerMsg::Play(PlayView::EpisodeEnd {
+            name: "Aftershock".into(),
+            totals: stats,
+        }),
+    ];
+    for msg in &sent {
+        host.send(key, msg);
+    }
+    host.flush();
+    let (_, msgs, ok) = pump(&mut host, &mut [&mut client], STEP, |_, m, _| {
+        m[0].len() >= sent.len()
+    });
+    assert!(ok, "the control messages never arrived");
+    assert_eq!(msgs[0], sent);
+}

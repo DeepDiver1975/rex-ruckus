@@ -1,20 +1,26 @@
 //! Episode progression: carried loadout, level stats and the episode end (headless).
 
 use bevy::prelude::*;
+use rr_core::carry::CarryOver;
 use rr_core::defs::{Defs, WeaponId};
 use rr_core::difficulty::Difficulty;
 use rr_core::fixtures::{combat_room, door_rooms};
 use rr_core::map::{ActorKind, ActorSpawn, Map};
+use rr_core::players::PlayerId;
 use rr_core::vitals::Vitals;
 use rr_core::weapons::Arsenal;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals, clear_fx,
     insert_defs,
 };
+use rr_game::coop::{CoopPlugin, EntryLoadout};
 use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin, Stats, start_episode};
 use rr_game::flow::{FlowPlugin, PlayState, StateAge};
 use rr_game::mechanics::{MechanicsSimPlugin, insert_level};
-use rr_game::player::{EYE_BELOW_TOP, Look, PendingInput, PlayerBody, PlayerSimPlugin};
+use rr_game::player::{
+    DevPartners, EYE_BELOW_TOP, LocalPlayer, Look, PendingInput, Player, PlayerBody,
+    PlayerSimPlugin,
+};
 
 /// A headless sim running an episode over the given fixture maps.
 fn episode_app(maps: Vec<Map>) -> App {
@@ -34,6 +40,7 @@ fn episode_app(maps: Vec<Map>) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        CoopPlugin,
     ));
     app.update();
     app
@@ -50,6 +57,7 @@ fn sim_app(map: Map) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         EpisodePlugin,
+        CoopPlugin,
     ));
     app.update();
     app
@@ -242,4 +250,117 @@ fn stats_restart_with_each_level_and_feed_the_totals() {
     // Only the tick after the level loaded is on the new level's counter.
     assert!(app.world().resource::<Stats>().0.ticks <= 2);
     assert!(app.world().resource::<Episode>().totals.ticks >= 60);
+}
+
+/// An episode on two maps with one dev partner (`PlayerId(1)`), started and on level 0.
+fn two_player_episode() -> App {
+    let mut app = episode_app(vec![combat_room(), door_rooms_level()]);
+    app.insert_resource(DevPartners(1));
+    start_episode(app.world_mut(), Difficulty::Normal);
+    app
+}
+
+fn player_entity(app: &mut App, id: u8) -> Entity {
+    let mut q = app.world_mut().query::<(Entity, &Player)>();
+    q.iter(app.world())
+        .find(|(_, p)| p.id == PlayerId(id))
+        .map(|(e, _)| e)
+        .unwrap_or_else(|| panic!("no player {id}"))
+}
+
+/// Edits player `id`'s vitals and arsenal.
+fn give_to(app: &mut App, id: u8, f: impl FnOnce(&mut PlayerVitals, &mut PlayerArsenal, &Defs)) {
+    let defs = app.world().resource::<GameDefs>().0.clone();
+    let e = player_entity(app, id);
+    let mut entity = app.world_mut().entity_mut(e);
+    let mut v = PlayerVitals(entity.get::<PlayerVitals>().unwrap().0);
+    let mut a = PlayerArsenal(entity.get::<PlayerArsenal>().unwrap().0.clone());
+    f(&mut v, &mut a, &defs);
+    entity.insert((v, a));
+}
+
+fn loadout_of(app: &mut App, id: u8) -> (Vitals, Arsenal) {
+    let e = player_entity(app, id);
+    let w = app.world();
+    (
+        w.get::<PlayerVitals>(e).unwrap().0,
+        w.get::<PlayerArsenal>(e).unwrap().0.clone(),
+    )
+}
+
+/// The local player (0) presses use on the Complete screen.
+fn complete_level_two_players(app: &mut App) {
+    *app.world_mut().resource_mut::<PlayState>() = PlayState::Complete;
+    ticks(app, 1);
+    app.world_mut().resource_mut::<StateAge>().0 = 5.0;
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+    q.single_mut(app.world_mut()).unwrap().use_pressed = true;
+    ticks(app, 2);
+}
+
+#[test]
+fn every_player_carries_own_loadout() {
+    let mut app = two_player_episode();
+    // Dev partner 1 starts with the chaingun, so it is player 0 that gets it and
+    // player 1 swaps it for the shotgun.
+    give_to(&mut app, 0, |_, a, defs| {
+        a.0.give_weapon(defs, WeaponId::Chaingun);
+    });
+    give_to(&mut app, 1, |v, a, defs| {
+        v.0.health.hp = 37;
+        a.0 = Arsenal::new(defs);
+        a.0.give_weapon(defs, WeaponId::Shotgun);
+    });
+    complete_level_two_players(&mut app);
+    assert_eq!(app.world().resource::<Episode>().index, 1);
+    let (v0, a0) = loadout_of(&mut app, 0);
+    assert_eq!(v0.health.hp, 100);
+    assert!(a0.owned[WeaponId::Chaingun.index()]);
+    assert!(!a0.owned[WeaponId::Shotgun.index()]);
+    let (v1, a1) = loadout_of(&mut app, 1);
+    assert_eq!(v1.health.hp, 37);
+    assert!(a1.owned[WeaponId::Shotgun.index()]);
+    assert!(!a1.owned[WeaponId::Chaingun.index()]);
+    for (id, v, a) in [(0, v0, a0), (1, v1, a1)] {
+        let e = player_entity(&mut app, id);
+        let inv = app
+            .world()
+            .get::<rr_game::combat::PlayerInventory>(e)
+            .unwrap()
+            .0;
+        assert_eq!(
+            app.world().get::<EntryLoadout>(e).unwrap().0,
+            CarryOver::take(&v, &a, &inv)
+        );
+    }
+}
+
+#[test]
+fn downed_player_carries_entry_loadout() {
+    let mut app = two_player_episode();
+    // Player 1 entered level 0 with the default loadout.
+    let defs = app.world().resource::<GameDefs>().0.clone();
+    let default = CarryOver::take(&Vitals::new(), &Arsenal::new(&defs), &Default::default());
+    let e1 = player_entity(&mut app, 1);
+    app.world_mut().entity_mut(e1).insert(EntryLoadout(default));
+    give_to(&mut app, 1, |v, a, defs| {
+        a.0.give_weapon(defs, WeaponId::Shotgun);
+        v.0.health.hp = 0;
+    });
+    complete_level_two_players(&mut app);
+    let (v1, a1) = loadout_of(&mut app, 1);
+    assert_eq!(v1.health.hp, 100);
+    assert!(!a1.owned[WeaponId::Shotgun.index()]);
+}
+
+#[test]
+fn single_player_carry_is_unchanged() {
+    let app = on_level_two();
+    let ep = app.world().resource::<Episode>();
+    let c = ep.entries[0].as_ref().expect("player 0 carried");
+    assert_eq!(c.vitals.armour, 50);
+    assert!(c.arsenal.owned[WeaponId::Shotgun.index()]);
+    assert!(ep.entries[1..].iter().all(Option::is_none));
 }

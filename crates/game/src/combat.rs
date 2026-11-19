@@ -2,13 +2,12 @@
 //! are collected in [`FxQueue`]; frame-loop readers (sparks, HUD, …) run in [`FxReaders`] and
 //! [`clear_fx`] empties the queue after them.
 
-use crate::episode::Episode;
 use crate::flow::{LevelDifficulty, PlayState, SpawnLevel, sim_ticks};
 use crate::level::CurrentMap;
 use crate::mechanics::{DirtySectors, HudMessage, LevelMechanics, finish_level};
 use crate::paths::assets_dir;
 use crate::player::{
-    EYE_BELOW_TOP, LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player,
+    EYE_BELOW_TOP, Look, PendingInput, Player, PlayerBody, PlayerSimSet, spawn_player,
 };
 use bevy::prelude::*;
 use rr_core::collide::Body;
@@ -175,15 +174,14 @@ pub fn clear_fx(mut fx: ResMut<FxQueue>) {
     fx.stats_seen = 0;
 }
 
-/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and every player's loadout (the local
-/// player's is the episode's carried one when there is one).
+/// Inserts the level's [`LevelCombat`] and [`PlayRng`] and every player's default loadout
+/// (`coop::apply_entry_loadouts` swaps in a carried one).
 pub fn spawn_combat(
     mut commands: Commands,
     map: Res<CurrentMap>,
     defs: Res<GameDefs>,
     difficulty: Option<Res<LevelDifficulty>>,
-    episode: Option<Res<Episode>>,
-    players: Query<(Entity, Has<LocalPlayer>), With<Player>>,
+    players: Query<Entity, With<Player>>,
 ) {
     let (mut combat, rng) = level_combat(&map.0, &defs.0);
     // `Combat::spawn` resets the scale and the skill, so set them on every spawn, restarts
@@ -192,17 +190,8 @@ pub fn spawn_combat(
     combat.0.skill = difficulty.map_or(Difficulty::Normal, |d| d.0);
     commands.insert_resource(combat);
     commands.insert_resource(rng);
-    // Past the first level the player arrives with what they carried out of the last one.
-    let carried = episode.and_then(|ep| ep.entry.clone());
-    for (e, local) in &players {
-        match carried.as_ref().filter(|_| local) {
-            Some(c) => commands.entity(e).insert((
-                PlayerVitals(c.vitals),
-                PlayerArsenal(c.arsenal.clone()),
-                PlayerInventory(c.inventory),
-            )),
-            None => commands.entity(e).insert(player_loadout(&defs.0)),
-        };
+    for e in &players {
+        commands.entity(e).insert(player_loadout(&defs.0));
     }
 }
 

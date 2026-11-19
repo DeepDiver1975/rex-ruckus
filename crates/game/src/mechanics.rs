@@ -259,11 +259,11 @@ pub fn use_key(
     players.sort_by_key(|(p, ..)| p.id);
     for (player, local, body, look, inv, mut input, mut vitals) in players {
         let target = use_target(&map.0, &mech.0, &body.0, look.angle);
-        if local {
-            prompt.0 = target;
-        }
-        // The dead (a co-op partner still plays on) use nothing.
+        // The dead (a co-op partner still plays on) use nothing and see no prompt.
         let alive = vitals.as_ref().is_none_or(|v| v.0.health.alive());
+        if local {
+            prompt.0 = if alive { target } else { None };
+        }
         if !std::mem::take(&mut input.use_pressed) || !alive {
             continue;
         }

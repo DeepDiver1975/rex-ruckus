@@ -17,8 +17,8 @@ use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::snapshot::{PlayerSnap, Snapshot};
 use rr_net::{
     BEACON_MAGIC, Beacon, BeaconSender, ClientKey, ClientMsg, Hello, Host, HostEvent, InputFrame,
-    Load, MAX_EVENTS, MAX_HUD, PROTOCOL_VERSION, ServerMsg, TickEvents, Welcome, assets_hash,
-    buttons, check_hello, valid_level_name,
+    Load, MAX_EVENTS, MAX_HUD, PROTOCOL_VERSION, PlayView, ServerMsg, TickEvents, Welcome,
+    assets_hash, buttons, check_hello, valid_level_name,
 };
 
 use super::{NetMode, apply_frame};
@@ -26,9 +26,10 @@ use crate::combat::{
     CombatSet, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerInventory, PlayerVitals,
     clear_fx, spawn_combat,
 };
+use crate::episode::{Episode, Stats};
 use crate::flow::{
-    LevelDifficulty, LevelFile, LevelRuns, LevelSource, PlayState, SpawnLevel, advance_level,
-    check_player_death,
+    LevelDifficulty, LevelFile, LevelRuns, LevelSource, PausedFrom, PlayState, SpawnLevel,
+    advance_level, check_player_death,
 };
 use crate::level::CurrentMap;
 use crate::mechanics::{LevelMechanics, PlayerLines, forward_mech_events, pickup_items, use_key};
@@ -117,6 +118,8 @@ pub struct NetHost {
     /// How many `combat`, `weapon` and `mech` events of [`FxQueue`] were already relayed;
     /// back to zero when the queue is cleared.
     relayed: [usize; 3],
+    /// The [`PlayView`] the seats last got.
+    pub view: PlayView,
 }
 
 impl NetHost {
@@ -167,6 +170,7 @@ pub fn start_hosting(world: &mut World, addr: SocketAddr, name: String) -> io::R
     let identity = NetIdentity::local(name)?;
     let host = Host::bind(addr)?;
     let runs = world.get_resource::<LevelRuns>().map_or(0, |r| r.0);
+    let view = play_view(world);
     world.insert_resource(NetHost {
         host,
         seats: Vec::new(),
@@ -175,6 +179,7 @@ pub fn start_hosting(world: &mut World, addr: SocketAddr, name: String) -> io::R
         waiting: Vec::new(),
         runs,
         relayed: [0; 3],
+        view,
     });
     world.insert_resource(identity);
     world.insert_resource(NetMode::Host);
@@ -197,6 +202,14 @@ pub fn stop_hosting(world: &mut World) {
     }
     world.remove_resource::<NetIdentity>();
     world.remove_resource::<HostBeacon>();
+    // Back to one player: drop the seats' per-player state, highest id first.
+    let n = world
+        .query_filtered::<(), With<Player>>()
+        .iter(world)
+        .count();
+    for id in (1..n.min(MAX_PLAYERS)).rev().map(|i| PlayerId(i as u8)) {
+        remove_player_state(world, id);
+    }
     let remote: Vec<Entity> = world
         .query_filtered::<Entity, (With<Player>, Without<LocalPlayer>)>()
         .iter(world)
@@ -245,7 +258,7 @@ impl Plugin for NetHostPlugin {
 }
 
 /// Spawns the co-op player of every seat.
-fn spawn_seated_players(
+pub fn spawn_seated_players(
     mut commands: Commands,
     net: Res<NetHost>,
     map: Res<CurrentMap>,
@@ -267,6 +280,47 @@ fn current_load(world: &World, tick: u32) -> Load {
         level: world.resource::<LevelFile>().0.clone(),
         skill: world.resource::<LevelDifficulty>().0,
         tick,
+    }
+}
+
+/// The screen the host is on, for its clients to follow: the Lobby in the menu, under the pause
+/// menu the state it was opened from.
+pub fn play_view(world: &World) -> PlayView {
+    view_of(
+        *world.resource::<PlayState>(),
+        world
+            .get_resource::<PausedFrom>()
+            .copied()
+            .unwrap_or_default(),
+        world.get_resource::<Stats>(),
+        world.get_resource::<Episode>(),
+    )
+}
+
+/// [`play_view`] from the resources it reads.
+fn view_of(
+    state: PlayState,
+    from: PausedFrom,
+    stats: Option<&Stats>,
+    episode: Option<&Episode>,
+) -> PlayView {
+    match state {
+        PlayState::Menu => PlayView::Lobby,
+        PlayState::Playing => PlayView::Playing,
+        // The pause menu never opens from itself.
+        PlayState::Paused if from.0 == PlayState::Paused => PlayView::Playing,
+        PlayState::Paused => view_of(from.0, from, stats, episode),
+        PlayState::Dead => PlayView::Dead,
+        PlayState::Complete => PlayView::Complete {
+            stats: stats.map(|s| s.0).unwrap_or_default(),
+            episode: episode.is_some(),
+        },
+        PlayState::EpisodeEnd => {
+            let (name, totals) = episode
+                .map(|e| (hud_line(&e.def.name), e.totals))
+                .unwrap_or_default();
+            PlayView::EpisodeEnd { name, totals }
+        }
     }
 }
 
@@ -400,6 +454,12 @@ fn greet(world: &mut World, key: ClientKey, hello: &Hello) {
             .send(key, &ServerMsg::Load(load));
         spawn_player(world, player);
     }
+    // After the load, which would put the joiner in play: a death or stats screen stays up.
+    let view = play_view(world);
+    world
+        .resource_mut::<NetHost>()
+        .host
+        .send(key, &ServerMsg::Play(view));
 }
 
 fn spawn_player(world: &mut World, id: PlayerId) {
@@ -409,6 +469,22 @@ fn spawn_player(world: &mut World, id: PlayerId) {
     let mut commands = world.commands();
     spawn_coop_player(&mut commands, &map, &tuning, &defs, id);
     world.flush();
+}
+
+/// Drops player `gone`'s share of the level, episode and stats state (later ids move down).
+fn remove_player_state(world: &mut World, gone: PlayerId) {
+    if let Some(mut combat) = world.get_resource_mut::<LevelCombat>() {
+        combat.0.remove_player(gone);
+    }
+    if let Some(mut mech) = world.get_resource_mut::<LevelMechanics>() {
+        mech.0.remove_player(gone);
+    }
+    if let Some(mut ep) = world.get_resource_mut::<Episode>() {
+        ep.remove_player(gone);
+    }
+    if let Some(mut stats) = world.get_resource_mut::<Stats>() {
+        stats.0.remove_player(gone);
+    }
 }
 
 /// A client left: its seat and player go, everyone above moves down one.
@@ -421,12 +497,7 @@ fn leave(world: &mut World, key: ClientKey) {
     let roster = net.roster(&identity);
     net.broadcast(&roster);
     let gone = seat_player(k);
-    if let Some(mut combat) = world.get_resource_mut::<LevelCombat>() {
-        combat.0.remove_player(gone);
-    }
-    if let Some(mut mech) = world.get_resource_mut::<LevelMechanics>() {
-        mech.0.remove_player(gone);
-    }
+    remove_player_state(world, gone);
     let mut q = world.query::<(Entity, &mut Player)>();
     let mut despawn = None;
     for (e, mut p) in q.iter_mut(world) {
@@ -537,15 +608,36 @@ pub fn hud_line(text: &str) -> String {
     out
 }
 
-/// Ends the host's tick: loads after a restart, this tick's events, the seats' HUD lines, a
-/// snapshot every [`SNAPSHOT_EVERY`] ticks, and sends it all.
+/// What [`play_view`] reads, for a system.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct ViewParams<'w> {
+    state: Res<'w, PlayState>,
+    from: Res<'w, PausedFrom>,
+    stats: Option<Res<'w, Stats>>,
+    episode: Option<Res<'w, Episode>>,
+}
+
+impl ViewParams<'_> {
+    fn view(&self) -> PlayView {
+        view_of(
+            *self.state,
+            *self.from,
+            self.stats.as_deref(),
+            self.episode.as_deref(),
+        )
+    }
+}
+
+/// Ends the host's tick: loads after a restart, the host's screen when it changed (after the
+/// load, which puts the clients in play), this tick's events, the seats' HUD lines, a snapshot
+/// every [`SNAPSHOT_EVERY`] ticks, and sends it all.
 #[allow(clippy::too_many_arguments)]
-fn host_send(
+pub fn host_send(
     mut net: ResMut<NetHost>,
+    view: ViewParams,
     fx: Res<FxQueue>,
     mut lines: ResMut<PlayerLines>,
     runs: Res<LevelRuns>,
-    state: Res<PlayState>,
     file: Res<LevelFile>,
     skill: Res<LevelDifficulty>,
     combat: Option<Res<LevelCombat>>,
@@ -565,6 +657,11 @@ fn host_send(
         });
         net.broadcast(&load);
     }
+    let now = view.view();
+    if now != net.view {
+        net.broadcast(&ServerMsg::Play(now.clone()));
+        net.view = now;
+    }
     net.tick += 1;
     // Stamped like the snapshot of this tick would be.
     for ev in new_events(&fx, &mut net.relayed, net.tick) {
@@ -578,7 +675,7 @@ fn host_send(
         net.host.send(seat.client, &ServerMsg::Hud(hud_line(text)));
         false
     });
-    if *state != PlayState::Menu
+    if *view.state != PlayState::Menu
         && net.tick.is_multiple_of(SNAPSHOT_EVERY)
         && !net.seats.is_empty()
         && let (Some(combat), Some(mech)) = (combat, mech)

@@ -7,6 +7,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use rr_core::actors::Target;
+use rr_core::carry::CarryOver;
 use rr_core::combat::{CombatEvent, PendingBlast, Via};
 use rr_core::defs::SplashDef;
 use rr_core::defs::{Defs, WeaponId};
@@ -15,10 +16,15 @@ use rr_core::explosion::Blast;
 use rr_core::map::{ActorKind, ActorSpawn, Item, ItemKind, Key, Map};
 use rr_core::players::PlayerId;
 use rr_core::projectile::Shooter;
+use rr_core::vitals::Vitals;
+use rr_core::weapons::Arsenal;
 use rr_core::weapons::WeaponEvent;
 use rr_game::combat::{
     CombatSimPlugin, FxQueue, GameDefs, LevelCombat, PlayerArsenal, PlayerVitals, insert_defs,
 };
+use rr_game::coop::CoopPlugin;
+use rr_game::episode::{Episode, EpisodeDef, Stats};
+use rr_game::flow::PlayState;
 use rr_game::flow::{FlowPlugin, LevelFile, restart_level};
 use rr_game::level::CurrentMap;
 use rr_game::level::load_map;
@@ -28,6 +34,7 @@ use rr_game::net::host::{
     HELLO_TIMEOUT, MAX_INPUT_QUEUE, NetHost, NetHostPlugin, NetIdentity, QUEUE_SLACK,
     SNAPSHOT_EVERY, apply_remote_input, start_hosting,
 };
+use rr_game::player::Inventory;
 use rr_game::player::{Look, PendingInput, Player, PlayerBody, PlayerSimPlugin, PrevFeet};
 use rr_net::*;
 
@@ -53,6 +60,7 @@ fn host_app_with(edit: impl FnOnce(&mut Map)) -> App {
         MechanicsSimPlugin,
         CombatSimPlugin,
         NetHostPlugin,
+        CoopPlugin,
     ));
     app.update();
     start_hosting(
@@ -904,4 +912,137 @@ fn hud_line_goes_to_its_player() {
             .text,
         ""
     );
+}
+
+#[test]
+fn leaving_shifts_entries_and_kills_down() {
+    let mut app = host_app();
+    let mut a = join(&mut app, "A");
+    let mut b = join(&mut app, "B");
+    let defs = app.world().resource::<GameDefs>().0.clone();
+    let mut arsenal = Arsenal::new(&defs);
+    arsenal.give_weapon(&defs, WeaponId::Shotgun);
+    let shotgun = CarryOver::take(&Vitals::new(), &arsenal, &Default::default());
+    let mut episode = Episode::new(EpisodeDef {
+        name: "t".into(),
+        levels: vec![],
+    });
+    episode.entries[2] = Some(shotgun.clone());
+    app.insert_resource(episode);
+    let mut stats = Stats::default();
+    stats.0.kills_by = [0, 2, 5, 0];
+    app.insert_resource(stats);
+    a.client.disconnect();
+    pump_until(&mut app, &mut [&mut b], "A gone", |app, _| {
+        player_ids(app) == [0, 1]
+    });
+    let ep = app.world().resource::<Episode>();
+    assert_eq!(ep.entries[1], Some(shotgun));
+    assert!(ep.entries[2].is_none());
+    assert_eq!(app.world().resource::<Stats>().0.kills_by, [0, 5, 0, 0]);
+}
+
+fn run_ticks(app: &mut App, n: usize) {
+    for _ in 0..n {
+        app.world_mut().run_schedule(FixedUpdate);
+    }
+}
+
+#[test]
+fn key_stays_with_the_team_when_its_finder_leaves() {
+    let mut app = host_app_with(|map| {
+        map.items.push(Item {
+            kind: ItemKind::Key(Key::Red),
+            pos: Vec2::new(10.0, 13.0),
+            skill: Difficulty::Easy,
+        });
+    });
+    let mut a = join(&mut app, "A");
+    place(&mut app, PlayerId(1), 10.0, 13.0);
+    run_ticks(&mut app, 2);
+    let e0 = entity(&mut app, PlayerId(0));
+    assert!(
+        app.world()
+            .get::<Inventory>(e0)
+            .unwrap()
+            .keys
+            .contains(Key::Red)
+    );
+    a.client.disconnect();
+    pump_until(&mut app, &mut [], "A gone", |app, _| player_ids(app) == [0]);
+    run_ticks(&mut app, 2);
+    assert!(
+        app.world()
+            .get::<Inventory>(e0)
+            .unwrap()
+            .keys
+            .contains(Key::Red)
+    );
+}
+
+#[test]
+fn leaver_was_last_one_standing_ends_the_level() {
+    let mut app = host_app();
+    let mut a = join(&mut app, "A");
+    let e0 = entity(&mut app, PlayerId(0));
+    app.world_mut()
+        .get_mut::<PlayerVitals>(e0)
+        .unwrap()
+        .0
+        .damage(1000);
+    run_ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Playing);
+    a.client.disconnect();
+    pump_until(&mut app, &mut [], "A gone", |app, _| player_ids(app) == [0]);
+    run_ticks(&mut app, 1);
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+}
+
+/// The control messages `p` got that are `Load`s or `Play`s, in order.
+fn loads_and_views(p: &Peer) -> Vec<ServerMsg> {
+    p.got
+        .iter()
+        .filter(|m| matches!(m, ServerMsg::Load(_) | ServerMsg::Play(_)))
+        .cloned()
+        .collect()
+}
+
+fn is_load(m: &ServerMsg) -> bool {
+    matches!(m, ServerMsg::Load(_))
+}
+
+#[test]
+fn views_follow_the_load_and_go_out_once_per_change() {
+    let mut app = host_app();
+    let mut peer = join(&mut app, "Tester");
+    for _ in 0..5 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    let got = loads_and_views(&peer);
+    assert!(is_load(&got[0]), "{got:?}");
+    assert_eq!(got[1..], [ServerMsg::Play(PlayView::Playing)]);
+    for id in [PlayerId(0), PlayerId(1)] {
+        let e = entity(&mut app, id);
+        app.world_mut()
+            .get_mut::<PlayerVitals>(e)
+            .unwrap()
+            .0
+            .damage(10_000);
+    }
+    for _ in 0..20 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    assert_eq!(
+        loads_and_views(&peer)[2..],
+        [ServerMsg::Play(PlayView::Dead)]
+    );
+    restart_level(app.world_mut());
+    for _ in 0..5 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    let got = loads_and_views(&peer);
+    assert_eq!(got.len(), 5, "{got:?}");
+    assert!(is_load(&got[3]), "the restart's load first: {got:?}");
+    assert_eq!(got[4], ServerMsg::Play(PlayView::Playing));
 }
