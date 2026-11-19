@@ -23,6 +23,7 @@ use crate::episode::{Episode, Stats};
 use crate::flow::{LevelDifficulty, LevelFile, LocalSeat, PausedFrom, PlayState, load_level};
 use crate::level::{CurrentMap, try_load_map};
 use crate::mechanics::{HudMessage, use_key};
+use crate::menu::{MenuScreen, Screen};
 use crate::player::{
     Inventory, LocalPlayer, Look, Player, PlayerBody, PlayerSimSet, PlayerTuning, PrevFeet,
     spawn_coop_player,
@@ -218,7 +219,10 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
             world.resource_mut::<NetClient>().welcomed = Some(w);
         }
         ServerMsg::Refused(r) => end_session(world, Some(refusal_text(r).into())),
-        ServerMsg::Roster(names) => world.resource_mut::<NetClient>().roster = names,
+        ServerMsg::Roster(names) => {
+            world.resource_mut::<NetClient>().roster = names;
+            rebuild_tally_screen(world);
+        }
         ServerMsg::Load(load) => match try_load_map(&load.level) {
             Err(e) => {
                 warn!("cannot load the host's level: {e}");
@@ -260,6 +264,17 @@ pub fn client_handle(world: &mut World, msg: ServerMsg) {
     }
 }
 
+/// Redraws the stats or episode-end screen when it is already up: its rows come from the
+/// host's tallies and the roster, which can change under it (a seat leaves) without the play
+/// state changing.
+fn rebuild_tally_screen(world: &mut World) {
+    if let Some(mut screen) = world.get_resource_mut::<MenuScreen>()
+        && matches!(screen.0, Some(Screen::Stats | Screen::EpisodeEnd))
+    {
+        screen.set_changed();
+    }
+}
+
 /// Takes the host's screen: its stats into [`Stats`] and [`HostRun`], its state into
 /// [`PlayState`], or into [`PausedFrom`] under this player's pause menu (which Resume then
 /// returns to). The host in its menu sends everyone to the Lobby, paused or not.
@@ -284,6 +299,9 @@ fn follow_view(world: &mut World, view: PlayView) {
             PlayState::EpisodeEnd
         }
     };
+    if matches!(target, PlayState::Complete | PlayState::EpisodeEnd) {
+        rebuild_tally_screen(world);
+    }
     if *world.resource::<PlayState>() == PlayState::Paused {
         world.insert_resource(PausedFrom(target));
     } else {

@@ -14,6 +14,7 @@ use rr_core::snapshot::Snapshot;
 use rr_net::TickEvents;
 
 use super::client::{NetClient, apply_players};
+use super::predict::CORRECTION_SNAP;
 use crate::breakables::put_out_lights;
 use crate::combat::{FxQueue, GameDefs, LevelCombat};
 use crate::flow::{LevelRuns, LocalSeat, settle_combat};
@@ -314,6 +315,7 @@ fn release_events(world: &mut World, tick: u32) {
 /// Draws the world at `render` between the last applied snapshot (tick `last`, the front of
 /// the timeline) and the next one held; false if there is no next one.
 fn blend(world: &mut World, last: u32, render: u32) -> bool {
+    let mut ends = None;
     let players = world.resource_scope(|world, timeline: Mut<Timeline>| {
         let (Some((_, a)), Some((_, b))) = (timeline.snaps.front(), timeline.snaps.get(1)) else {
             return None;
@@ -325,9 +327,10 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
         let mut combat = world.get_resource_mut::<LevelCombat>()?;
         let players = a.blend(b, f, &mut combat.0);
         settle_unblended(a, b, &mut combat.0);
+        ends = Some((a.players.clone(), b.players.clone()));
         Some(players)
     });
-    let Some(players) = players else {
+    let (Some(players), Some((a_players, b_players))) = (players, ends) else {
         return false;
     };
     // Only the feet and the facing are blended; the rest of a remote player is its last
@@ -339,8 +342,16 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
     for (p, mut body, mut prev, look) in q.iter_mut(world) {
         match players.iter().find(|(id, ..)| *id == p.id) {
             Some(&(_, b, angle, pitch)) => {
+                // A respawn jumps across the map between two snapshots: land there instead
+                // of sliding, and rest the interpolation on it.
+                let to = b_players.iter().find(|q| q.id == p.id).map(|q| q.body.pos);
+                let from = a_players.iter().find(|q| q.id == p.id).map(|q| q.body.pos);
+                let jumped = from.zip(to).is_some_and(|(f, t)| teleported(f, t));
                 prev.0 = body.0.pos;
-                body.0.pos = b.pos;
+                body.0.pos = if jumped { to.unwrap_or(b.pos) } else { b.pos };
+                if jumped {
+                    prev.0 = body.0.pos;
+                }
                 if let Some(mut look) = look {
                     look.angle = angle;
                     look.pitch = pitch;
@@ -352,6 +363,12 @@ fn blend(world: &mut World, last: u32, render: u32) -> bool {
         }
     }
     true
+}
+
+/// Whether a player moved too far between two snapshots to have walked it (a respawn): the
+/// same distance at which the local player's correction snaps.
+fn teleported(from: Vec3, to: Vec3) -> bool {
+    from.distance(to) > CORRECTION_SNAP
 }
 
 /// Rests the actors and projectiles [`Snapshot::blend`] left alone (not carried by both `a`
@@ -411,6 +428,14 @@ mod tests {
             },
             players: vec![],
         }
+    }
+
+    #[test]
+    fn a_jump_of_more_than_a_metre_is_a_teleport() {
+        let a = Vec3::new(2.0, 3.0, 0.0);
+        assert!(!teleported(a, a + Vec3::new(0.9, 0.0, 0.0)));
+        assert!(teleported(a, a + Vec3::new(0.0, 1.1, 0.0)));
+        assert!(teleported(a, Vec3::new(30.0, -4.0, 1.0)));
     }
 
     #[test]

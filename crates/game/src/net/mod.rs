@@ -63,16 +63,3 @@ pub fn apply_frame(frame: &InputFrame, input: &mut PendingInput, look: &mut Look
     }
     input.cycle += i32::from(frame.cycle);
 }
-
-/// Every player's name, index = `PlayerId`: on a host its own name then the seats', on a client
-/// the host's roster; empty in single play.
-pub fn player_names(world: &World) -> Vec<String> {
-    if world.get_resource::<NetMode>().is_none_or(|m| !m.is_net()) {
-        return Vec::new();
-    }
-    crate::menu::multiplayer::roster_names(
-        world.get_resource::<host::NetHost>(),
-        world.get_resource::<host::NetIdentity>(),
-        world.get_resource::<client::NetClient>(),
-    )
-}

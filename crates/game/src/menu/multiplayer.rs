@@ -89,7 +89,7 @@ impl NetView<'_> {
         self.mode.as_deref().copied().unwrap_or_default()
     }
 
-    /// Every player's name in a net game (`net::player_names`), empty in single play.
+    /// Every player's name in a net game (host: its own name then the seats'; client: the host's roster), empty in single play.
     pub fn names(&self) -> Vec<String> {
         if !self.mode().is_net() {
             return Vec::new();

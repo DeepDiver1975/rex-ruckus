@@ -1612,7 +1612,7 @@ fn lift_rider_converges_on_the_client() {
     let mut host = host_app("mechanics_lab.ron");
     let mut client = joined(&mut host);
     pump(&mut host, &mut client, 10);
-    let (lift, spot, top) = {
+    let (lift, spot) = {
         let map = &host.world().resource::<CurrentMap>().0;
         let mech = &host.world().resource::<LevelMechanics>().0;
         let s = (0..map.sectors.len())
@@ -1629,9 +1629,8 @@ fn lift_rider_converges_on_the_client() {
             hi = hi.max(w.a);
         }
         let m = mech.mover_in(s).unwrap();
-        (m, (lo + hi) / 2.0, mech.movers[m].def.kind)
+        (m, (lo + hi) / 2.0)
     };
-    let _ = top;
     // Both sides put the client's player on the lift.
     let put = |app: &mut App, local: bool| {
         let map = app.world().resource::<CurrentMap>().0.clone();
@@ -1655,8 +1654,109 @@ fn lift_rider_converges_on_the_client() {
         .resource_mut::<LevelMechanics>()
         .0
         .toggle(lift);
-    pump(&mut host, &mut client, 200);
+    // Mid-ride the two must already agree, not only once the lift has stopped.
+    pump(&mut host, &mut client, 30);
+    let (h, c) = (pos(&mut host, PlayerId(1)), local_pos(&mut client));
+    assert!((h.z - c.z).abs() < 0.3, "mid-ride: host {h} client {c}");
+    pump(&mut host, &mut client, 170);
     let (h, c) = (pos(&mut host, PlayerId(1)), local_pos(&mut client));
     assert!(h.z > 2.0, "the host's rider went up: {h}");
     assert!((h.z - c.z).abs() < 0.05, "host {h} client {c}");
+}
+
+/// A client that opened pause on the death screen gets the Resume button once the host's
+/// restart puts the world back to running under the menu.
+#[test]
+fn pause_from_the_death_screen_gains_resume_after_the_restart() {
+    let mut host = game_host("test_yard.ron");
+    let mut client = game_client(&mut host);
+    kill(&mut host, PlayerId(0));
+    kill(&mut host, PlayerId(1));
+    pump_until_both(&mut host, &mut client, PlayState::Dead);
+    round(&mut host, &mut client);
+    client.insert_resource(PausedFrom(PlayState::Dead));
+    *client.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    pump(&mut host, &mut client, 2);
+    assert_eq!(screen(&client), Some(Screen::Pause));
+    assert!(!has_text(&mut client, "Resume"));
+    pump(&mut host, &mut client, 80);
+    press_fire(&mut host);
+    pump_until(
+        &mut host,
+        &mut client,
+        "the paused client running",
+        |_, c| *c.world().resource::<PausedFrom>() == PausedFrom(PlayState::Playing),
+    );
+    pump(&mut host, &mut client, 3);
+    assert_eq!(state(&client), PlayState::Paused);
+    assert!(has_text(&mut client, "Resume"), "{:?}", texts(&mut client));
+}
+
+/// A client that dies while a partner lives comes back facing the level start, and the host
+/// keeps it there (the client's next frames carry that heading).
+#[test]
+fn a_respawned_client_faces_the_start() {
+    let mut host = game_host("test_yard.ron");
+    let mut client = game_client(&mut host);
+    pump(&mut host, &mut client, 10);
+    let start = host
+        .world()
+        .resource::<CurrentMap>()
+        .0
+        .player_start
+        .angle_deg
+        .to_radians();
+    {
+        let mut q = client
+            .world_mut()
+            .query_filtered::<&mut Look, With<LocalPlayer>>();
+        q.single_mut(client.world_mut()).unwrap().angle = start + 2.0;
+    }
+    pump(&mut host, &mut client, 10);
+    kill(&mut host, PlayerId(1));
+    pump(&mut host, &mut client, 3);
+    assert_eq!(state(&host), PlayState::Playing);
+    // Down for RESPAWN_SECS (3 s = 180 ticks), then up again.
+    pump(&mut host, &mut client, 200);
+    let angle = |app: &mut App, local: bool| {
+        let mut q = app
+            .world_mut()
+            .query::<(&Player, &Look, Has<LocalPlayer>)>();
+        q.iter(app.world())
+            .find(|(p, _, l)| p.id == PlayerId(1) && *l == local)
+            .map(|(_, l, _)| l.angle)
+            .unwrap()
+    };
+    let pi = std::f32::consts::PI;
+    let diff = |a: f32| (a - start + pi).rem_euclid(2.0 * pi) - pi;
+    let alive = host
+        .world_mut()
+        .query::<(&Player, &PlayerVitals)>()
+        .iter(host.world())
+        .any(|(p, v)| p.id == PlayerId(1) && v.0.health.alive());
+    assert!(alive, "the client respawned");
+    let c = angle(&mut client, true);
+    assert!(diff(c).abs() < 0.05, "client look {c} start {start}");
+    let h = angle(&mut host, false);
+    assert!(diff(h).abs() < 0.05, "host look {h} start {start}");
+}
+
+/// A client on the stats screen sees the rows change when the host re-sends the screen with
+/// other tallies (as when a seat leaves).
+#[test]
+fn stats_rows_follow_the_hosts_tallies() {
+    let (mut host, mut client) = completed_by_the_client(false);
+    assert!(
+        has_text(&mut client, "Tester  2"),
+        "{:?}",
+        texts(&mut client)
+    );
+    host.world_mut().resource_mut::<Stats>().0.kills_by = [5, 7, 0, 0];
+    pump(&mut host, &mut client, 10);
+    assert!(
+        has_text(&mut client, "Tester  7"),
+        "{:?}",
+        texts(&mut client)
+    );
+    assert!(has_text(&mut client, "Host  5"), "{:?}", texts(&mut client));
 }

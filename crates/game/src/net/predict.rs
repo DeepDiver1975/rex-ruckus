@@ -291,7 +291,24 @@ pub fn reconcile(world: &mut World, snap: &PlayerSnap) {
     world
         .get_resource_or_init::<CorrectionOffset>()
         .correct(predicted, body.pos);
+    let start_angle = world
+        .resource::<CurrentMap>()
+        .0
+        .player_start
+        .angle_deg
+        .to_radians();
     let mut entity = world.entity_mut(e);
+    // Back up from the dead: the host put this player at the level start facing it. Face it
+    // too (not the snapshot's heading: the host has already applied a frame with the old one),
+    // or the next frames carry the way it died and set it back on the host.
+    let respawned = snap.vitals.health.alive()
+        && entity
+            .get::<PlayerVitals>()
+            .is_some_and(|v| !v.0.health.alive());
+    if respawned && let Some(mut look) = entity.get_mut::<Look>() {
+        look.angle = start_angle;
+        look.pitch = 0.0;
+    }
     entity.insert((
         PlayerBody(body),
         PlayerVitals(snap.vitals),

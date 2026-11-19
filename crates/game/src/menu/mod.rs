@@ -505,9 +505,13 @@ fn sync_screen(
     episode: Option<Res<Episode>>,
     mode: Option<Res<NetMode>>,
     run: Option<Res<HostRun>>,
+    paused_from: Res<PausedFrom>,
     mut screen: ResMut<MenuScreen>,
 ) {
-    if !state.is_changed() {
+    // A client's pause menu depends on where it was paused from, and that moves under it when
+    // the host restarts (the death screen's pause has no Resume, the running game's has).
+    let pause_moved = *state == PlayState::Paused && paused_from.is_changed();
+    if !state.is_changed() && !pause_moved {
         return;
     }
     let mode = mode.as_deref().copied().unwrap_or_default();
@@ -519,6 +523,8 @@ fn sync_screen(
     };
     if screen.0 != wanted {
         screen.0 = wanted;
+    } else if pause_moved {
+        screen.set_changed();
     }
 }
 
