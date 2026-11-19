@@ -997,3 +997,52 @@ fn leaver_was_last_one_standing_ends_the_level() {
     run_ticks(&mut app, 1);
     assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
 }
+
+/// The control messages `p` got that are `Load`s or `Play`s, in order.
+fn loads_and_views(p: &Peer) -> Vec<ServerMsg> {
+    p.got
+        .iter()
+        .filter(|m| matches!(m, ServerMsg::Load(_) | ServerMsg::Play(_)))
+        .cloned()
+        .collect()
+}
+
+fn is_load(m: &ServerMsg) -> bool {
+    matches!(m, ServerMsg::Load(_))
+}
+
+#[test]
+fn views_follow_the_load_and_go_out_once_per_change() {
+    let mut app = host_app();
+    let mut peer = join(&mut app, "Tester");
+    for _ in 0..5 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    let got = loads_and_views(&peer);
+    assert!(is_load(&got[0]), "{got:?}");
+    assert_eq!(got[1..], [ServerMsg::Play(PlayView::Playing)]);
+    for id in [PlayerId(0), PlayerId(1)] {
+        let e = entity(&mut app, id);
+        app.world_mut()
+            .get_mut::<PlayerVitals>(e)
+            .unwrap()
+            .0
+            .damage(10_000);
+    }
+    for _ in 0..20 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    assert_eq!(*app.world().resource::<PlayState>(), PlayState::Dead);
+    assert_eq!(
+        loads_and_views(&peer)[2..],
+        [ServerMsg::Play(PlayView::Dead)]
+    );
+    restart_level(app.world_mut());
+    for _ in 0..5 {
+        pump(&mut app, &mut [&mut peer]);
+    }
+    let got = loads_and_views(&peer);
+    assert_eq!(got.len(), 5, "{got:?}");
+    assert!(is_load(&got[3]), "the restart's load first: {got:?}");
+    assert_eq!(got[4], ServerMsg::Play(PlayView::Playing));
+}

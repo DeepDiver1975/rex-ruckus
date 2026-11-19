@@ -9,12 +9,14 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use bevy::world_serialization::WorldAsset;
 use rr_core::actors::hurt;
+use rr_core::collide::Body;
 use rr_core::combat::{CombatEvent, PendingBlast, Via};
 use rr_core::defs::Defs;
 use rr_core::defs::{SplashDef, WeaponId};
 use rr_core::difficulty::Difficulty;
 use rr_core::explosion::Blast;
 use rr_core::fixtures::combat_room;
+use rr_core::map::SwitchAction;
 use rr_core::players::PlayerId;
 use rr_core::projectile::{Projectile, Shooter, Targets};
 use rr_core::rng::Rng;
@@ -22,22 +24,30 @@ use rr_core::snapshot::Snapshot;
 use rr_core::weapons::WeaponEvent;
 use rr_game::actors::{ActorVisual, ActorVisualsPlugin, Spark};
 use rr_game::breakables::BreakablesPlugin;
+use rr_game::combat::PlayerVitals;
 use rr_game::combat::{CombatSimPlugin, FxQueue, GameDefs, LevelCombat, insert_defs};
-use rr_game::flow::{FlowPlugin, LevelFile, LevelRuns, LevelSource, LocalSeat, restart_level};
+use rr_game::coop::CoopPlugin;
+use rr_game::episode::{Episode, EpisodeDef, EpisodePlugin, Stats};
+use rr_game::flow::{
+    AdvanceRequested, FlowPlugin, LevelFile, LevelRuns, LevelSource, LocalSeat, PausedFrom,
+    PlayState, restart_level,
+};
+use rr_game::hud::HudPlugin;
 use rr_game::level::{CurrentMap, LevelLight, LevelRenderPlugin, load_map};
 use rr_game::mechanics::HudMessage;
 use rr_game::mechanics::{DirtySectors, LevelMechanics, MechanicsSimPlugin, insert_level};
+use rr_game::menu::{MenuAction, MenuInput, MenuPlugin, MenuScreen, Screen};
 use rr_game::models::ModelsPlugin;
 use rr_game::net::NetMode;
 use rr_game::net::client::stop_joining;
 use rr_game::net::client::{
-    NOT_UNDERSTOOD, NetClient, NetClientPlugin, NetNotice, client_handle, start_joining,
+    HostRun, NOT_UNDERSTOOD, NetClient, NetClientPlugin, NetNotice, client_handle, start_joining,
 };
 use rr_game::net::host::{NetHost, NetHostPlugin, NetIdentity, start_hosting};
 use rr_game::net::interp::{INTERP_DELAY, Timeline};
 use rr_game::net::predict::{CorrectionOffset, InputHistory, reconcile};
 use rr_game::player::{
-    LocalPlayer, PendingInput, Player, PlayerBody, PlayerCamera, PlayerControlPlugin,
+    LocalPlayer, Look, PendingInput, Player, PlayerBody, PlayerCamera, PlayerControlPlugin,
     PlayerSimPlugin, PrevFeet,
 };
 use rr_net::{InputFrame, Load, ServerMsg, TickEvents, buttons};
@@ -1302,4 +1312,295 @@ fn own_weapon_events_not_doubled() {
             .contains(&(PlayerId(0), fire()));
     }
     assert!(partner, "the partner's shot was released");
+}
+
+// --- Clients follow the host's screens ---------------------------------------------------
+
+/// What the real game runs around the sim: level stats and episodes, co-op respawns, the HUD
+/// and the menus.
+fn game_plugins(app: &mut App) {
+    app.add_plugins((
+        EpisodePlugin,
+        CoopPlugin,
+        HudPlugin,
+        MenuPlugin { enabled: true },
+    ));
+}
+
+/// [`host_app`] with the [`game_plugins`], hosting `level`.
+fn game_host(level: &str) -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+    insert_level(&mut app, load_map(level), Difficulty::Normal);
+    app.insert_resource(LevelFile(level.into()));
+    insert_defs(&mut app, Defs::builtin());
+    sim_plugins(&mut app);
+    game_plugins(&mut app);
+    app.update();
+    start_hosting(
+        app.world_mut(),
+        "127.0.0.1:0".parse().unwrap(),
+        "Host".into(),
+    )
+    .expect("host");
+    app
+}
+
+/// A joined client with the [`game_plugins`].
+fn game_client(host: &mut App) -> App {
+    let mut client = client_with(game_plugins);
+    start_joining(client.world_mut(), host_addr(host), "Tester".into()).expect("client");
+    wait_joined(host, &mut client);
+    client
+}
+
+fn episode(levels: &[&str]) -> Episode {
+    Episode::new(EpisodeDef {
+        name: "Test Run".into(),
+        levels: levels.iter().map(|l| l.to_string()).collect(),
+    })
+}
+
+fn state(app: &App) -> PlayState {
+    *app.world().resource::<PlayState>()
+}
+
+fn screen(app: &App) -> Option<Screen> {
+    app.world().resource::<MenuScreen>().0
+}
+
+fn texts(app: &mut App) -> Vec<String> {
+    app.world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|t| t.0.clone())
+        .collect()
+}
+
+fn has_text(app: &mut App, s: &str) -> bool {
+    texts(app).iter().any(|t| t == s)
+}
+
+fn kill(host: &mut App, id: PlayerId) {
+    let mut q = host.world_mut().query::<(&Player, &mut PlayerVitals)>();
+    let (_, mut v) = q
+        .iter_mut(host.world_mut())
+        .find(|(p, _)| p.id == id)
+        .unwrap();
+    v.0.damage(10_000);
+}
+
+/// The local player's Fire press (its next tick reads it).
+fn press_fire(app: &mut App) {
+    let mut q = app
+        .world_mut()
+        .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+    q.single_mut(app.world_mut()).unwrap().fire_pressed = true;
+}
+
+/// Pumps until both play states are `want` (at most 300 rounds).
+fn pump_until_both(host: &mut App, client: &mut App, want: PlayState) {
+    pump_until(host, client, &format!("both {want:?}"), |h, c| {
+        state(h) == want && state(c) == want
+    });
+}
+
+/// The client's player walks up to the exit switch (the host moves it there), faces it and
+/// presses Use; the host's level completes.
+fn client_uses_the_exit(host: &mut App, client: &mut App) {
+    let map = host.world().resource::<CurrentMap>().0.clone();
+    let switch = map
+        .switches
+        .iter()
+        .find(|s| s.action == SwitchAction::Exit)
+        .expect("an exit switch");
+    let wall = &map.walls[switch.wall];
+    let n = wall.inward_normal();
+    let spot = (wall.a + wall.b) / 2.0 + n * 0.8;
+    {
+        let mut q = host.world_mut().query::<(&Player, &mut PlayerBody)>();
+        let (_, mut body) = q
+            .iter_mut(host.world_mut())
+            .find(|(p, _)| p.id == PlayerId(1))
+            .unwrap();
+        let at = Body::spawn(&map, spot, body.0.radius, body.0.height).expect("in front of it");
+        body.0.pos = at.pos;
+        body.0.sector = at.sector;
+        body.0.vel = Vec3::ZERO;
+    }
+    let mut q = client
+        .world_mut()
+        .query_filtered::<(&mut Look, &mut PendingInput), With<LocalPlayer>>();
+    let (mut look, mut input) = q.single_mut(client.world_mut()).unwrap();
+    look.angle = (-n).to_angle();
+    input.use_pressed = true;
+}
+
+#[test]
+fn client_sees_the_death_screen_and_the_restart() {
+    let mut host = game_host("test_yard.ron");
+    let mut client = game_client(&mut host);
+    kill(&mut host, PlayerId(0));
+    kill(&mut host, PlayerId(1));
+    let mut rounds = 0;
+    while state(&client) != PlayState::Dead {
+        rounds += 1;
+        assert!(rounds <= 30, "the client never saw the death screen");
+        round(&mut host, &mut client);
+    }
+    assert_eq!(state(&host), PlayState::Dead);
+    round(&mut host, &mut client);
+    assert!(
+        has_text(&mut client, "Everyone's down \u{2014} waiting for the host"),
+        "{:?}",
+        texts(&mut client)
+    );
+    assert!(has_text(
+        &mut host,
+        "You died \u{2014} press Use or Fire to restart"
+    ));
+    let runs = client.world().resource::<LevelRuns>().0;
+    pump(&mut host, &mut client, 80);
+    assert_eq!(state(&client), PlayState::Dead, "only the host restarts");
+    press_fire(&mut host);
+    pump_until_both(&mut host, &mut client, PlayState::Playing);
+    pump(&mut host, &mut client, 20);
+    assert_eq!(client.world().resource::<LevelRuns>().0, runs + 1);
+    assert_eq!(state(&client), PlayState::Playing);
+}
+
+/// Host and client on `combat_arena`, level 0 of a two-level episode, both on the stats screen
+/// after the client used the exit. The host's tallies carry kills by both players.
+fn completed_by_the_client(client_episode: bool) -> (App, App) {
+    let mut host = game_host("combat_arena.ron");
+    host.insert_resource(episode(&["combat_arena.ron", "test_yard.ron"]));
+    let mut client = game_client(&mut host);
+    if client_episode {
+        // The real game always has the title screen's episode, also when joined.
+        client.insert_resource(episode(&["test_yard.ron"]));
+    }
+    {
+        let mut stats = host.world_mut().resource_mut::<Stats>();
+        stats.0.kills = 3;
+        stats.0.kills_by = [1, 2, 0, 0];
+    }
+    client_uses_the_exit(&mut host, &mut client);
+    pump_until_both(&mut host, &mut client, PlayState::Complete);
+    round(&mut host, &mut client);
+    (host, client)
+}
+
+#[test]
+fn exit_by_a_client_completes_for_both() {
+    let (mut host, mut client) = completed_by_the_client(false);
+    let host_stats = host.world().resource::<Stats>().0;
+    assert_eq!(host_stats.kills_by, [1, 2, 0, 0]);
+    assert_eq!(client.world().resource::<Stats>().0, host_stats);
+    assert!(client.world().resource::<HostRun>().episode);
+    assert_eq!(screen(&client), Some(Screen::Stats));
+    assert_eq!(screen(&host), Some(Screen::Stats));
+    for app in [&mut host, &mut client] {
+        assert!(has_text(app, "Host  1"), "{:?}", texts(app));
+        assert!(has_text(app, "Tester  2"), "{:?}", texts(app));
+    }
+    assert!(has_text(&mut client, "Waiting for the host"));
+    assert!(!has_text(&mut client, "Continue"));
+    assert!(has_text(&mut host, "Continue"));
+    assert!(!has_text(&mut host, "Waiting for the host"));
+}
+
+#[test]
+fn only_the_host_continues() {
+    let (mut host, mut client) = completed_by_the_client(true);
+    let runs = client.world().resource::<LevelRuns>().0;
+    // Two seconds of the client pressing everything it can.
+    for _ in 0..120 {
+        {
+            let mut q = client
+                .world_mut()
+                .query_filtered::<&mut PendingInput, With<LocalPlayer>>();
+            let mut input = q.single_mut(client.world_mut()).unwrap();
+            input.fire_pressed = true;
+            input.use_pressed = true;
+        }
+        client.world_mut().resource_mut::<MenuInput>().activate = Some(MenuAction::Continue);
+        round(&mut host, &mut client);
+    }
+    assert_eq!(state(&host), PlayState::Complete);
+    assert_eq!(state(&client), PlayState::Complete);
+    assert_eq!(client.world().resource::<LevelRuns>().0, runs);
+    assert_eq!(host.world().resource::<LevelFile>().0, "combat_arena.ron");
+    assert_eq!(host.world().resource::<Episode>().index, 0);
+    press_fire(&mut host);
+    pump_until(&mut host, &mut client, "level 1 on both", |h, c| {
+        state(h) == PlayState::Playing
+            && state(c) == PlayState::Playing
+            && c.world().resource::<LevelFile>().0 == "test_yard.ron"
+    });
+    assert_eq!(host.world().resource::<LevelFile>().0, "test_yard.ron");
+    assert_eq!(client.world().resource::<LevelRuns>().0, runs + 1);
+}
+
+#[test]
+fn joiner_during_death_screen_sees_it() {
+    let mut host = game_host("test_yard.ron");
+    kill(&mut host, PlayerId(0));
+    pump_host(&mut host, 2);
+    assert_eq!(state(&host), PlayState::Dead);
+    let mut client = client_with(game_plugins);
+    start_joining(client.world_mut(), host_addr(&host), "Tester".into()).expect("client");
+    pump_until(&mut host, &mut client, "the death screen", |_, c| {
+        state(c) == PlayState::Dead
+    });
+    assert_eq!(state(&host), PlayState::Dead);
+}
+
+#[test]
+fn host_restart_keeps_the_client_pause_menu() {
+    let mut host = game_host("test_yard.ron");
+    let mut client = game_client(&mut host);
+    *client.world_mut().resource_mut::<PlayState>() = PlayState::Paused;
+    pump(&mut host, &mut client, 2);
+    assert_eq!(screen(&client), Some(Screen::Pause));
+    let runs = client.world().resource::<LevelRuns>().0;
+    restart_level(host.world_mut());
+    pump_until(&mut host, &mut client, "the reload", |_, c| {
+        c.world().resource::<LevelRuns>().0 > runs
+    });
+    pump(&mut host, &mut client, 10);
+    assert_eq!(state(&client), PlayState::Paused);
+    assert_eq!(
+        *client.world().resource::<PausedFrom>(),
+        PausedFrom(PlayState::Playing)
+    );
+    assert_eq!(screen(&client), Some(Screen::Pause));
+}
+
+#[test]
+fn episode_end_reaches_the_client() {
+    let mut host = game_host("test_yard.ron");
+    host.insert_resource(episode(&["test_yard.ron"]));
+    let mut client = game_client(&mut host);
+    host.world_mut().resource_mut::<Stats>().0.kills_by = [4, 1, 0, 0];
+    *host.world_mut().resource_mut::<PlayState>() = PlayState::Complete;
+    pump_until_both(&mut host, &mut client, PlayState::Complete);
+    host.world_mut().resource_mut::<AdvanceRequested>().0 = true;
+    pump_until_both(&mut host, &mut client, PlayState::EpisodeEnd);
+    round(&mut host, &mut client);
+    let totals = host.world().resource::<Episode>().totals;
+    assert_eq!(totals.kills_by, [4, 1, 0, 0]);
+    let run = client.world().resource::<HostRun>();
+    assert_eq!(run.name, "Test Run");
+    assert_eq!(run.totals, totals);
+    assert_eq!(screen(&client), Some(Screen::EpisodeEnd));
+    assert!(has_text(&mut client, "Test Run"));
+    assert!(has_text(&mut client, "Leave game"));
+    assert!(!has_text(&mut client, "Main menu"));
+    *host.world_mut().resource_mut::<PlayState>() = PlayState::Menu;
+    pump_until(&mut host, &mut client, "the lobby", |_, c| {
+        state(c) == PlayState::Menu
+    });
+    round(&mut host, &mut client);
+    assert_eq!(screen(&client), Some(Screen::Lobby));
 }

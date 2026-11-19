@@ -9,11 +9,12 @@ use rr_core::events::{
 use rr_core::mechanics::MechEvent;
 use rr_core::players::{MAX_PLAYERS, PlayerId};
 use rr_core::snapshot::Snapshot;
+use rr_core::stats::LevelStats;
 use rr_core::weapons::WeaponEvent;
 use serde::{Deserialize, Serialize};
 
 /// Bump whenever any wire type or snapshot type changes shape.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 /// Input frames per datagram: the newest plus the ones before it, so a lost datagram costs
 /// nothing.
 pub const INPUT_REDUNDANCY: usize = 4;
@@ -117,6 +118,11 @@ pub struct Load {
     pub tick: u32,
 }
 
+/// A line of text from the host to show: at most [`MAX_HUD`] bytes, no control characters.
+pub fn valid_hud_text(text: &str) -> bool {
+    text.len() <= MAX_HUD && !text.chars().any(char::is_control)
+}
+
 /// A player name: 1 to [`MAX_NAME`] bytes, no control characters.
 pub fn valid_player_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= MAX_NAME && !name.chars().any(char::is_control)
@@ -154,6 +160,28 @@ pub struct TickEvents {
     pub mech: Vec<MechEvent>,
 }
 
+/// The screen the host's game is on, which its clients follow: they never decide a restart,
+/// a level change or the end of an episode themselves.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PlayView {
+    /// In the menu: the clients wait in the Lobby.
+    Lobby,
+    Playing,
+    /// Every player is down; the host's press restarts the level.
+    Dead,
+    /// The level is won: its tallies, and whether an episode goes on (the stats screen).
+    Complete {
+        stats: LevelStats,
+        episode: bool,
+    },
+    /// The episode is over: its name (at most [`MAX_HUD`] bytes, no control characters) and
+    /// totals.
+    EpisodeEnd {
+        name: String,
+        totals: LevelStats,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)] // snapshots dominate by design; messages are short-lived
 pub enum ServerMsg {
@@ -172,6 +200,8 @@ pub enum ServerMsg {
     /// A HUD line for this client only (reliable): at most [`MAX_HUD`] bytes, no control
     /// characters.
     Hud(String),
+    /// The host's screen changed (reliable; also sent to a joiner right after its `Load`).
+    Play(PlayView),
 }
 
 /// A host's LAN announcement.
@@ -234,7 +264,7 @@ pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, NetError> {
 /// [`decode`] for what clients receive: a snapshot with a NaN or infinity, or one out of
 /// bounds ([`Snapshot::is_sane`], or `you` not a seat in it), is rejected; so are an `Events` stream over [`MAX_EVENTS`], with a non-finite float or a
 /// player id past `MAX_PLAYERS`, a `Hud` line over [`MAX_HUD`] bytes or with control
-/// characters, a roster that
+/// characters (or a `Play` episode name like that), a roster that
 /// is too long or has an over-long name, a `Welcome` to a seat past `MAX_PLAYERS`, and a
 /// `Welcome`/`Load` with a bad level name.
 pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
@@ -260,7 +290,9 @@ pub fn decode_server(bytes: &[u8]) -> Result<ServerMsg, NetError> {
             Err(NetError::Invalid)
         }
         ServerMsg::Events(ev) => check_events(ev).map(|()| msg),
-        ServerMsg::Hud(line) if line.len() > MAX_HUD || line.chars().any(char::is_control) => {
+        ServerMsg::Hud(line) | ServerMsg::Play(PlayView::EpisodeEnd { name: line, .. })
+            if !valid_hud_text(line) =>
+        {
             Err(NetError::Invalid)
         }
         _ => Ok(msg),
@@ -722,6 +754,51 @@ mod tests {
             decode_server(&hud("a\nb")),
             Err(NetError::Invalid)
         ));
+    }
+
+    #[test]
+    fn play_view_round_trips_and_names_are_bounded() {
+        let stats = rr_core::stats::LevelStats {
+            kills: 3,
+            kills_by: [1, 2, 0, 0],
+            kills_total: 9,
+            ..Default::default()
+        };
+        for view in [
+            PlayView::Lobby,
+            PlayView::Playing,
+            PlayView::Dead,
+            PlayView::Complete {
+                stats,
+                episode: true,
+            },
+            PlayView::EpisodeEnd {
+                name: "a".repeat(MAX_HUD),
+                totals: stats,
+            },
+        ] {
+            let msg = ServerMsg::Play(view);
+            assert_eq!(decode_server(&encode(&msg)).unwrap(), msg);
+        }
+        let end = |name: String| {
+            encode(&ServerMsg::Play(PlayView::EpisodeEnd {
+                name,
+                totals: stats,
+            }))
+        };
+        assert!(matches!(
+            decode_server(&end("a".repeat(MAX_HUD + 1))),
+            Err(NetError::Invalid)
+        ));
+        assert!(matches!(
+            decode_server(&end("Ep\none".into())),
+            Err(NetError::Invalid)
+        ));
+    }
+
+    #[test]
+    fn protocol_is_version_4() {
+        assert_eq!(PROTOCOL_VERSION, 4);
     }
 
     #[test]

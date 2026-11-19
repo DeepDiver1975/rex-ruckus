@@ -30,7 +30,7 @@ use crate::flow::{
 use crate::hud::UiFont;
 use crate::level::CurrentMap;
 use crate::net::NetMode;
-use crate::net::client::NetNotice;
+use crate::net::client::{HostRun, NetNotice};
 use crate::net::lobby::{LanGames, browse_lan};
 use crate::player::{grab_cursor, pause_on_escape};
 use crate::settings::{Settings, SettingsPath};
@@ -91,16 +91,35 @@ impl Screen {
         }
     }
 
-    /// The screen a play state shows by default (`has_episode`: an episode is being played).
-    pub fn for_state(state: PlayState, has_episode: bool) -> Option<Screen> {
+    /// The screen a play state shows by default (`stats_screens`: an episode is being played,
+    /// here or by the host, see [`stats_screens`]).
+    pub fn for_state(state: PlayState, stats_screens: bool) -> Option<Screen> {
         match state {
             PlayState::Menu => Some(Screen::Main),
             PlayState::Paused => Some(Screen::Pause),
-            PlayState::Complete if has_episode => Some(Screen::Stats),
+            PlayState::Complete if stats_screens => Some(Screen::Stats),
             PlayState::EpisodeEnd => Some(Screen::EpisodeEnd),
             PlayState::Playing | PlayState::Dead | PlayState::Complete => None,
         }
     }
+}
+
+/// Whether a completed level shows the stats screen: in an episode. A co-op client goes by the
+/// host's run (`run`), not by the title screen's episode it keeps for after the session.
+pub fn stats_screens(mode: NetMode, episode: bool, run: Option<&HostRun>) -> bool {
+    match mode {
+        NetMode::Client => run.is_some_and(|r| r.episode),
+        NetMode::Single | NetMode::Host => episode,
+    }
+}
+
+/// [`stats_screens`] of `world`.
+pub fn stats_screens_in(world: &World) -> bool {
+    stats_screens(
+        world.get_resource::<NetMode>().copied().unwrap_or_default(),
+        world.contains_resource::<Episode>(),
+        world.get_resource::<HostRun>(),
+    )
 }
 
 /// A player setting an options row can change.
@@ -353,7 +372,7 @@ pub fn run_menu_action(world: &mut World) {
     // the game must not skip them unseen.
     let skips_stats = match action {
         MenuAction::Continue => true,
-        MenuAction::QuitToMenu => state == PlayState::EpisodeEnd,
+        MenuAction::QuitToMenu | MenuAction::LeaveGame => state == PlayState::EpisodeEnd,
         _ => false,
     };
     if skips_stats && world.resource::<StateAge>().0 < RESTART_DELAY {
@@ -438,8 +457,10 @@ pub fn run_menu_action(world: &mut World) {
         }
         MenuAction::Continue => {
             // Only from the stats screen: a Fire press that already advanced the level (the
-            // click carries one) must not skip the next level as well.
-            if state == PlayState::Complete && world.contains_resource::<Episode>() {
+            // click carries one) must not skip the next level as well. A co-op client never
+            // moves on by itself: the host does, and its `Load` brings the next level.
+            let client = world.get_resource::<NetMode>() == Some(&NetMode::Client);
+            if state == PlayState::Complete && world.contains_resource::<Episode>() && !client {
                 world.resource_mut::<AdvanceRequested>().0 = true;
             }
         }
@@ -486,13 +507,16 @@ fn sync_screen(
     state: Res<PlayState>,
     episode: Option<Res<Episode>>,
     mode: Option<Res<NetMode>>,
+    run: Option<Res<HostRun>>,
     mut screen: ResMut<MenuScreen>,
 ) {
     if !state.is_changed() {
         return;
     }
-    let net = mode.is_some_and(|m| m.is_net());
-    let wanted = match Screen::for_state(*state, episode.is_some()) {
+    let mode = mode.as_deref().copied().unwrap_or_default();
+    let net = mode.is_net();
+    let stats = stats_screens(mode, episode.is_some(), run.as_deref());
+    let wanted = match Screen::for_state(*state, stats) {
         Some(Screen::Main) if net => Some(Screen::Lobby),
         other => other,
     };
@@ -557,14 +581,30 @@ fn rebuild_screen(
         Some(Screen::Controls) => controls::spawn_controls(&mut commands, &ui),
         Some(Screen::Stats) => {
             let name = map.as_ref().map_or("", |m| m.0.name.as_str());
-            stats::spawn_stats(&mut commands, &ui, name, &stats.0);
+            let can_continue = net.mode() != NetMode::Client;
+            stats::spawn_stats(
+                &mut commands,
+                &ui,
+                name,
+                &stats.0,
+                &net.names(),
+                can_continue,
+            );
         }
         Some(Screen::EpisodeEnd) => {
-            let (name, totals) = episode
-                .as_ref()
-                .map(|e| (e.def.name.as_str(), e.totals))
-                .unwrap_or_default();
-            stats::spawn_episode_end(&mut commands, &ui, name, difficulty.0, &totals);
+            // A client shows the host's episode, not the one its title screen keeps.
+            let client = net.mode() == NetMode::Client;
+            let (name, totals) = if client {
+                net.run()
+                    .map(|r| (r.name.as_str(), r.totals))
+                    .unwrap_or_default()
+            } else {
+                episode
+                    .as_ref()
+                    .map(|e| (e.def.name.as_str(), e.totals))
+                    .unwrap_or_default()
+            };
+            stats::spawn_episode_end(&mut commands, &ui, name, difficulty.0, &totals, client);
         }
         Some(other) => multiplayer::spawn(&mut commands, &ui, other, &net),
         None => {}
@@ -647,5 +687,26 @@ mod tests {
         assert_eq!(Screen::for_state(Complete, false), None);
         assert_eq!(Screen::for_state(Playing, true), None);
         assert_eq!(Screen::for_state(Dead, true), None);
+        assert_eq!(
+            Screen::for_state(EpisodeEnd, false),
+            Some(Screen::EpisodeEnd)
+        );
+    }
+
+    #[test]
+    fn a_client_follows_the_hosts_run() {
+        assert!(!stats_screens(
+            NetMode::Client,
+            true,
+            Some(&HostRun::default())
+        ));
+        let run = HostRun {
+            episode: true,
+            ..default()
+        };
+        assert!(stats_screens(NetMode::Client, false, Some(&run)));
+        assert!(stats_screens(NetMode::Host, true, None));
+        assert!(stats_screens(NetMode::Single, true, None));
+        assert!(!stats_screens(NetMode::Single, false, Some(&run)));
     }
 }

@@ -189,13 +189,16 @@ pub fn flash_decay(flash: f32, dt: f32) -> f32 {
 }
 
 /// Overlay message for a play state; `None` while playing. With an episode (`has_episode`) the
-/// stats screen replaces the level-complete message.
-pub fn overlay_text(state: PlayState, has_episode: bool) -> Option<&'static str> {
+/// stats screen replaces the level-complete message. A co-op client (`client`) cannot restart:
+/// it waits for the host.
+pub fn overlay_text(state: PlayState, has_episode: bool, client: bool) -> Option<&'static str> {
     match state {
         // Menus draw their own screens.
         PlayState::Playing | PlayState::Menu | PlayState::Paused | PlayState::EpisodeEnd => None,
+        PlayState::Dead if client => Some("Everyone's down \u{2014} waiting for the host"),
         PlayState::Dead => Some("You died \u{2014} press Use or Fire to restart"),
         PlayState::Complete if has_episode => None,
+        PlayState::Complete if client => Some("Level complete \u{2014} waiting for the host"),
         PlayState::Complete => Some("Level complete \u{2014} press Use or Fire to restart"),
     }
 }
@@ -677,9 +680,14 @@ fn update_flash(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn update_overlay(
     state: Res<PlayState>,
-    episode: Option<Res<crate::episode::Episode>>,
+    (episode, mode, run): (
+        Option<Res<crate::episode::Episode>>,
+        Option<Res<crate::net::NetMode>>,
+        Option<Res<crate::net::client::HostRun>>,
+    ),
     local: Query<(&PlayerVitals, &DownTime), With<LocalPlayer>>,
     mut node: Single<(&mut Visibility, &mut BackgroundColor), With<OverlayNode>>,
     mut text: Single<&mut Text, With<OverlayText>>,
@@ -695,7 +703,10 @@ fn update_overlay(
         set(&mut text, &s);
         return;
     }
-    match overlay_text(*state, episode.is_some()) {
+    let mode = mode.as_deref().copied().unwrap_or_default();
+    let stats = crate::menu::stats_screens(mode, episode.is_some(), run.as_deref());
+    let client = mode == crate::net::NetMode::Client;
+    match overlay_text(*state, stats, client) {
         Some(s) => {
             vis.set_if_neq(Visibility::Inherited);
             set_bg(bg, overlay_tint(*state));
@@ -851,20 +862,34 @@ mod tests {
 
     #[test]
     fn overlay_text_per_state() {
-        assert_eq!(overlay_text(PlayState::Playing, false), None);
-        for s in [PlayState::Menu, PlayState::Paused, PlayState::EpisodeEnd] {
-            assert_eq!(overlay_text(s, false), None, "{s:?}");
+        for client in [false, true] {
+            assert_eq!(overlay_text(PlayState::Playing, false, client), None);
+            for s in [PlayState::Menu, PlayState::Paused, PlayState::EpisodeEnd] {
+                assert_eq!(overlay_text(s, false, client), None, "{s:?}");
+            }
+            // The stats screen replaces it in an episode.
+            assert_eq!(overlay_text(PlayState::Complete, true, client), None);
         }
         assert_eq!(
-            overlay_text(PlayState::Dead, true),
+            overlay_text(PlayState::Dead, true, false),
             Some("You died — press Use or Fire to restart")
         );
         assert_eq!(
-            overlay_text(PlayState::Complete, false),
+            overlay_text(PlayState::Complete, false, false),
             Some("Level complete — press Use or Fire to restart")
         );
-        // The stats screen replaces it in an episode.
-        assert_eq!(overlay_text(PlayState::Complete, true), None);
+    }
+
+    #[test]
+    fn a_client_waits_for_the_host() {
+        assert_eq!(
+            overlay_text(PlayState::Dead, true, true),
+            Some("Everyone's down \u{2014} waiting for the host")
+        );
+        assert_eq!(
+            overlay_text(PlayState::Complete, false, true),
+            Some("Level complete \u{2014} waiting for the host")
+        );
     }
 
     #[test]
