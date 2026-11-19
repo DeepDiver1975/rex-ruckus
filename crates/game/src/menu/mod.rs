@@ -474,10 +474,7 @@ pub fn run_menu_action(world: &mut World) {
         MenuAction::Connect => multiplayer::connect(world),
         MenuAction::StartGame => multiplayer::start_game(world),
         MenuAction::Leave => multiplayer::leave_lobby(world),
-        MenuAction::LeaveGame => {
-            multiplayer::stop_session(world);
-            quit_to_menu(world);
-        }
+        MenuAction::LeaveGame => multiplayer::leave_game(world),
         MenuAction::NoticeOk => multiplayer::notice_ok(world),
         // Handled by `edit_action` above.
         MenuAction::Edit(_) => {}

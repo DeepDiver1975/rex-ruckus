@@ -327,6 +327,17 @@ pub fn stop_session(world: &mut World) {
     }
 }
 
+/// Pause's Leave game: ends the session, then back to the title screen (a direct-level run has
+/// no episode to rewind, so it just shows the menu).
+pub fn leave_game(world: &mut World) {
+    stop_session(world);
+    if world.contains_resource::<Episode>() {
+        super::quit_to_menu(world);
+    } else {
+        *world.resource_mut::<PlayState>() = PlayState::Menu;
+    }
+}
+
 /// The Lobby's Leave: back to the Multiplayer screen.
 pub fn leave_lobby(world: &mut World) {
     stop_session(world);

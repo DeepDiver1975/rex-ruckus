@@ -1604,3 +1604,59 @@ fn episode_end_reaches_the_client() {
     round(&mut host, &mut client);
     assert_eq!(screen(&client), Some(Screen::Lobby));
 }
+
+/// A client standing on a lift that the host sets going ends where the host has it: the
+/// predicted ride and the host's snapshots agree.
+#[test]
+fn lift_rider_converges_on_the_client() {
+    let mut host = host_app("mechanics_lab.ron");
+    let mut client = joined(&mut host);
+    pump(&mut host, &mut client, 10);
+    let (lift, spot, top) = {
+        let map = &host.world().resource::<CurrentMap>().0;
+        let mech = &host.world().resource::<LevelMechanics>().0;
+        let s = (0..map.sectors.len())
+            .find(|&s| {
+                matches!(
+                    mech.mover_in(s).map(|m| mech.movers[m].def.kind),
+                    Some(rr_core::map::MoverKind::Lift { .. })
+                )
+            })
+            .expect("a lift");
+        let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
+        for w in map.walls.iter().filter(|w| w.sector == s) {
+            lo = lo.min(w.a);
+            hi = hi.max(w.a);
+        }
+        let m = mech.mover_in(s).unwrap();
+        (m, (lo + hi) / 2.0, mech.movers[m].def.kind)
+    };
+    let _ = top;
+    // Both sides put the client's player on the lift.
+    let put = |app: &mut App, local: bool| {
+        let map = app.world().resource::<CurrentMap>().0.clone();
+        let at = Body::spawn(&map, spot, 0.35, 1.8).expect("on the lift");
+        let mut q = app
+            .world_mut()
+            .query::<(&Player, &mut PlayerBody, &mut PrevFeet, Has<LocalPlayer>)>();
+        for (p, mut body, mut prev, is_local) in q.iter_mut(app.world_mut()) {
+            if p.id == PlayerId(1) && is_local == local {
+                body.0.pos = at.pos;
+                body.0.sector = at.sector;
+                body.0.vel = Vec3::ZERO;
+                prev.0 = at.pos;
+            }
+        }
+    };
+    put(&mut host, false);
+    put(&mut client, true);
+    pump(&mut host, &mut client, 10);
+    host.world_mut()
+        .resource_mut::<LevelMechanics>()
+        .0
+        .toggle(lift);
+    pump(&mut host, &mut client, 200);
+    let (h, c) = (pos(&mut host, PlayerId(1)), local_pos(&mut client));
+    assert!(h.z > 2.0, "the host's rider went up: {h}");
+    assert!((h.z - c.z).abs() < 0.05, "host {h} client {c}");
+}

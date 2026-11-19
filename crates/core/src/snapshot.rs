@@ -21,6 +21,13 @@ use crate::vitals::Vitals;
 use crate::weapons::Arsenal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::f32::consts::{PI, TAU};
+
+/// `a` wrapped to (-pi, pi].
+fn wrap_angle(a: f32) -> f32 {
+    let a = a.rem_euclid(TAU);
+    if a > PI { a - TAU } else { a }
+}
 
 /// Most actors a snapshot may carry (authored ones plus spawned minions); a longer one is
 /// refused, so a hostile host cannot make a client grow without bound.
@@ -325,7 +332,12 @@ impl Snapshot {
     /// = the blend. Projectiles are matched by `id` the same way. Returns each player both carry,
     /// by id, with its body's `pos` blended (its other fields are this snapshot's). Writes
     /// nothing else, never touches rng, and tolerates mismatched lengths.
-    pub fn blend(&self, next: &Snapshot, f: f32, combat: &mut Combat) -> Vec<(PlayerId, Body)> {
+    pub fn blend(
+        &self,
+        next: &Snapshot,
+        f: f32,
+        combat: &mut Combat,
+    ) -> Vec<(PlayerId, Body, f32, f32)> {
         let f = f.clamp(0.0, 1.0);
         for ((a, from), to) in combat.actors.iter_mut().zip(&self.actors).zip(&next.actors) {
             a.prev_pos = a.body.pos;
@@ -346,7 +358,9 @@ impl Snapshot {
                 let to = next.players.iter().find(|q| q.id == p.id)?;
                 let mut body = p.body;
                 body.pos = p.body.pos.lerp(to.body.pos, f);
-                Some((p.id, body))
+                // The short way round: 3.0 to -3.0 passes through pi, not 0.
+                let angle = wrap_angle(p.angle + wrap_angle(to.angle - p.angle) * f);
+                Some((p.id, body, angle, p.pitch + (to.pitch - p.pitch) * f))
             })
             .collect()
     }
@@ -1207,6 +1221,26 @@ mod tests {
             actor.prev_pos, before,
             "prev_pos is where the client had it"
         );
+    }
+
+    #[test]
+    fn blend_turns_players_the_short_way() {
+        let defs = Defs::builtin();
+        let mut a = arena_snap(&defs, Vec3::new(0.0, 5.0, 0.0));
+        let mut b = a.clone();
+        let mut p = player_at(&defs, 1, Vec2::new(2.0, 2.0));
+        p.angle = 3.0;
+        p.pitch = -0.2;
+        a.players = vec![p.clone()];
+        p.angle = -3.0;
+        p.pitch = 0.4;
+        b.players = vec![p];
+        let mut combat = World::load(ARENA, &defs).combat;
+        let blended = a.blend(&b, 0.5, &mut combat);
+        let (_, _, angle, pitch) = blended[0];
+        assert!(angle.abs() > 3.0, "went through 0 instead of pi: {angle}");
+        assert!((angle.abs() - std::f32::consts::PI).abs() < 0.01, "{angle}");
+        assert!((pitch - 0.1).abs() < 1e-6, "pitch blends linearly: {pitch}");
     }
 
     #[test]
